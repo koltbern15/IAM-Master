@@ -10,7 +10,7 @@ describe('Topbar', () => {
 
   it('renders the session timer in HH:MM:SS format', () => {
     render(<Topbar />)
-    expect(screen.getByText(/^0:0[0-9]:0[0-9]$/)).toBeInTheDocument()
+    expect(screen.getByText(/SESSION 0:0[0-9]:0[0-9]/)).toBeInTheDocument()
   })
 
   it('renders the settings link', () => {
