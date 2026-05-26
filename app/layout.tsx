@@ -3,6 +3,7 @@ import './globals.css'
 import { AmbientBackground } from '@/components/layout/AmbientBackground'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Topbar } from '@/components/layout/Topbar'
+import { inter, rajdhani, jetbrainsMono } from '@/lib/fonts'
 
 export const metadata: Metadata = {
   title: 'IAM Mastery',
@@ -11,8 +12,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
-      <body className="min-h-screen bg-background text-foreground">
+    <html
+      lang="en"
+      className={`dark ${inter.variable} ${rajdhani.variable} ${jetbrainsMono.variable}`}
+    >
+      <body className="min-h-screen bg-background text-foreground font-sans">
         <AmbientBackground />
         <div className="relative flex min-h-screen">
           <Sidebar />
