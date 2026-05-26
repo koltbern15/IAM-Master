@@ -34,6 +34,9 @@ yarn-error.log*
 .wolf/designqc-captures/
 .wolf/memory.md.bak
 
+# Superpowers brainstorming sessions
+.superpowers/
+
 # Tutor / personal artifacts
 *.local.json
 backups/
