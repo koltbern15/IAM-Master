@@ -25,7 +25,7 @@ describe('Quiz', () => {
   })
 
   it('marks selected correct answer with positive intent class', () => {
-    const { container } = render(<Quiz question={QUESTION} />)
+    render(<Quiz question={QUESTION} />)
     fireEvent.click(screen.getByText('Kerberos'))
     const correctButton = screen.getByText('Kerberos').closest('button')!
     expect(correctButton.className).toMatch(/cyan|nominal/)

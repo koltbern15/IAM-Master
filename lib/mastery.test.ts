@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { computeMastery } from './mastery'
-import { saveState, loadState, markSectionCompleted } from './progress'
+import { loadState, markSectionCompleted } from './progress'
 
 beforeEach(() => window.localStorage.clear())
 
