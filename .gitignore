@@ -37,6 +37,9 @@ yarn-error.log*
 # Superpowers brainstorming sessions
 .superpowers/
 
+# Git worktrees
+.worktrees/
+
 # Tutor / personal artifacts
 *.local.json
 backups/
