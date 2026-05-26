@@ -90,4 +90,18 @@
     80%  { transform: translate(1px, 0); text-shadow: -1px 0 #ff2040, 1px 0 #00f0ff; opacity: 1; }
     100% { transform: translate(0); text-shadow: 0 0 8px rgb(0 240 255 / 0.5); }
   }
+
+  @keyframes jarvis-boot-fade {
+    0%   { opacity: 1; }
+    80%  { opacity: 1; }
+    100% { opacity: 0; }
+  }
+  @keyframes jarvis-boot-sweep {
+    from { transform: translateY(0); }
+    to   { transform: translateY(100vh); }
+  }
+  @keyframes jarvis-boot-type {
+    from { max-width: 0; }
+    to   { max-width: 100%; }
+  }
 }
