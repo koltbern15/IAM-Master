@@ -1,5 +1,10 @@
+'use client'
+
+import { useEffect, useState } from 'react'
 import { HudShell } from '@/components/layout/HudShell'
 import { ModuleConstellation } from '@/components/jarvis/ModuleConstellation'
+import { computeMastery } from '@/lib/mastery'
+import { loadState } from '@/lib/progress'
 
 const SAMPLE_TICKER = [
   'SYSTEM ONLINE',
@@ -11,11 +16,19 @@ const SAMPLE_TICKER = [
 ]
 
 export default function HomePage() {
-  // Placeholder mastery value — Plan 2B wires this to real progress.ts
-  const totalMastery = 0
+  const [mastery, setMastery] = useState(() => computeMastery(loadState()))
+
+  useEffect(() => {
+    function onChange() {
+      setMastery(computeMastery(loadState()))
+    }
+    window.addEventListener('iam-mastery:state-change', onChange)
+    return () => window.removeEventListener('iam-mastery:state-change', onChange)
+  }, [])
+
   return (
     <HudShell events={SAMPLE_TICKER}>
-      <ModuleConstellation totalMasteryPercent={totalMastery} />
+      <ModuleConstellation totalMasteryPercent={mastery.totalPercent} />
     </HudShell>
   )
 }

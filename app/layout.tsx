@@ -1,8 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
-import { AmbientBackground } from '@/components/layout/AmbientBackground'
-import { ScanLineOverlay } from '@/components/jarvis/ScanLineOverlay'
-import { BootSequence } from '@/components/jarvis/BootSequence'
+import { AppChrome } from '@/components/layout/AppChrome'
 import { inter, rajdhani, jetbrainsMono } from '@/lib/fonts'
 
 export const metadata: Metadata = {
@@ -17,9 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`dark ${inter.variable} ${rajdhani.variable} ${jetbrainsMono.variable}`}
     >
       <body className="min-h-screen bg-background text-foreground font-sans">
-        <AmbientBackground />
-        <ScanLineOverlay />
-        <BootSequence>{children}</BootSequence>
+        <AppChrome>{children}</AppChrome>
       </body>
     </html>
   )
