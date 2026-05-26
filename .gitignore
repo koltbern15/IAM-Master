@@ -30,9 +30,20 @@ yarn-error.log*
 # Vercel
 .vercel
 
+# Playwright
+test-results/
+playwright-report/
+
 # Local OpenWolf working state
 .wolf/designqc-captures/
 .wolf/memory.md.bak
+
+# Superpowers brainstorming sessions
+.superpowers/
+
+# Git worktrees
+.worktrees/
+.claude/
 
 # Tutor / personal artifacts
 *.local.json

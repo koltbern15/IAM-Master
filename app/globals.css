@@ -1,0 +1,126 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  /* Core palette */
+  --color-void: #0a0a0f;
+  --color-void-elevated: #0e0e16;
+  --color-cyan: #00f0ff;
+  --color-nominal: #00ff88;
+  --color-warn: #ffb800;
+  --color-threat: #ff2040;
+
+  /* Foreground tiers */
+  --color-text: rgb(255 255 255 / 0.92);
+  --color-text-muted: rgb(255 255 255 / 0.7);
+  --color-text-dim: rgb(255 255 255 / 0.5);
+
+  /* Shadcn-shaped tokens (kept for re-themed shadcn primitives) */
+  --color-background: #0a0a0f;
+  --color-foreground: rgb(255 255 255 / 0.92);
+  --color-card: rgb(0 240 255 / 0.04);
+  --color-card-foreground: rgb(255 255 255 / 0.92);
+  --color-muted: rgb(0 240 255 / 0.06);
+  --color-muted-foreground: rgb(255 255 255 / 0.7);
+  --color-border: rgb(0 240 255 / 0.25);
+  --color-input: rgb(0 240 255 / 0.06);
+  --color-ring: #00f0ff;
+  --color-primary: #00f0ff;
+  --color-primary-foreground: #0a0a0f;
+  --color-accent: rgb(0 240 255 / 0.12);
+  --color-accent-foreground: #00f0ff;
+  --color-warning: #ffb800;
+  --color-warning-foreground: #0a0a0f;
+  --color-destructive: #ff2040;
+  --color-destructive-foreground: #ffffff;
+
+  /* Glass + chrome alpha-graded tokens */
+  --color-panel-bg: rgb(0 240 255 / 0.04);
+  --color-panel-border: rgb(0 240 255 / 0.25);
+  --color-panel-border-bright: rgb(0 240 255 / 0.5);
+  --color-grid-dot: rgb(0 240 255 / 0.08);
+  --color-scan-line: rgb(0 240 255 / 0.025);
+
+  /* Sharp corners by default */
+  --radius: 2px;
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+
+  /* Fonts */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-rajdhani), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, monospace;
+}
+
+@layer base {
+  * { @apply border-border; }
+  html { color-scheme: dark; }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+  .tabular-nums { font-variant-numeric: tabular-nums; }
+
+  /* JARVIS-specific utilities */
+  .glow-cyan { text-shadow: 0 0 8px rgb(0 240 255 / 0.5); }
+  .glow-cyan-strong { text-shadow: 0 0 14px rgb(0 240 255 / 0.7); }
+  .ring-glow-cyan { box-shadow: 0 0 12px rgb(0 240 255 / 0.35); }
+  .ring-glow-cyan-strong { box-shadow: 0 0 20px rgb(0 240 255 / 0.5); }
+
+  @keyframes jarvis-scan-drift {
+    from { background-position: 0 0; }
+    to   { background-position: 0 100%; }
+  }
+
+  @keyframes jarvis-ticker {
+    from { transform: translateX(0); }
+    to   { transform: translateX(-50%); }
+  }
+
+  @keyframes jarvis-glitch {
+    0%   { transform: translate(0); text-shadow: 0 0 0 transparent; }
+    20%  { transform: translate(-2px, 1px); text-shadow: 2px 0 #ff2040, -2px 0 #00f0ff; }
+    40%  { transform: translate(2px, -1px); text-shadow: -2px 0 #ff2040, 2px 0 #00f0ff; }
+    60%  { transform: translate(-1px, 0); text-shadow: 1px 0 #ff2040, -1px 0 #00f0ff; opacity: 0.85; }
+    80%  { transform: translate(1px, 0); text-shadow: -1px 0 #ff2040, 1px 0 #00f0ff; opacity: 1; }
+    100% { transform: translate(0); text-shadow: 0 0 8px rgb(0 240 255 / 0.5); }
+  }
+
+  @keyframes jarvis-boot-fade {
+    0%   { opacity: 1; }
+    80%  { opacity: 1; }
+    100% { opacity: 0; }
+  }
+  @keyframes jarvis-boot-sweep {
+    from { transform: translateY(0); }
+    to   { transform: translateY(100vh); }
+  }
+  @keyframes jarvis-boot-type {
+    from { max-width: 0; }
+    to   { max-width: 100%; }
+  }
+
+  @keyframes jarvis-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+  @keyframes jarvis-spin-rev {
+    from { transform: rotate(360deg); }
+    to   { transform: rotate(0deg); }
+  }
+
+  @keyframes jarvis-node-pulse {
+    0%, 100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    50%      { opacity: 0.85; transform: translate(-50%, -50%) scale(0.97); }
+  }
+
+  @keyframes jarvis-panel-rotate {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+}

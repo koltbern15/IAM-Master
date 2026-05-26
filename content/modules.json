@@ -1,0 +1,98 @@
+[
+  {
+    "id": "01-foundations",
+    "title": "IAM Foundations",
+    "phase": 1,
+    "order": 1,
+    "summary": "Why identity is the new perimeter.",
+    "sections": ["01-identity-crisis", "02-lexicon", "03-ecosystem-map"]
+  },
+  {
+    "id": "02-protocols",
+    "title": "Protocols Deep Dive",
+    "phase": 1,
+    "order": 2,
+    "summary": "Speaking the language of identity.",
+    "sections": ["01-kerberos", "02-saml", "03-oauth-oidc", "04-ldap", "05-fido2", "06-scim"]
+  },
+  {
+    "id": "03-microsoft-identity",
+    "title": "Microsoft Identity Platform",
+    "phase": 1,
+    "order": 3,
+    "summary": "Entra ID and Active Directory masterclass.",
+    "sections": ["01-active-directory", "02-entra-id", "03-hybrid-identity"]
+  },
+  {
+    "id": "04-pam",
+    "title": "Privileged Access Management",
+    "phase": 2,
+    "order": 4,
+    "summary": "Protecting the keys to the kingdom. (Phase 2 — Coming)",
+    "sections": []
+  },
+  {
+    "id": "05-iga",
+    "title": "Identity Governance & Administration",
+    "phase": 2,
+    "order": 5,
+    "summary": "Who has access to what, and should they? (Phase 2 — Coming)",
+    "sections": []
+  },
+  {
+    "id": "06-powershell",
+    "title": "PowerShell for IAM",
+    "phase": 1,
+    "order": 6,
+    "summary": "Your force multiplier.",
+    "sections": ["01-fundamentals", "02-cookbook", "03-tips-tricks"]
+  },
+  {
+    "id": "07-cloud-iam",
+    "title": "Cloud IAM",
+    "phase": 3,
+    "order": 7,
+    "summary": "Identity across AWS, Azure, and GCP. (Phase 3 — Coming)",
+    "sections": []
+  },
+  {
+    "id": "08-security-detection",
+    "title": "IAM Security & Threat Detection",
+    "phase": 2,
+    "order": 8,
+    "summary": "Thinking like the attacker. (Phase 2 — Coming)",
+    "sections": []
+  },
+  {
+    "id": "09-compliance",
+    "title": "Compliance & Audit",
+    "phase": 3,
+    "order": 9,
+    "summary": "Proving it to the auditors. (Phase 3 — Coming)",
+    "sections": []
+  },
+  {
+    "id": "10-program-leadership",
+    "title": "IAM Program Leadership",
+    "phase": 3,
+    "order": 10,
+    "summary": "Running the program, not just the tools. (Phase 3 — Coming)",
+    "sections": []
+  },
+  {
+    "id": "11-cert-roadmap",
+    "title": "Certification Roadmap",
+    "phase": 1,
+    "order": 11,
+    "summary": "Stacking credentials strategically.",
+    "sections": ["01-sc300-roadmap", "02-study-strategy"]
+  },
+  {
+    "id": "12-labs",
+    "title": "Hands-On Labs",
+    "phase": 2,
+    "order": 12,
+    "summary": "Build it, break it, fix it. (Phase 2 — Coming)",
+    "sections": []
+  }
+]
