@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, act, waitFor } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
 import { BootSequence } from './BootSequence'
 
 beforeEach(() => {
   sessionStorage.clear()
-  vi.stubGlobal('matchMedia', (q: string) => ({
+  vi.stubGlobal('matchMedia', (_q: string) => ({
     matches: false,
     addEventListener: () => {},
     removeEventListener: () => {}

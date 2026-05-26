@@ -46,7 +46,6 @@ export function TelemetryValue({
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, durationMs])
 
   return (
