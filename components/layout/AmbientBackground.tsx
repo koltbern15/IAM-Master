@@ -23,8 +23,11 @@ export function AmbientBackground() {
       className="pointer-events-none fixed inset-0 -z-10"
       style={{
         backgroundImage:
-          'radial-gradient(circle 800px at var(--mx, 50%) var(--my, 50%), oklch(0.32 0.08 260 / 0.25), transparent 60%), radial-gradient(circle at 1px 1px, oklch(0.32 0.02 250 / 0.15) 1px, transparent 0)',
-        backgroundSize: 'auto, 24px 24px'
+          // Mouse-tracking radial — 3x stronger than Plan 1 (0.25 → 0.75)
+          'radial-gradient(circle 900px at var(--mx, 50%) var(--my, 50%), rgb(0 240 255 / 0.18), transparent 55%), ' +
+          // Dot grid — switched from slate to cyan, denser (24px → 18px)
+          'radial-gradient(circle at 1px 1px, rgb(0 240 255 / 0.08) 1px, transparent 0)',
+        backgroundSize: 'auto, 18px 18px'
       }}
     />
   )
