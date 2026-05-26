@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { AmbientBackground } from '@/components/layout/AmbientBackground'
 import { Sidebar } from '@/components/layout/Sidebar'
+import { Topbar } from '@/components/layout/Topbar'
 
 export const metadata: Metadata = {
   title: 'IAM Mastery',
@@ -16,7 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div className="relative flex min-h-screen">
           <Sidebar />
           <div className="flex min-h-screen flex-1 flex-col">
-            <header id="topbar-slot" className="h-14 border-b border-border" />
+            <Topbar />
             <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">{children}</main>
           </div>
         </div>
