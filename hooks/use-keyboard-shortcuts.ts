@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 type ShortcutMap = Record<string, () => void>
 
@@ -22,16 +22,21 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 export function useKeyboardShortcuts(shortcuts: ShortcutMap) {
+  // Callers usually pass an inline object; stash the latest in a ref so the
+  // window listener only registers once for the component's lifetime instead
+  // of tearing down and re-adding on every render.
+  const shortcutsRef = useRef(shortcuts)
+  shortcutsRef.current = shortcuts
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      const map = shortcutsRef.current
       if (isTypingTarget(e.target)) {
-        // Allow Escape and Cmd+K to fire even in inputs
         const k = normalizeEventKey(e)
         if (k !== 'escape' && k !== 'cmd+k') return
       }
       const k = normalizeEventKey(e)
-      // Try the full chord first, then bare key
-      const cb = shortcuts[k] ?? shortcuts[e.key.toLowerCase()]
+      const cb = map[k] ?? map[e.key.toLowerCase()]
       if (cb) {
         e.preventDefault()
         cb()
@@ -39,5 +44,5 @@ export function useKeyboardShortcuts(shortcuts: ShortcutMap) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [shortcuts])
+  }, [])
 }

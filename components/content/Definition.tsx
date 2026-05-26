@@ -10,12 +10,11 @@ interface DefinitionProps {
 export function Definition({ term, children }: DefinitionProps) {
   const [open, setOpen] = useState(false)
   return (
-    <span className="relative inline">
+    <span className="relative inline-block">
       <button
         type="button"
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
         className="cursor-help border-b border-dashed border-cyan/60 font-medium text-cyan hover:text-cyan/90"
       >
         {term}
