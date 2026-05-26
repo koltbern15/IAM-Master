@@ -1,0 +1,39 @@
+# Node / pnpm
+node_modules/
+.pnpm-store/
+
+# Next.js
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Vercel
+.vercel
+
+# Local OpenWolf working state
+.wolf/designqc-captures/
+.wolf/memory.md.bak
+
+# Tutor / personal artifacts
+*.local.json
+backups/
