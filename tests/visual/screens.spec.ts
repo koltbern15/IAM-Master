@@ -15,7 +15,7 @@ for (const r of ROUTES) {
   test(`smoke screenshot — ${r.name}`, async ({ page }) => {
     await page.goto(r.url)
     // Wait past boot sequence + initial paint
-    await page.waitForTimeout(2800)
+    await page.waitForTimeout(4200)
     await page.screenshot({
       path: `tests/visual/screens/${r.name}.png`,
       fullPage: false
