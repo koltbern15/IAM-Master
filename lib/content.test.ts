@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getAllModules, getModule, isPhaseOneModule } from './content'
+import { getAllModules, getModule, isPhaseOneModule, getPhaseModules } from './content'
 
 describe('lib/content', () => {
   it('returns all 12 modules in order', () => {
@@ -37,5 +37,11 @@ describe('lib/content', () => {
       '06-powershell',
       '11-cert-roadmap'
     ])
+  })
+
+  it('returns modules filtered by phase', () => {
+    expect(getPhaseModules(1)).toHaveLength(5)
+    expect(getPhaseModules(2)).toHaveLength(4)
+    expect(getPhaseModules(3)).toHaveLength(3)
   })
 })

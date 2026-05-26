@@ -4,7 +4,7 @@ import type { ModuleId, ModuleMeta } from './types'
 const MODULES: ModuleMeta[] = (modulesJson as ModuleMeta[]).slice().sort((a, b) => a.order - b.order)
 
 export function getAllModules(): ModuleMeta[] {
-  return MODULES
+  return MODULES.slice()
 }
 
 export function getModule(id: ModuleId): ModuleMeta | undefined {
