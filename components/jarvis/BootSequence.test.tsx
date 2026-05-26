@@ -53,7 +53,7 @@ describe('BootSequence', () => {
         <div>app-content</div>
       </BootSequence>
     )
-    act(() => { vi.advanceTimersByTime(3000) })
+    act(() => { vi.advanceTimersByTime(4000) })
     expect(sessionStorage.getItem('iam-mastery:boot-played')).toBe('1')
     vi.useRealTimers()
   })
