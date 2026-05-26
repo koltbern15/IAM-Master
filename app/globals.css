@@ -2,29 +2,50 @@
 @plugin "@tailwindcss/typography";
 
 @theme {
-  --color-background: oklch(0.18 0.02 250);
-  --color-foreground: oklch(0.95 0.01 240);
-  --color-card: oklch(0.22 0.025 250);
-  --color-card-foreground: oklch(0.95 0.01 240);
-  --color-muted: oklch(0.28 0.02 250);
-  --color-muted-foreground: oklch(0.68 0.02 240);
-  --color-border: oklch(0.32 0.025 250);
-  --color-input: oklch(0.32 0.025 250);
-  --color-ring: oklch(0.6 0.18 260);
+  /* Core palette */
+  --color-void: #0a0a0f;
+  --color-void-elevated: #0e0e16;
+  --color-cyan: #00f0ff;
+  --color-nominal: #00ff88;
+  --color-warn: #ffb800;
+  --color-threat: #ff2040;
 
-  --color-primary: oklch(0.65 0.18 260);
-  --color-primary-foreground: oklch(0.99 0 0);
+  /* Foreground tiers */
+  --color-text: rgb(255 255 255 / 0.92);
+  --color-text-muted: rgb(255 255 255 / 0.7);
+  --color-text-dim: rgb(255 255 255 / 0.5);
 
-  --color-accent: oklch(0.7 0.16 160);
-  --color-accent-foreground: oklch(0.18 0.02 250);
+  /* Shadcn-shaped tokens (kept for re-themed shadcn primitives) */
+  --color-background: #0a0a0f;
+  --color-foreground: rgb(255 255 255 / 0.92);
+  --color-card: rgb(0 240 255 / 0.04);
+  --color-card-foreground: rgb(255 255 255 / 0.92);
+  --color-muted: rgb(0 240 255 / 0.06);
+  --color-muted-foreground: rgb(255 255 255 / 0.7);
+  --color-border: rgb(0 240 255 / 0.25);
+  --color-input: rgb(0 240 255 / 0.06);
+  --color-ring: #00f0ff;
+  --color-primary: #00f0ff;
+  --color-primary-foreground: #0a0a0f;
+  --color-accent: rgb(0 240 255 / 0.12);
+  --color-accent-foreground: #00f0ff;
+  --color-warning: #ffb800;
+  --color-warning-foreground: #0a0a0f;
+  --color-destructive: #ff2040;
+  --color-destructive-foreground: #ffffff;
 
-  --color-warning: oklch(0.78 0.16 75);
-  --color-warning-foreground: oklch(0.18 0.02 250);
+  /* Glass + chrome alpha-graded tokens */
+  --color-panel-bg: rgb(0 240 255 / 0.04);
+  --color-panel-border: rgb(0 240 255 / 0.25);
+  --color-panel-border-bright: rgb(0 240 255 / 0.5);
+  --color-grid-dot: rgb(0 240 255 / 0.08);
+  --color-scan-line: rgb(0 240 255 / 0.025);
 
-  --color-destructive: oklch(0.6 0.22 25);
-  --color-destructive-foreground: oklch(0.99 0 0);
-
-  --radius: 0.75rem;
+  /* Sharp corners by default */
+  --radius: 2px;
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
 }
 
 @layer base {
@@ -38,4 +59,11 @@
 
 @layer utilities {
   .text-balance { text-wrap: balance; }
+  .tabular-nums { font-variant-numeric: tabular-nums; }
+
+  /* JARVIS-specific utilities */
+  .glow-cyan { text-shadow: 0 0 8px rgb(0 240 255 / 0.5); }
+  .glow-cyan-strong { text-shadow: 0 0 14px rgb(0 240 255 / 0.7); }
+  .ring-glow-cyan { box-shadow: 0 0 12px rgb(0 240 255 / 0.35); }
+  .ring-glow-cyan-strong { box-shadow: 0 0 20px rgb(0 240 255 / 0.5); }
 }
