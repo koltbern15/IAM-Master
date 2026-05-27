@@ -29,13 +29,20 @@ export function useTutorChat(sectionId: string): UseTutorChatReturn {
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const partialRef = useRef<string>('')
+  // Set true when the component unmounts OR sectionId changes mid-stream.
+  // Checked between chunks so the loop exits early instead of running the full
+  // generator to completion (which would keep consuming API tokens after the
+  // user closed the panel or navigated away).
+  const abortedRef = useRef(false)
 
   useEffect(() => {
+    abortedRef.current = false
     const persisted = loadTutorHistory(sectionId).map((m) => ({ role: m.role, content: m.content }))
     setMessages(persisted)
     setError(null)
     setStreaming(false)
     partialRef.current = ''
+    return () => { abortedRef.current = true }
   }, [sectionId])
 
   const sendMessage = useCallback(
@@ -72,6 +79,7 @@ export function useTutorChat(sectionId: string): UseTutorChatReturn {
           sectionContent
         })
         for await (const chunk of iter) {
+          if (abortedRef.current) break
           partialRef.current += chunk
           const snapshot = partialRef.current
           setMessages((prev) => {
@@ -80,10 +88,11 @@ export function useTutorChat(sectionId: string): UseTutorChatReturn {
             return next
           })
         }
-        if (partialRef.current.length > 0) {
+        if (!abortedRef.current && partialRef.current.length > 0) {
           appendTutorMessage(sectionId, { role: 'assistant', content: partialRef.current })
         }
       } catch (e) {
+        if (abortedRef.current) return
         const msg = e instanceof Error ? e.message : 'Stream failed.'
         setError(msg)
         setMessages((prev) => {
@@ -92,7 +101,9 @@ export function useTutorChat(sectionId: string): UseTutorChatReturn {
           return prev
         })
       } finally {
-        setStreaming(false)
+        if (!abortedRef.current) {
+          setStreaming(false)
+        }
         partialRef.current = ''
       }
     },

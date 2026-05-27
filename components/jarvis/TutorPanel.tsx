@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { HoloPanel } from './HoloPanel'
 import { useTutorChat } from '@/hooks/use-tutor-chat'
@@ -24,6 +24,7 @@ export function TutorPanel({ open, onClose, sectionId, sectionContent }: TutorPa
   const [hasKey, setHasKey] = useState(false)
   const [reduceMotion, setReduceMotion] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
+  const headingId = useId()
 
   useEffect(() => {
     setHasKey(!!loadState().settings.anthropicApiKey)
@@ -59,13 +60,17 @@ export function TutorPanel({ open, onClose, sectionId, sectionContent }: TutorPa
 
   return (
     <div
-      aria-hidden={!open}
+      id="tutor-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={headingId}
       className={cn(
         'fixed inset-y-0 right-0 z-[80] flex w-full max-w-[40vw] flex-col bg-void/85 backdrop-blur-md max-md:max-w-full',
         !reduceMotion && 'animate-[jarvis-slide-in-right_220ms_ease-out_both]'
       )}
     >
       <HoloPanel ambientBorder cornersAll label="ASK PROFESSOR" className="flex h-full flex-col">
+        <h2 id={headingId} className="sr-only">Tutor dialog for section {sectionId}</h2>
         <div className="mb-3 flex items-center justify-between">
           <div className="font-mono text-[10px] uppercase tracking-[0.15em] text-cyan/60">
             ▸ SECTION {sectionId}
@@ -119,6 +124,7 @@ export function TutorPanel({ open, onClose, sectionId, sectionContent }: TutorPa
 
         <form data-testid="tutor-form" onSubmit={handleSubmit} className="mt-3 flex items-end gap-2">
           <textarea value={draft} onChange={(e) => setDraft(e.target.value)}
+            aria-label="Ask the professor"
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
