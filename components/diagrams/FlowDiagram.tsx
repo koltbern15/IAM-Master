@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 
@@ -73,6 +73,16 @@ export function FlowDiagram({
   const [motionEnabled, setMotionEnabled] = useState(false)
   const svgRef = useRef<SVGSVGElement>(null)
 
+  // Issue 1: per-instance unique IDs so multiple diagrams on the same page
+  // don't produce duplicate SVG def IDs (which would break url(#...) lookups
+  // and fail axe-core duplicate-id checks).
+  const rawId = useId()
+  const uid = rawId.replace(/:/g, '')
+  const blurDepthId = `jarvis-blur-depth-${uid}`
+  const softGlowId = `jarvis-soft-glow-${uid}`
+  const arrowIdFor = (intent: NonNullable<FlowStep['intent']> = 'default') =>
+    `jarvis-arrow-${intent}-${uid}`
+
   useEffect(() => { setMotionEnabled(!prefersReducedMotion()) }, [])
 
   useEffect(() => {
@@ -106,24 +116,35 @@ export function FlowDiagram({
         {toolbar && <div className="flex items-center gap-2">{toolbar}</div>}
       </div>
       {caption && <div className="mb-3 text-xs text-text-muted">{caption}</div>}
-      <svg ref={svgRef} role="img" aria-label={title} viewBox={`0 0 ${width} ${height}`} className="block w-full" style={{ maxHeight: height }}>
+      {/* Issue 3: removed role="img" — it made the SVG subtree presentational,
+          hiding the keyboard-focusable step-label <g role="button"> elements
+          from assistive tech. aria-label alone is sufficient; browsers assign
+          a meaningful role to SVGs with an accessible name while preserving
+          access to interactive children. */}
+      <svg ref={svgRef} aria-label={title} viewBox={`0 0 ${width} ${height}`} className="block w-full" style={{ maxHeight: height }}>
         <defs>
-          <filter id="jarvis-blur-depth" x="-20%" y="-20%" width="140%" height="140%">
+          {/* Issue 1: filter IDs suffixed with uid */}
+          <filter id={blurDepthId} x="-20%" y="-20%" width="140%" height="140%">
             <feGaussianBlur in="SourceGraphic" stdDeviation="1.4" result="b1" />
             <feGaussianBlur in="SourceGraphic" stdDeviation="3.2" result="b2" />
             <feGaussianBlur in="SourceGraphic" stdDeviation="6.0" result="b3" />
             <feMerge><feMergeNode in="b3" /><feMergeNode in="b2" /><feMergeNode in="b1" /><feMergeNode in="SourceGraphic" /></feMerge>
           </filter>
-          <filter id="jarvis-soft-glow" x="-50%" y="-50%" width="200%" height="200%">
+          <filter id={softGlowId} x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="3" result="glow" />
             <feMerge><feMergeNode in="glow" /><feMergeNode in="SourceGraphic" /></feMerge>
           </filter>
-          <marker id="jarvis-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="#00f0ff" />
-          </marker>
+          {/* Issue 4: one marker per intent so arrowheads match the step color.
+              Issue 1: each marker ID also carries the uid suffix. */}
+          {(['default', 'warn', 'threat'] as const).map((intent) => (
+            <marker key={intent} id={arrowIdFor(intent)} viewBox="0 0 10 10" refX="9" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill={INTENT_STROKE[intent]} />
+            </marker>
+          ))}
         </defs>
 
-        <g opacity={0.18} filter="url(#jarvis-blur-depth)">
+        <g opacity={0.18} filter={`url(#${blurDepthId})`}>
           {nodes.map((n) => (
             <circle key={`bg-${n.id}`} cx={n.x} cy={n.y} r={42} fill={INTENT_STROKE[n.intent ?? 'default']} opacity={0.12} />
           ))}
@@ -140,8 +161,8 @@ export function FlowDiagram({
                 strokeWidth={isActive ? 2 : 1.2}
                 strokeOpacity={s.deprecated ? 0.3 : isActive ? 0.95 : 0.55}
                 strokeDasharray={s.deprecated ? '4 4' : undefined}
-                markerEnd="url(#jarvis-arrow)"
-                filter={isActive ? 'url(#jarvis-soft-glow)' : undefined} />
+                markerEnd={`url(#${arrowIdFor(s.intent ?? 'default')})`}
+                filter={isActive ? `url(#${softGlowId})` : undefined} />
             )
           })}
 
@@ -150,7 +171,7 @@ export function FlowDiagram({
             if (!from || !to) return null
             return (
               <motion.circle key={`tok-${s.id}`} data-jarvis-token r={4}
-                fill={INTENT_STROKE[s.intent ?? 'default']} filter="url(#jarvis-soft-glow)"
+                fill={INTENT_STROKE[s.intent ?? 'default']} filter={`url(#${softGlowId})`}
                 initial={{ offsetDistance: '0%' }} animate={{ offsetDistance: '100%' }}
                 transition={{ duration: 3.2, delay: i * 0.6, repeat: Infinity, ease: 'easeInOut' }}
                 style={{ offsetPath: `path("${arcPath(from.x, from.y, to.x, to.y)}")`, offsetRotate: '0deg' }} />
@@ -183,17 +204,24 @@ export function FlowDiagram({
             )
           })}
 
+          {/* Issue 2: node hover-zoom now uses CSS transform only (no SVG transform
+              attribute) so CSS transition: transform actually fires. transform-box:
+              fill-box keeps the scale anchor on the circle center. */}
           {nodes.map((n) => {
             const isHovered = hoveredNodeId === n.id
             const stroke = INTENT_STROKE[n.intent ?? 'default']
             return (
               <g key={`node-${n.id}`}
-                transform={`translate(${n.x} ${n.y}) scale(${isHovered ? 1.08 : 1})`}
-                style={{ transition: 'transform 160ms ease-out', transformOrigin: '0 0' }}
                 onMouseEnter={() => setHoveredNodeId(n.id)}
-                onMouseLeave={() => setHoveredNodeId(null)}>
+                onMouseLeave={() => setHoveredNodeId(null)}
+                style={{
+                  transform: `translate(${n.x}px, ${n.y}px) scale(${isHovered ? 1.08 : 1})`,
+                  transformBox: 'fill-box',
+                  transformOrigin: 'center',
+                  transition: 'transform 160ms ease-out'
+                }}>
                 <circle r={28} fill="rgba(10,10,15,0.9)" stroke={stroke} strokeWidth={1.5}
-                  filter={isHovered ? 'url(#jarvis-soft-glow)' : undefined} />
+                  filter={isHovered ? `url(#${softGlowId})` : undefined} />
                 <text x={0} y={4} textAnchor="middle" fill={stroke}
                   fontFamily="Rajdhani, sans-serif" fontWeight={600} fontSize={11} letterSpacing="0.08em">
                   {n.label}

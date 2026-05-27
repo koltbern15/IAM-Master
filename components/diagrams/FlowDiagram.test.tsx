@@ -14,8 +14,9 @@ const STEPS: FlowStep[] = [
 
 describe('FlowDiagram', () => {
   it('renders an svg with each node and step label', () => {
-    render(<FlowDiagram title="TEST FLOW" width={600} height={480} nodes={NODES} steps={STEPS} />)
-    expect(screen.getByRole('img', { name: /TEST FLOW/i })).toBeInTheDocument()
+    const { container } = render(<FlowDiagram title="TEST FLOW" width={600} height={480} nodes={NODES} steps={STEPS} />)
+    // role="img" was removed (Issue 3) — look up by aria-label attribute instead
+    expect(container.querySelector('svg[aria-label="TEST FLOW"]')).not.toBeNull()
     expect(screen.getByText('CLIENT')).toBeInTheDocument()
     expect(screen.getByText('KDC')).toBeInTheDocument()
     expect(screen.getByText('AS-REQ')).toBeInTheDocument()
@@ -36,7 +37,7 @@ describe('FlowDiagram', () => {
 
   it('exposes the blur filter stack on the <defs>', () => {
     const { container } = render(<FlowDiagram title="t" width={600} height={480} nodes={NODES} steps={STEPS} />)
-    expect(container.querySelector('filter#jarvis-blur-depth')).not.toBeNull()
+    expect(container.querySelector('filter[id^="jarvis-blur-depth-"]')).not.toBeNull()
   })
 
   describe('under prefers-reduced-motion: reduce', () => {
