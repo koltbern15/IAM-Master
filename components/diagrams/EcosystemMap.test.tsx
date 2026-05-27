@@ -81,4 +81,17 @@ describe('EcosystemMap', () => {
     // Close button should be present
     expect(screen.getByRole('button', { name: /close/i })).toBeInTheDocument()
   })
+
+  it('exposes each node as a keyboard-focusable button with an accessible name', () => {
+    render(<EcosystemMap />)
+    expect(screen.getByRole('button', { name: 'Entra ID' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'CyberArk' })).toBeInTheDocument()
+  })
+
+  it('toggles node detail via Enter key', () => {
+    render(<EcosystemMap />)
+    const node = screen.getByRole('button', { name: 'Entra ID' })
+    fireEvent.keyDown(node, { key: 'Enter' })
+    expect(screen.getByText(/cloud identity provider/i)).toBeInTheDocument()
+  })
 })

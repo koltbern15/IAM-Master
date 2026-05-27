@@ -233,24 +233,36 @@ export function EcosystemMap() {
                 )
               })}
 
-              {/* Nodes */}
+              {/* Nodes — keyboard accessible: Tab to focus, Enter/Space to toggle */}
               {NODES.map((n) => {
                 const color = CATEGORY_COLOR[n.category]
                 const isActive = activeId === n.id
                 const isNeighbor = !!activeId && neighborsOf[activeId].has(n.id)
                 const dim = !!activeId && !isActive && !isNeighbor
+                const toggle = () => setActiveId((c) => c === n.id ? null : n.id)
                 return (
                   <g key={n.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={n.label}
+                    aria-pressed={isActive}
                     onMouseEnter={() => setHoveredNodeId(n.id)}
                     onMouseLeave={() => setHoveredNodeId(null)}
-                    onClick={(e) => { e.stopPropagation(); setActiveId((c) => c === n.id ? null : n.id) }}
+                    onClick={(e) => { e.stopPropagation(); toggle() }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        toggle()
+                      }
+                    }}
                     style={{
                       transform: `translate(${n.x}px, ${n.y}px) scale(${hoveredNodeId === n.id ? 1.08 : 1})`,
                       transformBox: 'fill-box',
                       transformOrigin: 'center',
                       transition: 'transform 160ms ease-out, opacity 160ms',
                       cursor: 'pointer',
-                      opacity: dim ? 0.3 : 1
+                      opacity: dim ? 0.3 : 1,
+                      outline: 'none'
                     }}>
                     <circle r={22} fill="rgba(10,10,15,0.9)" stroke={color} strokeWidth={isActive ? 2.2 : 1.4}
                       filter={hoveredNodeId === n.id ? `url(#${softGlowId})` : undefined} />

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { ReadShell } from '@/components/layout/ReadShell'
 import { HoloPanel } from '@/components/jarvis/HoloPanel'
-import { loadState, saveState, resetState } from '@/lib/progress'
+import { loadState, saveState, resetState, type StoredState } from '@/lib/progress'
 
 const MODEL_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'claude-opus-4-7', label: 'claude-opus-4-7 (maximum capability)' },
@@ -41,8 +41,7 @@ export default function SettingsPage() {
         setImportError('Unrecognized payload -- expected iam-mastery v1 state.')
         return
       }
-      window.localStorage.setItem('iam-mastery:v1', JSON.stringify(parsed))
-      window.dispatchEvent(new CustomEvent('iam-mastery:state-change'))
+      saveState(parsed as StoredState)
       setImportSuccess(true)
     } catch (e) {
       setImportError(e instanceof Error ? e.message : 'Invalid JSON.')
