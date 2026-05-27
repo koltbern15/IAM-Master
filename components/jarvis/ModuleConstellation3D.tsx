@@ -1,14 +1,20 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { Line, PerspectiveCamera, Points, PointMaterial, Text } from '@react-three/drei'
 import Link from 'next/link'
 import * as THREE from 'three'
 import { getAllModules } from '@/lib/content'
+import { prefersReducedMotion } from '@/lib/media-query'
 import { TelemetryValue } from './TelemetryValue'
 import type { ModuleMeta } from '@/lib/types'
+
+// Module data is static at runtime (modules.json is bundled). Compute the
+// home page's 12-node slice once at module scope so React's useMemo dep
+// stays stable across renders instead of seeing a fresh array each tick.
+const HOME_MODULES = getAllModules().slice(0, 12)
 
 interface ModuleConstellation3DProps {
   totalMasteryPercent: number
@@ -18,11 +24,6 @@ const PHASE_COLOR: Record<1 | 2 | 3, string> = {
   1: '#00f0ff',
   2: '#ffb800',
   3: '#888888'
-}
-
-function prefersReducedMotion(): boolean {
-  if (typeof window === 'undefined' || !window.matchMedia) return false
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 /** Returns the 12 vertices of an icosahedron of the given radius (golden-ratio derivation). */
@@ -154,6 +155,10 @@ function ModuleNodeGroup({
     if (!groupRef.current) return
     groupRef.current.rotation.y = -(clock.getElapsedTime() / 14) * Math.PI * 2
   })
+  // Reset the body cursor on unmount — otherwise hovering a node then
+  // navigating away (router.push fires before onPointerOut) leaves the
+  // pointer cursor on every subsequent page until another element claims it.
+  useEffect(() => () => { document.body.style.cursor = '' }, [])
   return (
     <group ref={groupRef}>
       {nodes.map((n) => {
@@ -275,8 +280,9 @@ function AmbientParticles() {
 
 export function ModuleConstellation3D({ totalMasteryPercent }: ModuleConstellation3DProps) {
   const router = useRouter()
-  const modules = getAllModules().slice(0, 12)
-  const nodes = useMemo(() => buildNodes(modules), [modules])
+  // HOME_MODULES + nodes are computed once at module scope so this component
+  // never reallocates 12 icosahedron vertices + 12 bezier curves per render.
+  const nodes = useMemo(() => buildNodes(HOME_MODULES), [])
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [parallaxEnabled] = useState(() => !prefersReducedMotion())
 
@@ -321,7 +327,7 @@ export function ModuleConstellation3D({ totalMasteryPercent }: ModuleConstellati
 
       <nav aria-label="Module navigation" className="sr-only">
         <ul>
-          {modules.map((m) => (
+          {HOME_MODULES.map((m) => (
             <li key={m.id}>
               <Link href={`/modules/${m.id}`}>
                 {m.order}. {m.title} (Phase {m.phase})

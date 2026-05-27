@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { ModuleConstellationSVG } from './ModuleConstellationSVG'
+import { prefersReducedMotion } from '@/lib/media-query'
 
 const ModuleConstellation3D = dynamic(
   () => import('./ModuleConstellation3D').then((m) => m.ModuleConstellation3D),
@@ -14,11 +15,6 @@ const ModuleConstellation3D = dynamic(
 
 interface ModuleConstellationProps {
   totalMasteryPercent: number
-}
-
-function prefersReducedMotion(): boolean {
-  if (typeof window === 'undefined' || !window.matchMedia) return false
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 function hasWebGL(): boolean {
