@@ -108,7 +108,7 @@ export function ParticleField({
     <canvas
       ref={canvasRef}
       aria-hidden="true"
-      className={cn('pointer-events-none fixed inset-0 -z-0', className)}
+      className={cn('pointer-events-none fixed inset-0 -z-10', className)}
     />
   )
 }
