@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { HudShell } from '@/components/layout/HudShell'
 import { ModuleConstellationSVG } from '@/components/jarvis/ModuleConstellationSVG'
+import { HudMiniPanels } from '@/components/jarvis/HudMiniPanels'
 import { computeMastery } from '@/lib/mastery'
 import { loadState } from '@/lib/progress'
 import { usePanelGlitch } from '@/hooks/use-panel-glitch'
@@ -31,6 +32,7 @@ export default function HomePage() {
   return (
     <HudShell events={SAMPLE_TICKER}>
       <ModuleConstellationSVG totalMasteryPercent={mastery.totalPercent} />
+      <HudMiniPanels />
     </HudShell>
   )
 }
