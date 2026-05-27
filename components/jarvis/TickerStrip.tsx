@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import { GlitchText } from './GlitchText'
 
 interface TickerStripProps {
   events: string[]
@@ -9,9 +10,9 @@ interface TickerStripProps {
 
 export function TickerStrip({ events, speedPxPerSec = 40, className }: TickerStripProps) {
   const items = events.length > 0 ? events : ['AWAITING TELEMETRY...']
-  const content = items.map((e) => `▸ ${e}`).join('     ')
-  // Duration scales with content length so animation speed stays roughly constant.
-  const durationSec = Math.max(20, content.length * 0.25 * (40 / speedPxPerSec))
+  const flatLength = items.reduce((sum, e) => sum + e.length + 5, 0)
+  const durationSec = Math.max(20, flatLength * 0.25 * (40 / speedPxPerSec))
+  const tail = items.length > 1 ? `     ${items.slice(1).map((e) => `▸ ${e}`).join('     ')}` : ''
 
   return (
     <footer
@@ -28,14 +29,16 @@ export function TickerStrip({ events, speedPxPerSec = 40, className }: TickerStr
           data-jarvis-ticker-track
           className="whitespace-nowrap px-6 font-mono text-[10px] uppercase tracking-[0.1em] text-cyan/60"
         >
-          {content}
+          <GlitchText glitch>{`▸ ${items[0]}`}</GlitchText>
+          {tail}
         </span>
         <span
           data-jarvis-ticker-track
           aria-hidden="true"
           className="whitespace-nowrap px-6 font-mono text-[10px] uppercase tracking-[0.1em] text-cyan/60"
         >
-          {content}
+          <GlitchText glitch>{`▸ ${items[0]}`}</GlitchText>
+          {tail}
         </span>
       </div>
     </footer>
