@@ -7,12 +7,14 @@ describe('OAuthFlowDiagram', () => {
     render(<OAuthFlowDiagram />)
     expect(screen.getByText(/Authorize/i)).toBeInTheDocument()
     expect(screen.getByText(/Token Exchange/i)).toBeInTheDocument()
-    expect(screen.getByText(/Refresh/i)).toBeInTheDocument()
+    // "Refresh" appears in both the step label and the caption ("refresh token rotation").
+    expect(screen.getAllByText(/Refresh/i).length).toBeGreaterThanOrEqual(1)
   })
 
   it('renders an Implicit Grant marker with deprecated treatment', () => {
     const { container } = render(<OAuthFlowDiagram />)
-    expect(screen.getByText(/Implicit Grant/i)).toBeInTheDocument()
+    // "Implicit Grant" appears as both the step label and in the caption.
+    expect(screen.getAllByText(/Implicit Grant/i).length).toBeGreaterThanOrEqual(1)
     expect(container.querySelector('path[stroke-dasharray="4 4"]')).not.toBeNull()
   })
 

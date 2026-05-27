@@ -34,7 +34,7 @@ export function SAMLFlowDiagram() {
       width={840} height={460} nodes={NODES} steps={steps}
       caption={mode === 'sp'
         ? 'SP-initiated flow -- user starts at the SP, gets bounced through the IdP.'
-        : 'IdP-initiated flow -- user starts at the IdP portal and lands at the SP via an IdP-initiated POST.'}
+        : 'IdP-initiated flow -- user starts at the IdP portal and lands at the SP via an Unsolicited Response.'}
       toolbar={
         <div className="flex gap-1">
           {(['sp','idp'] as const).map((m) => (

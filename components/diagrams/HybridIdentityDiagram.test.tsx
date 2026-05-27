@@ -15,9 +15,11 @@ describe('HybridIdentityDiagram', () => {
     expect(screen.getByText(/PTA AGENT/i)).toBeInTheDocument()
   })
 
-  it('switches to Federation and shows ADFS', () => {
+  it('switches to Federation and shows ADFS — both as actor node and as redirect step', () => {
     render(<HybridIdentityDiagram />)
     fireEvent.click(screen.getByRole('button', { name: /Federation/i }))
-    expect(screen.getByText(/ADFS/i)).toBeInTheDocument()
+    // ADFS appears as both the actor node label and the "Redirect to ADFS"
+    // step label — getAllByText so the test tolerates both legitimate matches.
+    expect(screen.getAllByText(/ADFS/i).length).toBeGreaterThanOrEqual(2)
   })
 })

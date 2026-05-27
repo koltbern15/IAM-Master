@@ -36,7 +36,7 @@ const FED_NODES: FlowNode[] = [
 
 const FED_STEPS: FlowStep[] = [
   { id: 'f1', from: 'user', to: 'aad', label: 'Sign-in (HRD)', detail: 'Entra ID performs Home Realm Discovery on the user upn-suffix and finds it is federated.' },
-  { id: 'f2', from: 'aad', to: 'fed', label: 'Redirect to IdP', detail: 'Browser is redirected to the on-prem ADFS WS-Federation or SAML endpoint.' },
+  { id: 'f2', from: 'aad', to: 'fed', label: 'Redirect to ADFS', detail: 'Browser is redirected to the on-prem ADFS WS-Federation or SAML endpoint.' },
   { id: 'f3', from: 'fed', to: 'adds', label: 'AD Validate', detail: 'ADFS performs Windows auth against AD DS, mints a SAML token with the user claims.' },
   { id: 'f4', from: 'fed', to: 'aad', label: 'SAML Assertion', detail: 'ADFS posts the signed SAML token back to Entra ID. Entra trusts the signature (configured via Convert-MsolDomainToFederated trust) and issues its own tokens to the user.', intent: 'warn' }
 ]

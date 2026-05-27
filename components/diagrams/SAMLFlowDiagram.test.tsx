@@ -11,7 +11,9 @@ describe('SAMLFlowDiagram', () => {
   it('switches to IdP-initiated when the toggle is clicked', () => {
     render(<SAMLFlowDiagram />)
     fireEvent.click(screen.getByRole('button', { name: /IdP-initiated/i }))
-    expect(screen.getByText(/Unsolicited Response/i)).toBeInTheDocument()
+    // "Unsolicited Response" appears as both the step label and in the caption
+    // (the canonical SAML term for this flow's distinguishing behavior).
+    expect(screen.getAllByText(/Unsolicited Response/i).length).toBeGreaterThanOrEqual(1)
   })
 
   it('reveals SAML Assertion XML when the SAML Response step is clicked', () => {

@@ -49,7 +49,7 @@ export function OAuthFlowDiagram() {
     <FlowDiagram
       title="OAUTH 2.1 // AUTHORIZATION CODE + PKCE"
       width={980} height={500} nodes={NODES} steps={STEPS}
-      caption="Authorization Code + PKCE with token rotation. Deprecated grant type rendered struck-through per OAuth 2.1 / RFC 9700 BCP."
+      caption="Authorization Code + PKCE with refresh token rotation. Implicit Grant rendered struck-through per OAuth 2.1 / RFC 9700 BCP."
     />
   )
 }
