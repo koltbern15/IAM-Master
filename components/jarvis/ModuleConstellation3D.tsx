@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { Line, PerspectiveCamera, Points, PointMaterial, Text } from '@react-three/drei'
 import Link from 'next/link'
@@ -17,6 +18,11 @@ const PHASE_COLOR: Record<1 | 2 | 3, string> = {
   1: '#00f0ff',
   2: '#ffb800',
   3: '#888888'
+}
+
+function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return false
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 /** Returns the 12 vertices of an icosahedron of the given radius (golden-ratio derivation). */
@@ -130,7 +136,19 @@ function buildNodes(modules: ModuleMeta[]): NodeData[] {
   })
 }
 
-function ModuleNodeGroup({ nodes }: { nodes: NodeData[] }) {
+function ModuleNodeGroup({
+  nodes,
+  hoveredId,
+  onHover,
+  onLeave,
+  onSelect
+}: {
+  nodes: NodeData[]
+  hoveredId: string | null
+  onHover: (id: string) => void
+  onLeave: (id: string) => void
+  onSelect: (id: string) => void
+}) {
   const groupRef = useRef<THREE.Group>(null)
   useFrame(({ clock }) => {
     if (!groupRef.current) return
@@ -138,42 +156,105 @@ function ModuleNodeGroup({ nodes }: { nodes: NodeData[] }) {
   })
   return (
     <group ref={groupRef}>
-      {nodes.map((n) => (
-        <group key={n.module.id} position={n.position}>
-          <mesh>
-            <sphereGeometry args={[0.18, 24, 24]} />
-            <meshBasicMaterial color={n.color} />
-          </mesh>
-          <Text
-            position={[0, 0.42, 0]}
-            fontSize={0.18}
-            color={n.color}
-            anchorX="center"
-            anchorY="middle"
-          >
-            {String(n.module.order).padStart(2, '0')}
-          </Text>
-        </group>
-      ))}
+      {nodes.map((n) => {
+        const isHovered = hoveredId === n.module.id
+        const scale = isHovered ? 1.3 : 1
+        return (
+          <group key={n.module.id} position={n.position}>
+            <mesh
+              scale={scale}
+              onPointerOver={(e) => {
+                e.stopPropagation()
+                document.body.style.cursor = 'pointer'
+                onHover(n.module.id)
+              }}
+              onPointerOut={(e) => {
+                e.stopPropagation()
+                document.body.style.cursor = ''
+                onLeave(n.module.id)
+              }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onSelect(n.module.id)
+              }}
+            >
+              <sphereGeometry args={[0.18, 24, 24]} />
+              <meshBasicMaterial color={n.color} />
+            </mesh>
+            <Text
+              position={[0, 0.42, 0]}
+              fontSize={0.18}
+              color={n.color}
+              anchorX="center"
+              anchorY="middle"
+            >
+              {String(n.module.order).padStart(2, '0')}
+            </Text>
+          </group>
+        )
+      })}
     </group>
   )
 }
 
-function ArcConnections({ nodes }: { nodes: NodeData[] }) {
+function ArcConnections({ nodes, hoveredId }: { nodes: NodeData[]; hoveredId: string | null }) {
   return (
     <>
-      {nodes.map((n) => (
-        <Line
-          key={`arc-${n.module.id}`}
-          points={n.arcPoints}
-          color={n.color}
-          lineWidth={1}
-          transparent
-          opacity={0.25}
-        />
-      ))}
+      {nodes.map((n) => {
+        const active = hoveredId === n.module.id
+        return (
+          <Line
+            key={`arc-${n.module.id}`}
+            points={n.arcPoints}
+            color={n.color}
+            lineWidth={active ? 2 : 1}
+            transparent
+            opacity={active ? 0.85 : 0.25}
+          />
+        )
+      })}
+      {hoveredId && <ArcToken node={nodes.find((n) => n.module.id === hoveredId)!} />}
     </>
   )
+}
+
+function ArcToken({ node }: { node: NodeData }) {
+  const ref = useRef<THREE.Mesh>(null)
+  useFrame(({ clock }) => {
+    if (!ref.current) return
+    const period = 1.8 // seconds
+    const t = (clock.getElapsedTime() % period) / period
+    const segments = node.arcPoints.length - 1
+    const exact = t * segments
+    const i0 = Math.floor(exact)
+    const i1 = Math.min(segments, i0 + 1)
+    const localT = exact - i0
+    const a = node.arcPoints[i0]
+    const b = node.arcPoints[i1]
+    ref.current.position.set(
+      a.x + (b.x - a.x) * localT,
+      a.y + (b.y - a.y) * localT,
+      a.z + (b.z - a.z) * localT
+    )
+  })
+  return (
+    <mesh ref={ref}>
+      <sphereGeometry args={[0.08, 16, 16]} />
+      <meshBasicMaterial color={node.color} />
+    </mesh>
+  )
+}
+
+function ParallaxCamera({ enabled }: { enabled: boolean }) {
+  useFrame((state) => {
+    if (!enabled) return
+    const targetX = Math.max(-0.6, Math.min(0.6, state.pointer.x * 0.6))
+    const targetY = Math.max(-0.6, Math.min(0.6, state.pointer.y * 0.6))
+    state.camera.position.x += (targetX - state.camera.position.x) * 0.08
+    state.camera.position.y += (targetY - state.camera.position.y) * 0.08
+    state.camera.lookAt(0, 0, 0)
+  })
+  return null
 }
 
 function AmbientParticles() {
@@ -193,8 +274,11 @@ function AmbientParticles() {
 }
 
 export function ModuleConstellation3D({ totalMasteryPercent }: ModuleConstellation3DProps) {
+  const router = useRouter()
   const modules = getAllModules().slice(0, 12)
   const nodes = useMemo(() => buildNodes(modules), [modules])
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [parallaxEnabled] = useState(() => !prefersReducedMotion())
 
   return (
     <div className="relative" style={{ width: 600, height: 600 }}>
@@ -207,12 +291,19 @@ export function ModuleConstellation3D({ totalMasteryPercent }: ModuleConstellati
         }}
       >
         <PerspectiveCamera makeDefault fov={38} position={[0, 0, 12]} near={0.1} far={100} />
+        <ParallaxCamera enabled={parallaxEnabled} />
         <ambientLight intensity={0.05} />
         <pointLight position={[0, 0, 0]} color="#00f0ff" intensity={1.2} />
         <CoreShell />
         <CorePulse />
-        <ArcConnections nodes={nodes} />
-        <ModuleNodeGroup nodes={nodes} />
+        <ArcConnections nodes={nodes} hoveredId={hoveredId} />
+        <ModuleNodeGroup
+          nodes={nodes}
+          hoveredId={hoveredId}
+          onHover={(id) => setHoveredId(id)}
+          onLeave={(id) => setHoveredId((current) => (current === id ? null : current))}
+          onSelect={(id) => router.push(`/modules/${id}`)}
+        />
         <AmbientParticles />
       </Canvas>
 
