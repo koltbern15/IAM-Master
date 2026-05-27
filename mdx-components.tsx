@@ -7,6 +7,11 @@ import { SC300Badge } from '@/components/content/SC300Badge'
 import { Definition } from '@/components/content/Definition'
 import { PowerShellBlock } from '@/components/content/PowerShellBlock'
 import { CommandReference } from '@/components/content/CommandReference'
+import { KerberosFlowDiagram } from '@/components/diagrams/KerberosFlowDiagram'
+import { SAMLFlowDiagram } from '@/components/diagrams/SAMLFlowDiagram'
+import { OAuthFlowDiagram } from '@/components/diagrams/OAuthFlowDiagram'
+import { HybridIdentityDiagram } from '@/components/diagrams/HybridIdentityDiagram'
+import { EcosystemMap } from '@/components/diagrams/EcosystemMap'
 
 export function useMDXComponents(components: MDXComponents): MDXComponents {
   return {
@@ -18,6 +23,11 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     SC300Badge,
     Definition,
     PowerShellBlock,
-    CommandReference
+    CommandReference,
+    KerberosFlowDiagram,
+    SAMLFlowDiagram,
+    OAuthFlowDiagram,
+    HybridIdentityDiagram,
+    EcosystemMap
   }
 }
