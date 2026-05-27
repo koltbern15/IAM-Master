@@ -4,7 +4,14 @@ import nextPlugin from '@next/eslint-plugin-next'
 
 export default [
   {
-    ignores: ['node_modules/', '.next/', '.turbo/', 'dist/', '**/*.config.*']
+    ignores: [
+      '**/node_modules/',
+      '**/.next/',
+      '**/.turbo/',
+      '**/dist/',
+      '.claude/worktrees/',
+      '**/*.config.*'
+    ]
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
