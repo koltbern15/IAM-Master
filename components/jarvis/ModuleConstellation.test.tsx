@@ -33,7 +33,7 @@ describe('ModuleConstellation wrapper', () => {
 
   describe('when WebGL is unavailable', () => {
     beforeEach(() => {
-      vi.stubGlobal('matchMedia', (q: string) => ({
+      vi.stubGlobal('matchMedia', (_q: string) => ({
         matches: false,
         addEventListener: () => {},
         removeEventListener: () => {}

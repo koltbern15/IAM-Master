@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { HudShell } from '@/components/layout/HudShell'
-import { ModuleConstellationSVG } from '@/components/jarvis/ModuleConstellationSVG'
+import { ModuleConstellation } from '@/components/jarvis/ModuleConstellation'
 import { HudMiniPanels } from '@/components/jarvis/HudMiniPanels'
 import { computeMastery } from '@/lib/mastery'
 import { loadState } from '@/lib/progress'
@@ -31,8 +31,10 @@ export default function HomePage() {
 
   return (
     <HudShell events={SAMPLE_TICKER}>
-      <ModuleConstellationSVG totalMasteryPercent={mastery.totalPercent} />
-      <HudMiniPanels />
+      <div className="flex flex-col items-center">
+        <ModuleConstellation totalMasteryPercent={mastery.totalPercent} />
+        <HudMiniPanels />
+      </div>
     </HudShell>
   )
 }
