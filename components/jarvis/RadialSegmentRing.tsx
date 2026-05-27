@@ -21,9 +21,14 @@ interface RadialSegmentRingProps {
   label?: React.ReactNode
 }
 
+// Quantize trig outputs to 2-decimal precision so SSR (Node) and client (V8)
+// produce identical SVG path strings — Math.cos/Math.sin drift in their last
+// digits across runtimes, which trips React 19 hydration checks.
+const q = (n: number) => Math.round(n * 100) / 100
+
 function polar(cx: number, cy: number, r: number, deg: number) {
   const rad = ((deg - 90) * Math.PI) / 180
-  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) }
+  return { x: q(cx + r * Math.cos(rad)), y: q(cy + r * Math.sin(rad)) }
 }
 
 function arcPath(cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
