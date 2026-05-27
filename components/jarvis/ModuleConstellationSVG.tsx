@@ -36,6 +36,11 @@ const PHASE_COLOR = {
   }
 } as const
 
+// Quantize trig outputs to 2-decimal precision so SSR (Node) and client (V8)
+// produce identical strings — Math.cos/Math.sin are spec-leniently
+// implementation-defined and drift in the last digits across runtimes.
+const r = (n: number) => Math.round(n * 100) / 100
+
 const SHORT_LABEL: Record<ModuleId, string> = {
   '01-foundations': 'FOUNDATIONS',
   '02-protocols': 'PROTOCOLS',
@@ -84,10 +89,10 @@ export function ModuleConstellationSVG({
           const phase = m.phase as 1 | 2 | 3
           const cosA = Math.cos(rad)
           const sinA = Math.sin(rad)
-          const x1 = size / 2 + coreRadius * cosA
-          const y1 = size / 2 + coreRadius * sinA
-          const x2 = size / 2 + (radius - 28) * cosA
-          const y2 = size / 2 + (radius - 28) * sinA
+          const x1 = r(size / 2 + coreRadius * cosA)
+          const y1 = r(size / 2 + coreRadius * sinA)
+          const x2 = r(size / 2 + (radius - 28) * cosA)
+          const y2 = r(size / 2 + (radius - 28) * sinA)
           return (
             <line
               key={`line-${m.id}`}
@@ -151,10 +156,12 @@ export function ModuleConstellationSVG({
       {modules.map((m, i) => {
         const angleDeg = i * 30 - 90 // start at top, clockwise
         const rad = (angleDeg * Math.PI) / 180
-        const x = size / 2 + radius * Math.cos(rad)
-        const y = size / 2 + radius * Math.sin(rad)
-        const labelX = size / 2 + (radius + 28) * Math.cos(rad)
-        const labelY = size / 2 + (radius + 28) * Math.sin(rad)
+        const cosA = Math.cos(rad)
+        const sinA = Math.sin(rad)
+        const x = r(size / 2 + radius * cosA)
+        const y = r(size / 2 + radius * sinA)
+        const labelX = r(size / 2 + (radius + 28) * cosA)
+        const labelY = r(size / 2 + (radius + 28) * sinA)
         const phase = m.phase as 1 | 2 | 3
         const c = PHASE_COLOR[phase]
         return (
