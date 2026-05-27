@@ -47,7 +47,7 @@ function ParallaxCamera() {
   return null
 }
 
-function MasteryCore({ percent }: { percent: number }) {
+function MasteryCore() {
   const meshRef = useRef<THREE.Mesh>(null)
   useFrame(({ clock }) => {
     if (!meshRef.current) return
@@ -55,28 +55,15 @@ function MasteryCore({ percent }: { percent: number }) {
     meshRef.current.rotation.x = clock.getElapsedTime() * 0.07
   })
   return (
-    <group>
-      <mesh ref={meshRef}>
-        <icosahedronGeometry args={[1.2, 1]} />
-        <meshStandardMaterial
-          color="#00f0ff"
-          emissive="#00f0ff"
-          emissiveIntensity={0.8}
-          wireframe
-        />
-      </mesh>
-      <Html center distanceFactor={8}>
-        <div className="pointer-events-none whitespace-nowrap text-center">
-          <div className="font-display text-5xl font-bold leading-none text-cyan glow-cyan-strong tabular-nums">
-            {Math.round(percent)}
-            <span className="ml-1 text-2xl text-cyan/60">%</span>
-          </div>
-          <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.2em] text-cyan/60">
-            CURRICULUM MASTERY
-          </div>
-        </div>
-      </Html>
-    </group>
+    <mesh ref={meshRef}>
+      <icosahedronGeometry args={[1.2, 1]} />
+      <meshStandardMaterial
+        color="#00f0ff"
+        emissive="#00f0ff"
+        emissiveIntensity={0.8}
+        wireframe
+      />
+    </mesh>
   )
 }
 
@@ -174,11 +161,26 @@ export function ModuleConstellation3D({ totalMasteryPercent }: ModuleConstellati
         <pointLight position={[0, 0, 5]} color="#00f0ff" intensity={2} />
         <ParallaxCamera />
         <OrbitalRings />
-        <MasteryCore percent={totalMasteryPercent} />
+        <MasteryCore />
         {modules.map((m, i) => (
           <ModuleNode key={m.id} index={i} module={m} />
         ))}
       </Canvas>
+      {/* Mastery percent overlay — absolutely positioned HTML on top of the
+          canvas instead of R3F's <Html>, which doesn't size reliably under
+          an orthographic camera. pointer-events-none so the canvas still
+          receives parallax/click input. */}
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div className="text-center">
+          <div className="font-display text-5xl font-bold leading-none text-cyan glow-cyan-strong tabular-nums">
+            {Math.round(totalMasteryPercent)}
+            <span className="ml-1 text-2xl text-cyan/60">%</span>
+          </div>
+          <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.2em] text-cyan/60">
+            CURRICULUM MASTERY
+          </div>
+        </div>
+      </div>
       {/* Hidden accessible nav for screen readers */}
       <nav aria-label="Module navigation" className="sr-only">
         <ul>
