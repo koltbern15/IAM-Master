@@ -166,8 +166,14 @@ export function ModuleConstellation3D({ totalMasteryPercent }: ModuleConstellati
     <div className="relative" style={{ width: 600, height: 600 }}>
       <Canvas
         dpr={[1, 2]}
-        gl={{ antialias: true, alpha: true }}
+        gl={{ antialias: true, alpha: true, premultipliedAlpha: false }}
         style={{ background: 'transparent' }}
+        onCreated={({ gl }) => {
+          // Force the WebGL clear to fully transparent so the page-level
+          // AmbientBackground gradient + dot grid bleed through the
+          // canvas area instead of a dark rectangle showing.
+          gl.setClearColor(0x000000, 0)
+        }}
       >
         <OrthographicCamera makeDefault position={[0, 0, 10]} zoom={50} />
         <ambientLight intensity={0.2} />
