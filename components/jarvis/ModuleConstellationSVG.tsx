@@ -152,7 +152,9 @@ export function ModuleConstellationSVG({
         />
       </div>
 
-      {/* 12 module nodes + outward labels */}
+      {/* 12 module nodes + outward labels — labels are anchored to the edge
+          facing the ring center so they always extend AWAY from the node
+          circle instead of overlapping it. */}
       {modules.map((m, i) => {
         const angleDeg = i * 30 - 90 // start at top, clockwise
         const rad = (angleDeg * Math.PI) / 180
@@ -160,8 +162,13 @@ export function ModuleConstellationSVG({
         const sinA = Math.sin(rad)
         const x = r(size / 2 + radius * cosA)
         const y = r(size / 2 + radius * sinA)
-        const labelX = r(size / 2 + (radius + 28) * cosA)
-        const labelY = r(size / 2 + (radius + 28) * sinA)
+        // Label sits ~32px outside the node's outer edge along the radial line
+        const labelX = r(size / 2 + (radius + 38) * cosA)
+        const labelY = r(size / 2 + (radius + 38) * sinA)
+        // Directional anchoring so the label edge nearest the ring touches
+        // the anchor point, and the rest of the text spreads outward.
+        const tx = cosA > 0.3 ? '0%' : cosA < -0.3 ? '-100%' : '-50%'
+        const ty = sinA > 0.3 ? '0%' : sinA < -0.3 ? '-100%' : '-50%'
         const phase = m.phase as 1 | 2 | 3
         const c = PHASE_COLOR[phase]
         return (
@@ -193,10 +200,10 @@ export function ModuleConstellationSVG({
             <span
               aria-hidden="true"
               className={cn(
-                'pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-mono text-[9px] uppercase tracking-[0.15em]',
+                'pointer-events-none absolute whitespace-nowrap font-mono text-[9px] uppercase tracking-[0.15em]',
                 c.label
               )}
-              style={{ left: labelX, top: labelY }}
+              style={{ left: labelX, top: labelY, transform: `translate(${tx}, ${ty})` }}
             >
               {SHORT_LABEL[m.id]}
             </span>
