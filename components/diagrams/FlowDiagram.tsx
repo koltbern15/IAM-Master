@@ -3,6 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
+import { HoloPanel } from '@/components/jarvis/HoloPanel'
 
 export interface FlowNode {
   id: string
@@ -183,17 +184,28 @@ export function FlowDiagram({
             if (!from || !to) return null
             const lx = (from.x + to.x) / 2
             const ly = (from.y + to.y) / 2 - 14 - (i % 2) * 14
+            // Width tracks label length so 20+ char labels (e.g. "Unsolicited Response")
+            // don't overflow the background rect's color band.
+            const rectWidth = Math.max(72, s.label.length * 6.6 + 10)
+            const interactive = !!s.detail
             return (
-              <g key={`label-${s.id}`} role="button" aria-label={s.label} tabIndex={0}
-                onClick={() => setActiveStepId(s.id === activeStepId ? null : s.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    setActiveStepId(s.id === activeStepId ? null : s.id)
-                  }
-                }}
-                style={{ cursor: 'pointer' }}>
-                <rect x={lx - 36} y={ly - 9} width={72} height={18} rx={2}
+              <g key={`label-${s.id}`}
+                {...(interactive
+                  ? {
+                      role: 'button',
+                      'aria-label': s.label,
+                      tabIndex: 0,
+                      onClick: () => setActiveStepId(s.id === activeStepId ? null : s.id),
+                      onKeyDown: (e: React.KeyboardEvent) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setActiveStepId(s.id === activeStepId ? null : s.id)
+                        }
+                      },
+                      style: { cursor: 'pointer' }
+                    }
+                  : {})}>
+                <rect x={lx - rectWidth / 2} y={ly - 9} width={rectWidth} height={18} rx={2}
                   fill="rgba(10,10,15,0.85)"
                   stroke={INTENT_STROKE[s.intent ?? 'default']} strokeOpacity={0.55} />
                 <text x={lx} y={ly + 4} textAnchor="middle" fill="#00f0ff"
@@ -239,15 +251,14 @@ export function FlowDiagram({
       </svg>
 
       {activeStep && activeStep.detail && (
-        <div className="mt-4 border-l-2 border-cyan/60 bg-cyan/5 px-4 py-3">
-          <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.15em] text-cyan/70">
-            ▸ {activeStep.label} // DETAIL
-          </div>
-          <div className="whitespace-pre-wrap text-sm text-foreground">{activeStep.detail}</div>
-          <button type="button" onClick={() => setActiveStepId(null)}
-            className="mt-3 rounded-[2px] border border-cyan/30 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.15em] text-cyan/70 hover:bg-cyan/10 hover:text-cyan">
-            Close
-          </button>
+        <div className="mt-4">
+          <HoloPanel label={`${activeStep.label} // DETAIL`}>
+            <div className="whitespace-pre-wrap text-sm text-foreground">{activeStep.detail}</div>
+            <button type="button" onClick={() => setActiveStepId(null)}
+              className="mt-3 rounded-[2px] border border-cyan/30 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.15em] text-cyan/70 hover:bg-cyan/10 hover:text-cyan">
+              Close
+            </button>
+          </HoloPanel>
         </div>
       )}
     </figure>

@@ -40,6 +40,24 @@ describe('FlowDiagram', () => {
     expect(container.querySelector('filter[id^="jarvis-blur-depth-"]')).not.toBeNull()
   })
 
+  it('does not make steps without detail keyboard-focusable or clickable', () => {
+    const noDetailSteps: FlowStep[] = [
+      { id: 's1', from: 'client', to: 'kdc', label: 'INFO-ONLY' }
+    ]
+    render(<FlowDiagram title="t" width={600} height={480} nodes={NODES} steps={noDetailSteps} />)
+    expect(screen.queryByRole('button', { name: /INFO-ONLY/i })).not.toBeInTheDocument()
+  })
+
+  it('widens the step label rect for long labels so the color band covers full text', () => {
+    const longSteps: FlowStep[] = [
+      { id: 's1', from: 'client', to: 'kdc', label: 'Pass-Through Validate', detail: 'd' }
+    ]
+    const { container } = render(<FlowDiagram title="t" width={600} height={480} nodes={NODES} steps={longSteps} />)
+    const rect = container.querySelector('g[role="button"] rect') as SVGRectElement
+    expect(rect).not.toBeNull()
+    expect(parseFloat(rect.getAttribute('width')!)).toBeGreaterThan(72)
+  })
+
   describe('under prefers-reduced-motion: reduce', () => {
     beforeEach(() => {
       vi.stubGlobal('matchMedia', (q: string) => ({
