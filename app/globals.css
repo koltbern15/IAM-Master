@@ -128,4 +128,8 @@
     from { transform: translateX(40px); opacity: 0; }
     to   { transform: translateX(0);    opacity: 1; }
   }
+
+  [data-jarvis-glitch="true"] {
+    animation: jarvis-glitch 280ms steps(4, end) 1;
+  }
 }

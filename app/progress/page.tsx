@@ -7,6 +7,7 @@ import { RadialSegmentRing } from '@/components/jarvis/RadialSegmentRing'
 import { TelemetryValue } from '@/components/jarvis/TelemetryValue'
 import { getAllModules } from '@/lib/content'
 import { loadState } from '@/lib/progress'
+import { usePanelGlitch } from '@/hooks/use-panel-glitch'
 
 const TICKER = [
   'PROGRESS DASHBOARD',
@@ -18,6 +19,7 @@ const TICKER = [
 const PHASE_COLOR = { 1: '#00f0ff', 2: '#ffb800', 3: '#808080' } as const
 
 export default function ProgressPage() {
+  usePanelGlitch()
   const modules = getAllModules()
   const [state, setState] = useState(() => loadState())
 
