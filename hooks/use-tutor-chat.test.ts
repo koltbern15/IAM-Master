@@ -50,7 +50,10 @@ describe('useTutorChat', () => {
 
   it('surfaces an error when the stream throws', async () => {
     setKey()
-    streamMock.mockImplementation(async function* () { throw new Error('boom') })
+    streamMock.mockImplementation(async function* () {
+      throw new Error('boom')
+      yield '' // unreachable, satisfies require-yield
+    })
     const { result } = renderHook(() => useTutorChat('mod/sect'))
     await act(async () => { await result.current.sendMessage('hi', 'body') })
     expect(result.current.error).toMatch(/boom/)

@@ -46,7 +46,7 @@ describe('streamTutorReply', () => {
       userMessage: 'follow up',
       sectionContent: 'Section MDX body...'
     })
-    for await (const _ of iter) { /* drain */ }
+    for await (const _chunk of iter) { /* drain */ void _chunk }
     const args = streamMock.mock.calls.at(-1)![0]
     expect(args.model).toBe('claude-sonnet-4-6')
     expect(args.system).toBe('sys')
