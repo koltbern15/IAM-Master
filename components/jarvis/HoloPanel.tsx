@@ -49,6 +49,7 @@ export function HoloPanel({
         />
       )}
       <div
+        data-jarvis-panel=""
         className={cn(
           'relative border bg-panel-bg backdrop-blur-md p-4 rounded-[2px]',
           intentBorder[intent],

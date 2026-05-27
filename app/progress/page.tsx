@@ -7,6 +7,7 @@ import { RadialSegmentRing } from '@/components/jarvis/RadialSegmentRing'
 import { TelemetryValue } from '@/components/jarvis/TelemetryValue'
 import { getAllModules } from '@/lib/content'
 import { loadState } from '@/lib/progress'
+import { usePanelGlitch } from '@/hooks/use-panel-glitch'
 
 const TICKER = [
   'PROGRESS DASHBOARD',
@@ -18,6 +19,7 @@ const TICKER = [
 const PHASE_COLOR = { 1: '#00f0ff', 2: '#ffb800', 3: '#808080' } as const
 
 export default function ProgressPage() {
+  usePanelGlitch()
   const modules = getAllModules()
   const [state, setState] = useState(() => loadState())
 
@@ -70,7 +72,7 @@ export default function ProgressPage() {
           {modules.map((m) => {
             const completed = m.sections.filter((s) => state.progress.sections[`${m.id}/${s}`]?.completedAt).length
             return (
-              <HoloPanel key={m.id} label={`MOD ${String(m.order).padStart(2, '0')}`}>
+              <HoloPanel key={m.id} ambientBorder label={`MOD ${String(m.order).padStart(2, '0')}`}>
                 <div className="font-display text-base font-semibold uppercase tracking-[0.04em] text-foreground">
                   {m.title}
                 </div>
@@ -88,17 +90,17 @@ export default function ProgressPage() {
         </div>
 
         <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-3">
-          <HoloPanel label="STREAK">
+          <HoloPanel ambientBorder label="STREAK">
             <div className="font-display text-3xl text-cyan glow-cyan tabular-nums">
               <TelemetryValue value={state.streak.currentDays} suffix="d" />
             </div>
           </HoloPanel>
-          <HoloPanel label="LONGEST STREAK">
+          <HoloPanel ambientBorder label="LONGEST STREAK">
             <div className="font-display text-3xl text-cyan glow-cyan tabular-nums">
               <TelemetryValue value={state.streak.longestDays} suffix="d" />
             </div>
           </HoloPanel>
-          <HoloPanel label="QUIZ ATTEMPTS">
+          <HoloPanel ambientBorder label="QUIZ ATTEMPTS">
             <div className="font-display text-3xl text-cyan glow-cyan tabular-nums">
               <TelemetryValue value={Object.values(state.quizzes).reduce((s, q) => s + q.attempts.length, 0)} />
             </div>

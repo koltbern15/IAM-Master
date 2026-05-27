@@ -123,3 +123,21 @@ export function recordQuizAttempt(quizId: string, attempt: QuizAttempt): void {
   s.quizzes[quizId] = existing
   saveState(s)
 }
+
+/** Returns the persisted message history for a section (empty array if none). */
+export function loadTutorHistory(sectionId: string): { role: 'user' | 'assistant'; content: string; at: string }[] {
+  const s = loadState()
+  return s.tutorHistory[sectionId]?.messages ?? []
+}
+
+/** Appends a tutor message to the section history and persists. */
+export function appendTutorMessage(
+  sectionId: string,
+  message: { role: 'user' | 'assistant'; content: string }
+): void {
+  const s = loadState()
+  const existing = s.tutorHistory[sectionId] ?? { sectionId, messages: [] }
+  existing.messages = [...existing.messages, { ...message, at: new Date().toISOString() }]
+  s.tutorHistory[sectionId] = existing
+  saveState(s)
+}

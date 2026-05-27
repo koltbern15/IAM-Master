@@ -5,6 +5,7 @@ import { HudShell } from '@/components/layout/HudShell'
 import { ModuleConstellationSVG } from '@/components/jarvis/ModuleConstellationSVG'
 import { computeMastery } from '@/lib/mastery'
 import { loadState } from '@/lib/progress'
+import { usePanelGlitch } from '@/hooks/use-panel-glitch'
 
 const SAMPLE_TICKER = [
   'SYSTEM ONLINE',
@@ -16,6 +17,7 @@ const SAMPLE_TICKER = [
 ]
 
 export default function HomePage() {
+  usePanelGlitch()
   const [mastery, setMastery] = useState(() => computeMastery(loadState()))
 
   useEffect(() => {

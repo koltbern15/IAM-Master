@@ -19,7 +19,7 @@ describe('BootSequence', () => {
       </BootSequence>
     )
     expect(screen.getByText('app-content')).toBeInTheDocument()
-    expect(screen.getByText(/INITIALIZING/i)).toBeInTheDocument()
+    expect(screen.getByText(/SYSTEM ONLINE/i)).toBeInTheDocument()
   })
 
   it('skips the boot overlay when sessionStorage flag is already set', () => {
@@ -29,7 +29,7 @@ describe('BootSequence', () => {
         <div>app-content</div>
       </BootSequence>
     )
-    expect(screen.queryByText(/INITIALIZING/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/SYSTEM ONLINE/i)).not.toBeInTheDocument()
   })
 
   it('skips boot under prefers-reduced-motion', () => {
@@ -43,7 +43,7 @@ describe('BootSequence', () => {
         <div>app-content</div>
       </BootSequence>
     )
-    expect(screen.queryByText(/INITIALIZING/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/SYSTEM ONLINE/i)).not.toBeInTheDocument()
   })
 
   it('sets sessionStorage flag after boot completes', async () => {

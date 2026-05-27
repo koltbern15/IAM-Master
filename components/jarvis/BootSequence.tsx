@@ -48,7 +48,7 @@ export function BootSequence({ children }: BootSequenceProps) {
               <GlitchText glitch>IAM MASTERY</GlitchText>
             </div>
             <div className="font-mono text-xs uppercase tracking-[0.2em] text-cyan/60 animate-[jarvis-boot-type_2500ms_steps(20,end)_500ms_forwards] overflow-hidden whitespace-nowrap">
-              INITIALIZING SYSTEM...
+              <GlitchText glitch>SYSTEM ONLINE</GlitchText>
             </div>
           </div>
         </div>
