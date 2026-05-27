@@ -56,11 +56,13 @@ function MasteryCore() {
   })
   return (
     <mesh ref={meshRef}>
-      <icosahedronGeometry args={[1.2, 1]} />
+      {/* Smaller radius + subdivision 0 = sparser wireframe that doesn't
+          fight with the mastery % overlay sitting on top of it. */}
+      <icosahedronGeometry args={[0.55, 0]} />
       <meshStandardMaterial
         color="#00f0ff"
         emissive="#00f0ff"
-        emissiveIntensity={0.8}
+        emissiveIntensity={0.9}
         wireframe
       />
     </mesh>
