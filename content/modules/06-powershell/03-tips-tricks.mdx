@@ -1,0 +1,289 @@
+{/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Objective 1.1 — Plan and implement an identity management solution (PowerShell tooling implicit throughout) [VERIFY]
+- **Security+ SY0-701** Objective 4.7 — Automate and orchestrate security using scripting (secure coding and script hygiene subset)
+- **CISSP** Domain 8.1 — Understand and integrate security in the SDLC (script-as-code discipline)
+</HoloPanel>
+
+# PowerShell Tips, Tricks, and Anti-Patterns
+
+The recipes in the previous section tell you what to run. This section tells you how to not embarrass yourself — or worse, how to not create the incident you were writing the script to prevent. These are the hard-won lessons from scripts that ran beautifully in testing and quietly destroyed something in production, from audit findings that traced back to a sloppy credential-handling pattern, and from security incidents that were enabled by PowerShell itself. Read this once. Come back to it when something breaks.
+
+## When to reach for it
+
+When you are writing a script that will run in production, run on a schedule, or be reviewed by someone who is not you — consult this section before you ship it. The tips here are not style preferences. They are the difference between a script that is an asset and a script that is a liability.
+
+## The pipeline philosophy
+
+PowerShell's core insight is that cmdlets emit objects, not strings. Every `Get-MgUser` returns an array of `MicrosoftGraphUser` objects with typed properties. The pipeline passes those objects — not their text representations — from one cmdlet to the next. This matters because string manipulation is fragile and unnecessary when you have objects.
+
+<PowerShellBlock title="Objects, not strings — the right approach">{`# WRONG: Converting to string kills the object model
+Get-MgUser -All | ForEach-Object { $_.ToString() } | Where-Object { $_ -match "smith" }
+
+# RIGHT: Filter on the object property before it ever becomes text
+Get-MgUser -All | Where-Object { $_.DisplayName -like "*smith*" }
+
+# EVEN BETTER: Server-side filter (see the performance section below)
+Get-MgUser -Filter "startsWith(displayName,'Smith')" -ConsistencyLevel eventual -All
+
+# WRONG: Manually building CSV strings
+Get-MgUser -All | ForEach-Object { "$($_.DisplayName),$($_.UserPrincipalName)" }
+
+# RIGHT: Export the objects; PowerShell builds the CSV correctly
+Get-MgUser -All | Select-Object DisplayName, UserPrincipalName | Export-Csv -NoTypeInformation`}</PowerShellBlock>
+
+The moment you call `.ToString()` on an object, you have left the object pipeline. Everything downstream is now a string search, which is slower, more fragile, and ignores the type information PowerShell uses for sorting, grouping, and filtering. Do not do it unless you have a specific reason that requires a string.
+
+## Production-grade script structure
+
+Scripts that run on a schedule, are shared with a team, or touch production data are production software. They need the same discipline as production code.
+
+<PowerShellBlock title="Production script scaffold">{`#Requires -Version 7.0
+#Requires -Modules Microsoft.Graph.Users, Microsoft.Graph.Groups
+
+<#
+.SYNOPSIS
+  Brief one-line description of what this script does.
+.DESCRIPTION
+  Detailed explanation. What it reads, what it writes, what it needs.
+.PARAMETER TenantId
+  The Entra ID tenant GUID. Defaults to the tenant of the connected Graph session.
+.PARAMETER OutputPath
+  Path to write the CSV export. Defaults to C:\Audits\<ScriptName>_<timestamp>.csv
+.NOTES
+  Owner:     john.smith@contoso.com
+  Reviewed:  2026-05-27
+  Expires:   2027-05-27  # force an annual review; add this to a calendar reminder
+  Modules:   Microsoft.Graph 2.x (EOL: review at https://aka.ms/graphpowershell)
+#>
+
+[CmdletBinding(SupportsShouldProcess)]
+param(
+  [Parameter()]
+  [string]$TenantId,
+
+  [Parameter()]
+  [string]$OutputPath = "C:\Audits\Report_$(Get-Date -Format 'yyyyMMdd-HHmm').csv"
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"   # make non-terminating errors terminating
+
+Write-Verbose "Script starting. OutputPath: $OutputPath"
+
+try {
+  Connect-MgGraph -Scopes "User.Read.All" -NoWelcome
+  Write-Verbose "Connected to Graph as $(Get-MgContext | Select-Object -ExpandProperty Account)"
+
+  # ... script body ...
+
+} catch {
+  Write-Error "Script failed: $($_.Exception.Message)"
+  exit 1
+} finally {
+  Disconnect-MgGraph -ErrorAction SilentlyContinue
+  Write-Verbose "Disconnected from Graph."
+}`}</PowerShellBlock>
+
+The `[CmdletBinding()]` attribute gives you `Write-Verbose`, `Write-Debug`, `-WhatIf`, and `-Confirm` for free. The `.NOTES` block with an `Expires` date is the single change that would have prevented the deprovisioning-script disaster in the previous section. Set a calendar reminder the same day you add the date.
+
+## Error handling that actually works
+
+PowerShell has two error categories: terminating (stop execution immediately) and non-terminating (write to `$Error`, keep running). The default behavior of most cmdlets is non-terminating, which means a failure is logged and execution continues — silently, in a scheduled task, where you will never see the output.
+
+<PowerShellBlock title="Error handling patterns">{`# Pattern 1: Set at the script level and use try/catch everywhere
+$ErrorActionPreference = "Stop"   # elevates all non-terminating errors to terminating
+
+try {
+  $user = Get-MgUser -UserId "nonexistent@contoso.com" -ErrorAction Stop
+} catch [Microsoft.Graph.PowerShell.Authentication.Exceptions.AuthenticationException] {
+  Write-Error "Authentication failed — token expired or insufficient scope."
+  exit 1
+} catch {
+  # Generic catch for anything else
+  Write-Warning "Could not find user: $($_.Exception.Message)"
+  # Log and continue (or exit — depends on whether one failure should abort the whole batch)
+}
+
+# Pattern 2: Capture and report at the end of a batch loop
+$failures = @()
+foreach ($upn in $userList) {
+  try {
+    $user = Get-MgUser -UserId $upn -ErrorAction Stop
+    # ... process user ...
+  } catch {
+    $failures += [PSCustomObject]@{ UPN = $upn; Error = $_.Exception.Message }
+  }
+}
+
+if ($failures.Count -gt 0) {
+  Write-Warning "$($failures.Count) failures:"
+  $failures | Format-Table -AutoSize
+  # Export failures separately so they can be retried
+  $failures | Export-Csv -Path "C:\Audits\Failures_$(Get-Date -Format 'yyyyMMdd-HHmm').csv" \`
+                         -NoTypeInformation
+}`}</PowerShellBlock>
+
+The critical insight: `-ErrorAction Stop` on a single cmdlet call overrides the default for that call only. Setting `$ErrorActionPreference = "Stop"` at the top of the script is the belt. Using `-ErrorAction Stop` on specific calls is the suspenders. Wear both.
+
+## Server-side filter vs Where-Object — this matters
+
+This is the single biggest performance mistake in PowerShell IAM scripts. `Where-Object` runs client-side — it downloads the entire dataset and filters it locally. The `-Filter` parameter on Graph cmdlets runs server-side — the API returns only the matching records.
+
+<PowerShellBlock title="Filter performance comparison">{`# CLIENT-SIDE: Downloads every user in the tenant (could be 50,000 objects), filters locally
+# In a tenant with 50k users, this pulls ~50MB of JSON before filtering
+$staleUsers = Get-MgUser -All | Where-Object { $_.Department -eq "Finance" }
+
+# SERVER-SIDE: API returns only Finance users — could be 200 records instead of 50,000
+$staleUsers = Get-MgUser -Filter "department eq 'Finance'" -All
+
+# For ActiveDirectory module — same principle
+# CLIENT-SIDE (slow, loads all AD objects):
+Get-ADUser -Filter * | Where-Object { $_.Department -eq "Finance" }
+
+# SERVER-SIDE (LDAP filter, fast):
+Get-ADUser -Filter { Department -eq "Finance" } -Properties Department
+
+# LDAP filter string (fastest — direct LDAP syntax, no PowerShell translation layer):
+Get-ADUser -LDAPFilter "(&(objectClass=user)(department=Finance))" -Properties Department`}</PowerShellBlock>
+
+In a tenant with 10,000 users the difference is seconds vs milliseconds. In a tenant with 100,000 users the `Where-Object` pattern times out, the `-Filter` pattern completes in under a minute. In an AD environment with 500,000 objects, the wrong filter pattern turns a nightly audit script into a 3-hour DC hammering exercise. Use server-side filters.
+
+## Credential handling — the right way
+
+<PowerShellBlock title="Secure credential patterns">{`# NEVER do this in a production script:
+$password = ConvertTo-SecureString "HardcodedPassword!" -AsPlainText -Force
+
+# NEVER do this either (the password is in the command history and any log):
+Connect-MgGraph -ClientSecret "abc123-hardcoded-secret" -ClientId "..."
+
+# Pattern 1: Interactive (for scripts run by a human)
+$cred = Get-Credential -Message "Enter service account credentials"
+
+# Pattern 2: SecretManagement vault (for scheduled tasks on managed machines)
+# Requires: Install-Module Microsoft.PowerShell.SecretManagement, Microsoft.PowerShell.SecretStore
+$secret = Get-Secret -Name "GraphAppClientSecret" -Vault "CorpVault"
+
+# Pattern 3: Managed Identity (for scripts running in Azure — VM, Automation Account, Function)
+# No credential at all — Azure handles it:
+Connect-MgGraph -Identity   # picks up the managed identity automatically
+
+# Pattern 4: Certificate-based auth for service principals (preferred over client secrets)
+Connect-MgGraph -TenantId   $tenantId \`
+                -ClientId   $clientId \`
+                -CertificateThumbprint $thumbprint   # cert stored in machine cert store`}</PowerShellBlock>
+
+The certificate pattern (Pattern 4) is preferred over client secrets for service principals because certificates have a public/private key pair — the private key never leaves the machine's certificate store, and there is nothing to accidentally paste into a Slack message. Client secrets are strings that live in KeePass, email threads, and eventually a GitHub commit if you are unlucky.
+
+## PowerShell 7 vs 5.1 gotchas
+
+<PowerShellBlock title="Version-specific gotchas">{`# JSON depth default: 5.1 = depth 2, 7+ = depth 100
+# This silently truncates nested objects in 5.1:
+$policy | ConvertTo-Json                          # 5.1: depth 2 — nested arrays get "..."
+$policy | ConvertTo-Json -Depth 10               # explicitly set depth in either version
+
+# Parallel processing: ForEach-Object -Parallel only exists in 7+
+# 5.1 equivalent: runspaces (much more complex; avoid unless you need it)
+$users | ForEach-Object -Parallel {
+  # This block runs in a separate runspace
+  Get-MgUser -UserId $_ -ErrorAction SilentlyContinue
+} -ThrottleLimit 10   # max concurrent runspaces
+
+# Check your version at the top of scripts that require 7+:
+#Requires -Version 7.0   # script will refuse to run on 5.1
+
+# Null handling: 7+ introduced $null-conditional operators
+$user?.DisplayName      # returns $null if $user is $null, not an error (7+ only)
+$array?.Count           # same pattern`}</PowerShellBlock>
+
+The `ConvertTo-Json` depth gotcha has burned people doing Conditional Access policy exports — the nested grant controls and session controls serialize to `"..."` in 5.1 with the default depth, and nobody notices until the auditor tries to parse the export.
+
+## Debugging tricks
+
+<PowerShellBlock title="The Format-List debugging pattern">{`# When you get an object back and don't know what properties it has:
+# WRONG: pipe to Get-Member first — you see method signatures, not values
+$user | Get-Member
+
+# RIGHT: pipe to Format-List to see all properties WITH their current values
+$user | Format-List *
+
+# For nested objects (Graph returns a lot of these):
+$user | ConvertTo-Json -Depth 5 | Out-String | Write-Host
+
+# To find which property holds what you need:
+$user | Format-List * | Select-String "mail"   # search the formatted output
+
+# For pipeline debugging: inject Select-Object -First 1 early to work on a single object
+Get-MgUser -All | Select-Object -First 1 | Format-List *
+# Once you know the property names, expand to full set`}</PowerShellBlock>
+
+`Format-List *` is the fastest way to understand an unfamiliar object. `Get-Member` tells you the type signature; `Format-List *` tells you what is actually in it right now.
+
+## Invoke-Expression is poison
+
+`Invoke-Expression` evaluates a string as PowerShell code. If any part of that string comes from user input, a file, a database, a parameter, or an API response, you have a code injection vulnerability — the PowerShell equivalent of `eval()` in JavaScript or an unsanitized SQL query.
+
+<PowerShellBlock title="Invoke-Expression — the injection pattern">{`# DANGEROUS: If $userInput comes from anywhere external, this is code injection
+$command    = "Get-MgUser -UserId '$userInput'"
+Invoke-Expression $command
+
+# WHAT AN ATTACKER SENDS as $userInput:
+# '; Remove-MgUser -UserId "admin@contoso.com" -Confirm:$false; #
+
+# SAFE alternative: use the cmdlet directly with validated parameters
+[ValidatePattern('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')]
+[string]$upn
+
+Get-MgUser -UserId $upn   # parameter is never evaluated as code
+
+# Also dangerous (same injection surface):
+$filter = "displayName eq '$userInput'"
+Get-MgUser -Filter $filter
+# If $userInput = "' or '1' eq '1" you get all users regardless of filter`}</PowerShellBlock>
+
+`Invoke-Expression` has no legitimate use in an IAM script. If you find yourself reaching for it, stop and ask what problem you are actually solving — there is always a direct cmdlet call or a parameterized pattern that achieves the same thing without the injection surface.
+
+## Pitfalls
+
+<ProTip>
+**`Where-Object` after `Get-MgUser -All` in a large tenant is a production incident waiting to happen.** Not a style issue — a capacity issue. A 90,000-user tenant returns ~90MB of JSON from `-All` before `Where-Object` sees a single record. That runs in your session, ties up your connection, and may time out entirely. Always use server-side `-Filter` for Graph cmdlets and LDAP filters for AD cmdlets. Reserve `Where-Object` for post-processing a reasonably sized result set.
+</ProTip>
+
+<WarStory title="The vendor script that became a domain takeover">
+A mid-size bank contracts a third-party compliance vendor to run a quarterly AD audit. The vendor ships a PowerShell script and asks to run it with Domain Admin credentials — "just for this quarter's report, it's read-only." The script is several hundred lines. The bank's IT lead skims it, sees `Get-ADUser`, `Get-ADGroup`, and `Get-ADComputer` calls, and approves it.
+
+The script contains three calls to `Invoke-Expression`, each taking input from a config file that the vendor controls and that gets downloaded fresh each run. The bank's penetration testing team — brought in two weeks later for an unrelated assessment — examines the script, modifies the vendor's config file (the bank's firewall allowed outbound HTTPS to the vendor's CDN), injects a reverse-shell payload into one of the `Invoke-Expression` calls, waits for the next scheduled run, and achieves a Domain Admin shell within 20 minutes of the script execution.
+
+No exploitation of a CVE. No zero-day. Just `Invoke-Expression` with external input running under a Domain Admin service account.
+
+The vendor was terminated. The bank now requires that all third-party PowerShell scripts go through a security review before execution — specifically checking for `Invoke-Expression`, `[System.Reflection.Assembly]::LoadFrom`, and network calls to external endpoints. The service account for vendor scripts was re-scoped to the minimum permissions needed per vendor, per engagement. The lesson: "read-only" does not mean "safe," and a script is as privileged as the account running it.
+</WarStory>
+
+## Drill
+
+<Quiz question={{
+  id: "06-powershell/03-tips-tricks/q1",
+  prompt: "A script runs `Get-MgUser -All | Where-Object { $_.Department -eq 'Finance' }` against a 75,000-user tenant. The script times out. What is the correct fix?",
+  options: [
+    "Increase the PowerShell execution timeout using `$PSSessionOption.OperationTimeout`.",
+    "Replace the client-side Where-Object filter with a server-side Graph API filter: `Get-MgUser -Filter \"department eq 'Finance'\" -All`.",
+    "Split the operation into batches of 1,000 users using `-Top 1000` and loop.",
+    "Add `-AsJob` to run the filter in a background job."
+  ],
+  correctIndex: 1,
+  explanation: "Where-Object filters client-side — it downloads all 75,000 user objects before filtering. The Graph API -Filter parameter runs server-side, returning only Finance users. This changes the payload from tens of MB to a small subset and eliminates the timeout. Batching and background jobs address symptoms; server-side filtering addresses the cause."
+}} />
+
+<Quiz question={{
+  id: "06-powershell/03-tips-tricks/q2",
+  prompt: "A scheduled task script stores the service principal client secret as: `$secret = ConvertTo-SecureString 'abc123' -AsPlainText -Force`. A security reviewer flags this. What is the correct remediation for a script running on an Azure VM?",
+  options: [
+    "Encrypt the string with `ConvertFrom-SecureString` and store the ciphertext in the script.",
+    "Move the secret to an environment variable on the VM so it is not in the script file.",
+    "Replace the client secret with certificate-based auth and use Connect-MgGraph with -CertificateThumbprint, or use Managed Identity (`Connect-MgGraph -Identity`) which requires no credential at all.",
+    "Rotate the client secret every 30 days and update the script automatically via a CI/CD pipeline."
+  ],
+  correctIndex: 2,
+  explanation: "For a script running on an Azure VM, Managed Identity (Connect-MgGraph -Identity) is the correct answer — no credential stored anywhere, Azure handles token issuance. Certificate-based auth is the correct alternative when Managed Identity is unavailable. Environment variables still contain plaintext at runtime. Rotating secrets more frequently reduces exposure window but does not eliminate the underlying credential-in-code problem."
+}} />
