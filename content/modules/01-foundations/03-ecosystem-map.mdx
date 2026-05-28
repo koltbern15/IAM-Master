@@ -1,0 +1,141 @@
+{/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-900** Study Area 2 — Describe Microsoft Entra ID capabilities [VERIFY exact sub-objective label]
+- **SC-300** Objective 1.1 — Plan and implement an identity management solution (vendor landscape framing) [VERIFY]
+- **Security+ SY0-701** Objective 4.6 — Implement and maintain identity and access management (vendor categories)
+- **CISSP** Domain 5.4 — Implement and manage authorization mechanisms (vendor categories context)
+</HoloPanel>
+
+# The IAM Ecosystem
+
+You will spend your entire IAM career inside this ecosystem. You will evaluate vendors from it, build integrations across it, and get pulled into budget conversations where someone asks you to justify why four separate products are doing things that one vendor claims it can do alone. You need a mental map before any of that makes sense. This section builds that map. By the end you will know what each category of tool does, why the categories exist as separate things rather than one unified platform, and how the current consolidation wave is redrawing the lines.
+
+## What it is
+
+The IAM ecosystem is the full set of tool categories that an enterprise uses to manage digital identity across its workforce, customers, and infrastructure. No single vendor covers every category at enterprise grade — not yet, and arguably not desirable — so most organizations run a portfolio of products that each own a slice of the identity problem.
+
+The categories are not arbitrary. Each one crystallized around a distinct set of requirements that the adjacent categories do not address well. <Definition term="Identity Provider (IdP)">The system that performs authentication and issues tokens. The IdP is the source of identity truth for downstream applications. Examples: Microsoft Entra ID, Okta, Ping Identity, Auth0. The IdP is the first call in any access flow — prove who you are here, then take this token to the application.</Definition> emerged because applications should not manage their own credential stores. <Definition term="Identity Governance and Administration (IGA)">The layer responsible for identity lifecycle management: provisioning accounts when users join, modifying access when they move roles, deprovisioning when they leave. IGA also handles access reviews, Separation of Duties (SoD) enforcement, and certification campaigns. Examples: SailPoint IdentityNow, Saviynt, Microsoft Entra ID Governance.</Definition> emerged because IdPs are good at authentication but have no workflow engine for joiner/mover/leaver or access recertification at scale. Each category has a reason for existing that goes beyond vendor marketing.
+
+Understanding the categories also prevents you from asking the wrong vendor for the wrong capability — a failure mode that produces very expensive integrations that almost work.
+
+## Why it exists
+
+The story of IAM tool proliferation is the story of the enterprise IT stack growing faster than any single vendor could follow.
+
+In the 1990s, **Active Directory** (launched 1999) was the complete answer: directory, authentication, group policy, and a primitive authorization model all in one. It worked because the enterprise was the office. Every user, device, and application lived inside the domain. AD's Kerberos-based authentication, LDAP directory, and Group Policy engine were the entire IAM stack for most organizations for two decades.
+
+The stack fractured when SaaS arrived. AD authenticates against accounts that live in your forest. Salesforce does not live in your forest. The gap between "on-prem directory" and "cloud application" produced the first wave of IdP products — SAML-capable federation services that could issue tokens AD-native systems could not. Microsoft's ADFS, then Okta, then Ping filled that gap. The IdP category was born from the SaaS problem.
+
+IGA emerged from the compliance problem. SOX, HIPAA, and PCI-DSS all require evidence that access is granted on a least-privilege basis, reviewed periodically, and removed when no longer needed. AD had no workflow engine for any of that. SailPoint, Sailpoint's predecessor Waveset, and eventually Saviynt built the joiner/mover/leaver orchestration and the certification campaign machinery that auditors require. The IGA category was born from the regulatory problem.
+
+PAM emerged from the privileged access problem. A domain admin account with unlimited standing access is the single highest-value target in an on-prem environment. Attackers who reach it own the domain. **CyberArk** — founded in 1999, IPO in 2014 — built the vault-and-broker model: store privileged credentials in an encrypted vault, broker their use through a session recording proxy, never expose the cleartext password to the requesting admin. The PAM category was born from the breach problem.
+
+CIAM emerged from scale. Workforce IAM handles thousands of known employees; CIAM handles millions of unknown consumers. The access patterns differ (social login, self-service registration, lower friction tolerance), SLAs differ (five-nines on a consumer login page that sees Black Friday traffic), and privacy requirements differ (CCPA, GDPR consent management). Auth0 was the canonical CIAM-first build; Okta acquired it in 2021.
+
+<ProTip>
+When you are evaluating a vendor's platform pitch, ask them where their product sits in this taxonomy. If they say "we cover IdP, IGA, and PAM" — which is increasingly common — ask for a reference customer using all three modules at enterprise scale. The platforms that genuinely cover multiple categories at depth are recent; many are still strongest in the category they were founded in. The integration story between their own modules is often rougher than the sales deck suggests.
+</ProTip>
+
+## How it works under the hood
+
+The seven categories of the IAM ecosystem and how they interlock:
+
+<EcosystemMap />
+
+### Identity Provider (IdP)
+
+The IdP is the AuthN/AuthZ hub. Every access flow starts here: the user or service presents a credential, the IdP validates it, evaluates contextual policy (Conditional Access, sign-on policy, risk signals), and issues a token (OIDC ID token + access token, SAML assertion, Kerberos ticket). Applications trust the IdP's signed output and grant access based on the claims inside.
+
+**Entra ID** (formerly Azure AD) is the dominant workforce IdP in the enterprise market, particularly for Microsoft-heavy shops. It integrates natively with Microsoft 365, Azure RBAC, and a growing IGA layer (Entra ID Governance). **Okta** is the leading non-Microsoft alternative, with deep application catalog depth (7,000+ pre-built integrations) and a strong multi-cloud story. **Ping Identity** sits in the financial-services and government segments where on-prem deployment and fine-grained policy control matter. **Auth0** (now Okta CIC) is the CIAM-first variant — developer-friendly, API-first, built for consumer-scale authentication.
+
+### Identity Governance and Administration (IGA)
+
+IGA sits above the IdP and drives the lifecycle. When HR says a new employee starts Monday, IGA is what translates that event into: provision an AD account, sync to Entra ID, assign the standard role bundle for the job code, send the manager a welcome checklist, and log the whole chain for SOX evidence. When the same employee moves to a new department, IGA drives the role change — removes the old department's access, provisions the new one, and handles the SoD check that catches cases where the new role combined with a legacy role creates a conflict. When the employee leaves, IGA orchestrates account disable, credential revocation, access removal across all connected systems, and 90-day archive before final delete.
+
+**SailPoint IdentityNow** is the enterprise IGA market leader. **Saviynt** has been aggressive in cloud-native and healthcare. **Microsoft Entra ID Governance** is eating SailPoint's lower tier — Microsoft-licensed enterprises can absorb it without a separate IGA contract. IGA is the most disrupted segment of the market right now.
+
+### Privileged Access Management (PAM)
+
+PAM protects the highest-privilege accounts — domain admins, root accounts, database superusers, cloud account root keys — through three mechanisms: vaulting (encrypted credential storage with checkout workflows), session brokering (all privileged sessions proxy through a recording jump server so every keystroke and click is logged), and just-in-time elevation (accounts have zero standing privilege; the PAM system grants time-limited elevation on request, then revokes it automatically).
+
+**CyberArk** is the established leader and the system you will encounter most in regulated industries. **BeyondTrust** is strong in mid-market with a more approachable deployment model. **Delinea** (ThycoticCentrify + Secret Server) is the third major player. **HashiCorp Vault** covers secrets management — API keys, database credentials, TLS certificates — rather than human privileged sessions, though the categories overlap at the edges.
+
+### Customer Identity and Access Management (CIAM)
+
+CIAM is workforce IAM's noisier, faster cousin. The population is external customers rather than employees; the authentication patterns favor social login (Google, Apple, Facebook sign-in) over enterprise federation; the consent and privacy requirements are governed by CCPA and GDPR rather than SOX; and the scale requirements are orders of magnitude higher. A bank's internal IdP handles 2,000 employees; the same bank's CIAM platform handles 300,000 retail customers and must sustain that through peak events (tax season, rate announcements) without degrading.
+
+**Auth0 / Okta CIC** is the dominant CIAM platform. **Azure AD B2C** (now being succeeded by Entra External ID) covers this space for Microsoft-first shops. **Ping Identity's PingOne for Customers** targets enterprise CIAM with more customization depth.
+
+### Directory Services
+
+The directory is the canonical user and group store — the ledger that says "these users exist, these groups contain these members, these attributes are true." AD DS (Active Directory Domain Services) remains the on-prem standard for enterprise; it is what Entra ID syncs FROM in hybrid environments via **Entra Connect** (formerly Azure AD Connect). **OpenLDAP** and **FreeIPA** are the open-source alternatives common in Linux-heavy environments. The directory is not the IdP — it is the data source the IdP reads when building tokens. The distinction matters when you are debugging a claim that is not appearing in a token: the problem is often in the directory attribute, not the IdP configuration.
+
+### MDM / UEM (Device Identity)
+
+Device identity is the signal that Conditional Access and Zero Trust policy use to distinguish a managed, compliant endpoint from an unknown one. **Microsoft Intune** dominates Windows and iOS/Android MDM in Microsoft shops. **Jamf** is the standard for Apple-heavy environments. The MDM system reports compliance state to the IdP — patch level, disk encryption, EDR agent — and the IdP's policy engine gates access on that signal. A device that falls out of compliance mid-session can trigger a Conditional Access block in near-real-time via Continuous Access Evaluation.
+
+### Cloud IAM
+
+Cloud IAM is a structurally different model. **AWS IAM**, **Azure RBAC**, and **GCP IAM** are resource-centric rather than user-centric: policies attach to resources, and the subject can be a human user, a machine identity (EC2 role, managed identity, GCP service account), or a cross-account role. There is no joiner/mover/leaver lifecycle built into native cloud IAM — that problem is pushed to the IGA layer if you have one, or it falls through the cracks. Cloud IAM is also where workload identity lives: proving which service is authorized to call which other service without hard-coding credentials.
+
+<Flashcard front="What is the key structural difference between workforce IAM and cloud IAM in terms of the authorization model?" back="Workforce IAM is user-centric: users are the primary subjects, permissions attach to roles/groups assigned to users. Cloud IAM is resource-centric: policies attach to resources and define which principals (human or machine) may access them. In cloud IAM, the machine identity (EC2 role, GCP service account, Azure managed identity) is a first-class principal equivalent to a user — a concept that workforce IAM tools were not designed to handle." />
+
+<Flashcard front="What is the purpose of just-in-time (JIT) elevation in PAM, and how does it reduce the attack surface compared to standing privilege?" back="JIT elevation grants a privileged account elevated permissions for a limited time window (e.g., 1 hour) and automatically removes them when the window expires. With standing privilege, a compromised credential has full privileged access at any moment. With JIT, a compromised credential has zero privilege outside an active elevation window — the attacker must either compromise during a live session or trigger an elevation request that will generate an alert." />
+
+## War story
+
+<WarStory title="The 18-month consolidation that wasn't">
+A community bank with $2.4B in assets came into 2023 running: AD DS on-prem, Okta as the cloud IdP, SailPoint IdentityNow for IGA, CyberArk for PAM, Intune for MDM, and a legacy MobileIron contract on life support. Six vendors, a 3-person IAM team, four support contracts, and a CFO who found a spreadsheet showing consolidation to the Microsoft Entra ID Suite would save $380K per year in licensing. The board approved it. Eighteen months, they were told.
+
+Month four: SailPoint had 320 custom workflows encoding six years of HR process logic that existed nowhere else. Entra ID Governance could replace the standard joiner/mover/leaver flow; it could not replace custom logic without a rewrite. Project scope tripled.
+
+Month nine: the CFO had been told Entra Privileged Identity Management was equivalent to CyberArk. It is not. PIM handles cloud role elevation; it does not vault on-prem service account credentials or broker privileged sessions to legacy data-center servers. CyberArk stayed. PAM was removed from the consolidation scope.
+
+Month fourteen: Entra ID was live as the primary IdP. 211 application integrations migrated. 19 could not — legacy LDAP apps that had been quietly running a local Okta agent for years. A reverse proxy workaround added three months and $60K in consulting.
+
+Month twenty-two — four months late — the migration closed. The $380K annual saving materialized, minus $220K in one-time consulting. The CISO's post-mortem: *"If we had mapped the ecosystem before committing to the timeline, we would have scoped 30 months and kept the team from burning out."*
+
+In a SaaS-native startup this story never happens — they started cloud-native with Okta, no AD DS, and Okta Lifecycle Management instead of SailPoint. No migration needed. In a defense contractor context the Entra ID consolidation hits a hard wall at FedRAMP High: Entra's commercial boundary is narrower than assumed, and systems processing CUI need an on-prem or FedRAMP-authorized IdP. In healthcare the blocker is HIPAA BAA coverage — every IAM vendor in the new stack needs a signed BAA, and mid-consolidation the team discovers one new module has none. Both scenarios add scope the spreadsheet never modeled.
+</WarStory>
+
+## Check your understanding
+
+<Quiz question={{
+  id: "01-foundations/03-ecosystem-map/q1",
+  prompt: "Your CISO asks you to vault all domain administrator credentials, ensure their use is proxied through a session recording system, and implement just-in-time elevation so no account has standing DA privileges. Which IAM vendor category owns this requirement?",
+  options: [
+    "Identity Provider (IdP) — Conditional Access can restrict when domain admin accounts are used.",
+    "Identity Governance and Administration (IGA) — access reviews can certify DA membership quarterly.",
+    "Privileged Access Management (PAM) — vaulting, session brokering, and JIT elevation are the defining capabilities of the PAM category. Examples: CyberArk, BeyondTrust, Delinea.",
+    "Directory Services — Active Directory can restrict DA logon hours and require smart card authentication."
+  ],
+  correctIndex: 2,
+  explanation: "Vaulting privileged credentials, brokering their use through a recorded proxy, and implementing JIT elevation are the three defining capabilities of the PAM category. An IdP can add authentication strength requirements; IGA can periodically review DA membership; AD can restrict logon hours. None of those capabilities substitute for a purpose-built PAM system that vaults the credential and brokers the session. PAM is the correct answer and the correct vendor category to evaluate."
+}} />
+
+<Quiz question={{
+  id: "01-foundations/03-ecosystem-map/q2",
+  prompt: "A SaaS startup expects to grow from 50 to 5 million users over three years as it opens a consumer product. Its current workforce IdP is Okta. Why does the startup need a CIAM platform rather than simply expanding its workforce Okta tenant to handle consumer users?",
+  options: [
+    "It does not — workforce Okta scales to millions of users without architectural changes.",
+    "CIAM platforms support social login (Google, Apple) which workforce IdPs cannot do.",
+    "CIAM is architected for consumer-scale authentication patterns: millions of users, social identity federation, self-service registration and recovery, CCPA/GDPR consent management, and burst-load SLAs — all of which require a different scaling model, data isolation strategy, and privacy feature set than a workforce IdP optimized for thousands of known employees.",
+    "CIAM is required by PCI-DSS for any consumer-facing application that handles payment data."
+  ],
+  correctIndex: 2,
+  explanation: "The distinction between workforce IAM and CIAM is architectural, not just a matter of scale. Consumer identity introduces self-service registration (unknown users creating accounts), social login (delegating authentication to Google/Apple/Facebook), progressive profiling, CCPA/GDPR consent flows, and burst-load SLAs that consumer events (product launches, sales) generate. Workforce IdPs are optimized for known employees, corporate device assumptions, and IT-driven provisioning. Auth0/Okta CIC and Azure AD B2C exist specifically because the workforce IdP architecture does not map cleanly onto the consumer problem."
+}} />
+
+<Quiz question={{
+  id: "01-foundations/03-ecosystem-map/q3",
+  prompt: "A community bank's IT director is choosing between a 'platform play' (one vendor's integrated suite for IdP + IGA + PAM) and a 'best-of-breed' approach (Okta for IdP, SailPoint for IGA, CyberArk for PAM). The bank has a 4-person IT team and a $500K annual IAM budget. Which consideration most strongly favors the platform play in this specific scenario?",
+  options: [
+    "The platform play always has stronger security controls than best-of-breed.",
+    "Best-of-breed is always preferred in regulated industries; platform plays introduce vendor lock-in risk that regulators flag.",
+    "A 4-person team with a constrained budget cannot sustain the integration overhead of three separate enterprise platforms with independent release cycles, separate support contracts, and distinct skill requirements. A single-vendor suite reduces operational complexity at the cost of some capability depth — a tradeoff that a small team should almost always accept.",
+    "The bank should choose best-of-breed because each category leader (Okta, SailPoint, CyberArk) has deeper capability than any platform suite component."
+  ],
+  correctIndex: 2,
+  explanation: "The platform-play vs best-of-breed tradeoff is fundamentally a team-size and operational-overhead calculation. Best-of-breed gives you deeper capability in each category but requires integrating, maintaining, and supporting three separate enterprise products with different APIs, release cycles, and skillsets. A 4-person IT team at a community bank cannot sustain that overhead while also handling a full operational workload. The Microsoft Entra ID Suite or Okta's integrated stack — despite being shallower than category specialists in IGA and PAM — are the correct choice for this org because operational simplicity and support consolidation outweigh capability depth when you lack the staff to realize the depth."
+}} />
