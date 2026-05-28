@@ -1,0 +1,108 @@
+{/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Objective 2.4 — Plan and implement OAuth and OpenID Connect [VERIFY]
+- **Security+ SY0-701** Objective 4.5 — OAuth / OIDC
+- **CISSP** Domain 5.5 — Federated identity (OAuth/OIDC modern variant)
+</HoloPanel>
+
+# OAuth 2.0/2.1 + OpenID Connect: Delegated Authorization and the Token Confusion Problem
+
+OAuth 2.0 is the most widely deployed authorization protocol in the world. It is also the most widely misunderstood. Engineers treat it as an authentication protocol. It is not. OAuth is a *delegated authorization* framework — it answers the question "can application X access resource Y on behalf of user Z?" It does not answer the question "who is the user?" That question belongs to OpenID Connect, which layers identity on top of OAuth. Confusing the two is not a minor terminology error. It is an architectural vulnerability with a well-documented exploitation path.
+
+## What it is
+
+<Definition term="OAuth 2.0">A delegated authorization framework defined in RFC 6749 (October 2012). OAuth allows a resource owner (user) to grant a client application limited access to a protected resource server without sharing credentials. The authorization server issues access tokens scoped to specific permissions. OAuth 2.1 (currently in draft, BCP published as RFC 9700) consolidates best practices: PKCE is required for all clients, Implicit Grant is removed, Password Grant is removed, undeclared redirect URIs are prohibited.</Definition>
+
+<Definition term="OpenID Connect (OIDC)">An identity layer built on top of OAuth 2.0, published by the OpenID Foundation (2014). OIDC adds the id_token — a JWT that contains signed claims about the authenticated user (sub, iss, aud, iat, exp, and optional profile claims). OIDC answers "who is the user?" using OAuth's authorization infrastructure. The discovery document at /.well-known/openid-configuration advertises the authorization server's capabilities and endpoints.</Definition>
+
+The protocol family operates in the following configuration space: RFC 6749 defines the grant types and the core token issuance model. RFC 6750 defines Bearer token usage. RFC 7636 defines PKCE (Proof Key for Code Exchange). RFC 8252 defines OAuth for Native Apps. RFC 9700 (BCP 240) consolidates the security best current practice that became OAuth 2.1. The OIDC core specification from the OpenID Foundation defines the id_token, UserInfo endpoint, and discovery.
+
+## Why it exists
+
+The problem OAuth solved was delegation without credential sharing. Before OAuth, if you wanted a third-party application to access your Google Calendar, you gave it your Google password. The application had full access to your account, forever, unless you remembered to change your password and break every integration in the process. There was no scoping, no revocation, no audit trail distinguishing you-authenticating from the-app-acting-on-your-behalf.
+
+OAuth introduced the access token as a scoped, revocable, time-limited credential that represents *delegated permission*, not *identity*. The user authenticates to the authorization server (not to the application), approves a specific scope of permissions, and the application receives an access token it can use within those bounds. The user's actual credential never leaves the authorization server.
+
+OIDC arrived to solve the orthogonal problem: once you have OAuth's delegation infrastructure in place, you want to be able to answer "who is this user?" as a standardized extension. The id_token is the answer — a signed JWT that the client application can validate locally, without another network round-trip, to confirm the user's identity.
+
+<ProTip>
+The most important sentence in this section: **an access_token is not proof of identity**. The access_token is a credential that says "the holder of this token may do X with resource Y." It does not say who the holder is. An access_token may be opaque (a random string the resource server validates by calling the authorization server's introspection endpoint) or self-describing (a JWT the resource server validates locally). Either way, the client application should never parse the access_token to determine user identity. The id_token (OIDC) is what proves identity. If your application uses the access_token's `sub` claim as its user identity, you have an architectural vulnerability — read the war story.
+</ProTip>
+
+## How it works under the hood
+
+The diagram below shows the Authorization Code + PKCE flow with refresh token rotation and the struck-through Implicit Grant. Click each step to see the actual request and response parameters. The diagram accurately renders the happy path. What the diagram cannot show are the conceptual distinctions that determine whether you build this correctly:
+
+**OAuth vs OIDC is not an either/or choice — they are layers.** OAuth is the delegation framework. OIDC is the identity profile sitting on top of it. When a client requests the `openid` scope, the authorization server issues both an access_token (for API calls) and an id_token (for identity). The client must treat these as separate artifacts with separate semantics. The access_token goes in the `Authorization: Bearer` header when calling the API. The id_token is validated by the client to establish who the user is — then discarded or stored for session management. Mixing the two is the canonical mistake.
+
+**PKCE is not optional.** RFC 7636 introduced PKCE as a defense against authorization code interception attacks on public clients (mobile apps, SPAs). Before PKCE, an authorization code intercepted from the redirect URI could be exchanged for tokens by any party who knew the client_id. PKCE binds the token exchange to the specific client instance that generated the code by requiring the client to prove knowledge of the code_verifier that produced the code_challenge registered with the authorization request. OAuth 2.1 and RFC 9700 BCP require PKCE for all clients — including confidential clients that have client_secrets. The rationale: PKCE provides defense in depth even when client_secret leakage is possible.
+
+**What OAuth 2.1 removed and why.** The Implicit Grant (`response_type=token`) returned the access_token directly in the URL fragment after authorization. This means the access_token appeared in browser history, referrer headers, and any JavaScript on the page. It was deprecated because Authorization Code + PKCE performs the same role without exposing the token in the URL. The Resource Owner Password Credentials (ROPC) grant allowed the application to collect and transmit the user's username and password directly — eliminating the delegation model entirely and reintroducing credential sharing. Both grants are removed in OAuth 2.1.
+
+**Refresh token rotation is a security control, not a convenience.** RFC 6749 defined refresh tokens as long-lived credentials that could be exchanged for new access tokens. An unrotated refresh token stolen by an attacker is valid indefinitely — months or years. Rotation means: each refresh token exchange invalidates the previous refresh token and issues a new one. If the old token is used after rotation (suggesting theft), the authorization server detects the reuse, revokes the entire token family, and terminates the session. This is the refresh token rotation policy — it converts what was a permanent credential into a canary that fires when abused.
+
+**The token endpoint is not the UserInfo endpoint.** OIDC defines a UserInfo endpoint (typically at `/userinfo`) that accepts an access_token and returns a JSON object of user claims. This is separate from the id_token. Some applications call UserInfo to get profile data; this is correct. Calling UserInfo and using the returned claims as the user's *authenticated* identity is incorrect — the UserInfo response must be correlated back to the id_token's `sub` claim to be trusted. An attacker who swaps access tokens between sessions can poison a UserInfo-based identity model.
+
+<OAuthFlowDiagram />
+
+<Flashcard front="What is the critical difference between access_token and id_token, and which one proves the user's identity?" back="The access_token is a delegated authorization credential — it grants the holder permission to call an API within a defined scope. It does not identify the user to the client. The id_token (OIDC) is a signed JWT issued by the authorization server that contains verified claims about the authenticated user. Only the id_token, after local signature and claim validation, proves identity. Using access_token.sub for identity is an architectural vulnerability." />
+
+<Flashcard front="Why does PKCE prevent authorization code interception, and which OAuth version makes it mandatory for all clients?" back="PKCE binds the authorization code to the specific client session that generated it. The client generates a random code_verifier, sends its hash (code_challenge) with the authorization request, then proves the original verifier at token exchange. An interceptor who captures the authorization code cannot exchange it without the code_verifier. OAuth 2.1 (RFC 9700 BCP) mandates PKCE for all clients — including confidential clients — as defense in depth." />
+
+## War story
+
+<WarStory title="The access_token Identity Shortcut That Bought the Attacker Three Months">
+A fintech integration between a regional bank and a third-party payment processor used OAuth 2.0 for API authorization. The integration was built by the processor's development team, and the bank's IAM team signed off on the OAuth configuration without reviewing the client-side implementation. The mistake was in the processor's code: rather than requesting the `openid` scope and validating the id_token, the client parsed the access_token — a JWT in this case — extracted the `sub` claim, and used it as the user's identity for session management and audit logging.
+
+The access_token had a 1-hour lifetime. The refresh_token had a 90-day lifetime. No rotation was configured.
+
+A disgruntled contractor with legitimate OAuth credentials left the organization but did not relinquish the refresh_token — it was stored in a local development environment that was never wiped. For 90 days after their last legitimate access day, the contractor used the refresh_token to obtain fresh access_tokens and authenticated to the payment processor's API as their previous identity. Because the access_token's `sub` was used for identity and the refresh_token was never rotated or revoked, the system generated access logs showing valid activity for an account the bank believed was deprovisioned.
+
+Discovery came during a SOX audit when the auditor flagged API activity from an account that appeared in the terminated-employee list. The bank had deprovisioned the IdP account — disabling the user in Entra ID — but the OAuth authorization server had not received a revocation event, and the live refresh_token had never been invalidated.
+
+The architectural fix was threefold: (1) the integration was rebuilt to request `openid` scope, validate the id_token, and use id_token.sub for identity; (2) refresh token rotation was enabled with a 24-hour sliding window and a 7-day absolute maximum; (3) a webhook was configured to the IdP's account lifecycle events — account disable triggers an immediate refresh_token revocation at the authorization server. The incident also triggered a review of every OAuth integration in the bank's SaaS estate for access_token-as-identity patterns; seven additional integrations had the same bug.
+
+In a SaaS-to-SaaS context, OAuth consent fatigue is the companion risk — users and admins granting permissions to third-party applications that persist long after the application is decommissioned. The fix is an OAuth app consent governance policy: regular reviews of all authorized application grants, mandatory admin consent for high-privilege scopes, and automatic revocation of grants from inactive applications. In a defense context, DoD CAC-bound smart card authentication interacting with OAuth flows requires custom token broker implementations — the CAC authenticates the user to an on-prem IdP that then issues OIDC tokens downstream; the "OAuth dance" is performed at the IdP-to-downstream tier, not the user-to-IdP tier. In healthcare, SMART on FHIR is the canonical OAuth + OIDC deployment — it defines specific FHIR scopes (`patient/*.read`, `launch/patient`) and the launch context mechanism for EHR-embedded clinical app SSO. If you are building anything in the clinical app ecosystem, SMART on FHIR is the spec to read.
+</WarStory>
+
+## Check your understanding
+
+<Quiz question={{
+  id: "02-protocols/03-oauth-oidc/q1",
+  prompt: "A developer builds a web application that uses an OAuth 2.0 access_token to identify the logged-in user. After each token exchange, she parses the access_token JWT and reads the `sub` claim to determine who the user is. What is wrong with this approach, and what is the correct alternative?",
+  options: [
+    "Nothing is wrong — the `sub` claim in the access_token is an OIDC-defined identity claim that reliably identifies the user.",
+    "The developer should call the UserInfo endpoint on every request instead of parsing the access_token locally.",
+    "The access_token proves delegated authorization, not identity. The developer should request the `openid` scope, receive an id_token, validate its signature and claims (iss, aud, exp, sub), and use id_token.sub as the user identity.",
+    "The developer should use the refresh_token's `sub` claim instead, as it has a longer lifetime and more reliable identity binding."
+  ],
+  correctIndex: 2,
+  explanation: "The access_token is scoped authorization, not identity proof. Its contents are defined by the authorization server and may not be a JWT at all — it could be an opaque string. Even when it is a JWT with a sub claim, that claim's semantics are defined for the resource server, not for the client. The id_token (OIDC) is the correct identity artifact — it is a signed JWT with defined claims including iss (must match the expected issuer), aud (must match your client_id), exp (must be in the future), and sub (the stable user identifier)."
+}} />
+
+<Quiz question={{
+  id: "02-protocols/03-oauth-oidc/q2",
+  prompt: "You are designing an OAuth 2.0 integration for a React single-page application (SPA) that calls your bank's internal API. A junior engineer suggests using the Implicit Grant for simplicity because it avoids a server-side token exchange step. What is the correct response?",
+  options: [
+    "The Implicit Grant is fine for SPAs because access_tokens stored in memory are not accessible to other tabs.",
+    "Use Authorization Code without PKCE since SPAs cannot securely store client_secrets anyway.",
+    "The Implicit Grant is deprecated by OAuth 2.1 and RFC 9700 BCP because it exposes the access_token in the URL fragment. Use Authorization Code + PKCE — it performs the same role, is required by current standards, and avoids token exposure in the URL, browser history, and referrer headers.",
+    "Use Resource Owner Password Credentials (ROPC) — it is simpler and the user authenticates directly."
+  ],
+  correctIndex: 2,
+  explanation: "OAuth 2.1 explicitly removes the Implicit Grant. The access_token in the URL fragment was the fatal flaw — it appears in browser history, logs, referrer headers, and is accessible to JavaScript on the page. Authorization Code + PKCE achieves the same goal (SPA obtains tokens without a client_secret) without URL token exposure. ROPC is also removed in OAuth 2.1 because it requires the application to handle the user's password directly, eliminating the delegation model."
+}} />
+
+<Quiz question={{
+  id: "02-protocols/03-oauth-oidc/q3",
+  prompt: "An attacker steals a refresh_token from a development environment that does not use refresh token rotation. The user's IdP account has since been disabled. The attacker exchanges the refresh_token for a new access_token. What architectural controls would have prevented this, and which one is the most critical?",
+  options: [
+    "Requiring PKCE at the token endpoint would have invalidated the stolen refresh_token.",
+    "Refresh token rotation (most critical) would have detected reuse when the attacker attempted the exchange and revoked the token family. Additionally, the authorization server must receive and process IdP account lifecycle events — account disable should trigger immediate refresh_token revocation at the AS.",
+    "Shortening the access_token lifetime to 5 minutes would have prevented the attacker from obtaining a usable token.",
+    "Requiring client_secret at the token endpoint would have blocked the token exchange from the attacker's environment."
+  ],
+  correctIndex: 1,
+  explanation: "Refresh token rotation is the most critical control: each refresh exchange invalidates the previous token and issues a new one, and reuse of an old token signals theft and revokes the entire family. But rotation alone does not prevent first use of a stolen token — the IdP lifecycle integration is the complementary control that catches the deprovisioning gap. Shortening access_token lifetime limits exposure windows but does not prevent the attacker from continuously refreshing. PKCE protects the authorization code exchange, not refresh token exchange. Client_secret helps confidential clients but a stolen refresh_token from a dev environment already bypasses that layer."
+}} />
