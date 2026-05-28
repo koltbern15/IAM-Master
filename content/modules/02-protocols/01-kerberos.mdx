@@ -1,0 +1,102 @@
+{/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Objective 2.1 — Plan, implement and manage Microsoft Entra user authentication (Kerberos in hybrid context) [VERIFY]
+- **Security+ SY0-701** Objective 4.5 — Identity and access management (Kerberos protocol)
+- **CISSP** Domain 5.5 — Implement authentication systems (Kerberos as canonical SSO ticket protocol)
+</HoloPanel>
+
+# Kerberos: The Ticket That Built Enterprise SSO
+
+Before SAML. Before OAuth. Before anyone said the word "federation" in a conference room — Kerberos was already doing single sign-on at MIT in 1988. If you work in a Windows environment, a hybrid cloud deployment, an Epic EHR shop, or an air-gapped DoD enclave, you are living inside Kerberos right now. You may not see it, but it is there, moving tickets, and it deserves more respect than most IAM engineers give it.
+
+## What it is
+
+Kerberos is a <Definition term="symmetric-key authentication protocol">A cryptographic authentication mechanism in which both parties share the same secret key, rather than using asymmetric public/private key pairs. Kerberos uses symmetric encryption throughout the ticket-granting workflow — the KDC's long-term key encrypts the TGT, and the service account's long-term key encrypts the service ticket.</Definition> designed to prove identity across an untrusted network without ever transmitting a password. Its core abstraction is the **ticket**: a cryptographic token, encrypted by the issuer with a secret the requesting party cannot forge, that proves the bearer was authenticated and is authorized to access a specific service for a specific window of time.
+
+The authoritative specification is <Definition term="RFC 4120">The Internet Engineering Task Force standard defining The Kerberos Network Authentication Service (V5), published July 2005. Supersedes RFC 1510. Specifies the AS-REQ, AS-REP, TGS-REQ, TGS-REP, AP-REQ, and AP-REP message formats and the encryption type negotiation rules.</Definition> (July 2005). Microsoft's implementation in Active Directory follows RFC 4120 with extensions defined in MS-KILE and MS-PAC — the Privilege Attribute Certificate that carries group membership in Windows environments, the thing that LDAP queries retrieve but Kerberos carries inside the ticket.
+
+The protocol has three actors: the **client** (the user's workstation, acting as principal), the **Key Distribution Center** (the KDC, which is your domain controller, running both the Authentication Service and the Ticket-Granting Service), and the **service** (a SQL Server, a file share, a web app with a registered SPN).
+
+## Why it exists
+
+In the 1980s, MIT was running the Athena distributed computing project and hit the fundamental problem that network authentication always hits: how do you prove who you are without sending your password over a network that any grad student with a packet sniffer could watch? The answer MIT's Project Athena arrived at — with heavy influence from Needham-Schroeder protocol theory — was to make a trusted third party (the KDC) the broker of cryptographic proof, so that neither the client nor the service ever needed to know each other's long-term secrets.
+
+The elegance is the **Ticket-Granting Ticket (TGT)**: the client authenticates to the KDC *once*, receives a TGT, and then uses that TGT to request service tickets for every subsequent resource without re-authenticating. That is single sign-on, before anyone called it that. The user experiences it as: log in at Windows boot, access network shares, databases, printers, and web apps all day without a second password prompt. The mechanism is the TGT living in LSASS, being silently consumed every time a service ticket is needed.
+
+<ProTip>
+The key design insight of Kerberos that everything else follows from: **the password never crosses the wire**. The AS-REQ contains a pre-authentication timestamp encrypted with a *derivative* of the password (the NT hash / AES key), not the password itself. The KDC tests decryptability rather than comparing plaintext. This means a credential stolen off the wire is a hash or an encrypted timestamp — expensive to crack, useless to replay. The weakness, it turns out, is not the wire — it is the *KDC's own secrets* and the *service account long-term keys* that are the attack surface.
+</ProTip>
+
+## How it works under the hood
+
+The diagram below shows the five-message exchange — click each step to inspect the ticket payload. The diagram does an excellent job of rendering the message flow and the contents of each ticket. What the diagram *cannot* show you are the four things that actually determine whether a Kerberos deployment is secure or a liability:
+
+**1. The krbtgt secret.** The TGT is encrypted with the KDC's `krbtgt` account long-term key. That key is the nuclear material of your Active Directory. If an attacker has that key, they can forge TGTs for any principal, any group, any privilege level, for however long that key remains valid — without touching the KDC ever again. This is the **Golden Ticket** attack. LSASS dump + Mimikatz `lsadump::dcsync` + `kerberos::golden` = a forged TGT indistinguishable from a real one. The countermeasure is rotating the krbtgt password **twice in succession** (to invalidate both the current and previous version), a process that triggers widespread re-authentication across every Kerberos-joined machine. Most organizations have never rotated it. In the banking sector, I have seen krbtgt accounts untouched since the AD DS install in 2007.
+
+**2. Encryption type negotiation.** RFC 4120 was written when RC4-HMAC was acceptable. AES128-CTS-HMAC-SHA1-96 and AES256-CTS-HMAC-SHA1-96 are the current standards (RFC 3962). RC4 is still negotiated in many Windows environments for backward compatibility and it is catastrophically weak by modern standards — RC4 service ticket encryption is what **Kerberoasting** exploits. When you request a service ticket for an SPN, the ticket is encrypted with that service account's long-term key. If that service account negotiates RC4, any domain user can request the ticket and take it offline for cracking. The fix is enforcing AES-only encryption and setting `msDS-SupportedEncryptionTypes` on every service account.
+
+**3. SPN vs UPN distinction.** A <Definition term="Service Principal Name (SPN)">An identifier registered in Active Directory that uniquely maps to a service instance. Format: ServiceClass/FQDN:Port. Example: HTTP/webserver.corp.local:443. The KDC uses the SPN to look up the service account whose long-term key will encrypt the service ticket.</Definition> is how the KDC knows which service account key to use when issuing a service ticket. A UPN (User Principal Name) is the user's sign-in identity. These are orthogonal and they are confused constantly. Duplicate SPNs break Kerberos authentication at the application layer in ways that produce generic 401 errors and waste hours of troubleshooting. SPN registration requires domain-level write, which means service account proliferation is an IAM governance problem with direct authentication consequences.
+
+**4. Silver vs Diamond tickets.** A **Silver Ticket** forges a service ticket directly — it requires only the service account's long-term key, not krbtgt. The attacker can authenticate to a specific service indefinitely without ever contacting the KDC. Detection is harder because there is no KDC audit event. The **Diamond Ticket** is a newer variant that legitimately requests a real TGT and then modifies its PAC in memory before presenting it — it generates real KDC events, making detection based on PAC anomalies harder than Golden Ticket detection.
+
+<KerberosFlowDiagram />
+
+<Flashcard front="What is a Golden Ticket attack, and what secret does it require?" back="A Golden Ticket is a forged Kerberos TGT, signed with the krbtgt account's long-term key. It allows the attacker to impersonate any principal for any service for up to 10 years (the forged ticket lifetime) without touching the KDC again. It requires exfiltrating the krbtgt NTLM hash via DCSync or LSASS dump." />
+
+<Flashcard front="Why does Kerberoasting work, and what is the mitigation?" back="Kerberoasting works because any authenticated domain user can request a service ticket for any SPN, and the ticket is encrypted with that service account's long-term key. If the account uses RC4 encryption, the ticket can be cracked offline. Mitigations: enforce AES-only encryption (msDS-SupportedEncryptionTypes), use Group Managed Service Accounts (gMSAs, with 240-bit auto-rotated passwords), and alert on offline cracking attempts." />
+
+## War story
+
+<WarStory title="The 2008 krbtgt and the 9-Month Remediation">
+A regional community bank — 42 branches, on-prem AD DS running since a Windows Server 2008 R2 migration. During a board-mandated internal red team engagement in late 2023, the penetration testers' first question to the IAM team was routine: "When was the krbtgt password last rotated?" The answer was a long pause, then an honest admission: it had never been rotated since the domain was provisioned in October 2008. Fifteen years.
+
+The red team demonstrated a Golden Ticket within two days — they did not even need to dump LSASS directly; a misconfigured RODC had inadvertently cached the krbtgt hash, and they reached it via a compromised service account. The forged TGT allowed them to authenticate as a member of Domain Admins to core banking infrastructure without triggering a single SIEM alert. The tickets looked legitimate to every system downstream.
+
+The remediation plan became a 9-month project. The first krbtgt rotation was scheduled and tested in a lab environment — it rendered every active Kerberos session invalid, which meant re-authentication cascades across every Kerberos-joined service: file servers, SQL instances, print servers, the Epic EHR integration. The bank's change control board required a 4am maintenance window for the first rotation, a second rotation seven days later to invalidate any sessions established from cached pre-rotation tickets, and full service-by-service validation. The second rotation caused two application outages because two legacy Java apps were not Kerberos-aware and their service accounts were misconfigured.
+
+The lesson that stuck with the CISO: the krbtgt is not a housekeeping item. It is the root CA of your entire authentication trust model. Treat it like one.
+
+In a SaaS-first organization, this entire attack surface simply does not exist — there is no Kerberos, no krbtgt, no SPNs. Cloud-only orgs on Entra ID with no on-prem footprint live entirely in the OAuth / OIDC token world. What they forget is that *hybrid* organizations carry both attack surfaces simultaneously, and a compromised on-prem krbtgt can be leveraged to forge tokens that Entra ID's pass-through authentication will accept. In a defense context, Kerberos is the workhorse of air-gapped enclaves precisely because it requires no internet-accessible infrastructure — the KDC is on-prem, tickets are self-contained, and the model holds in a disconnected environment. In healthcare, Epic's massive on-prem footprint for EHR authentication relies on Kerberos across most enterprise installations — Epic's recommended architecture specifies SPNs per application server, and Kerberoasting of Epic service accounts is a documented attack path that IAM engineers in health systems need to track explicitly.
+</WarStory>
+
+## Check your understanding
+
+<Quiz question={{
+  id: "02-protocols/01-kerberos/q1",
+  prompt: "A domain user requests a service ticket for HTTP/payroll.corp.local. The service account CORP\\svc-payroll has msDS-SupportedEncryptionTypes set to 0x4 (RC4-HMAC only). An attacker captures this ticket from network traffic. What attack is now possible, and what is the correct remediation?",
+  options: [
+    "Pass-the-Hash; set a strong password on svc-payroll.",
+    "Kerberoasting; the captured ticket can be cracked offline. Remediation: set msDS-SupportedEncryptionTypes to 0x18 (AES128+AES256) and convert svc-payroll to a Group Managed Service Account.",
+    "Golden Ticket; the attacker now has the krbtgt key. Remediation: rotate krbtgt twice.",
+    "Silver Ticket; the attacker forged the ticket contents. Remediation: enable PAC validation on the service."
+  ],
+  correctIndex: 1,
+  explanation: "Kerberoasting harvests service tickets and cracks them offline to recover the service account password. The vulnerability is RC4 encryption — weak enough to crack. AES enforcement raises the cryptographic bar to infeasible for offline attack. Group Managed Service Accounts add 240-bit auto-rotated passwords, making a successful crack useless after rotation. This is not Pass-the-Hash (requires NTLM hash), not a Golden Ticket (requires krbtgt, not a service account), and not Silver Ticket (the attacker didn't forge anything — they legitimately requested the ticket as a domain user)."
+}} />
+
+<Quiz question={{
+  id: "02-protocols/01-kerberos/q2",
+  prompt: "Your organization discovers a Golden Ticket attack. The incident response team wants to invalidate all active forged TGTs immediately. What is the correct procedure, and why must it be done twice?",
+  options: [
+    "Reset all user passwords; the TGT is derived from the user's password so this invalidates forged tickets.",
+    "Revoke all Kerberos service tickets by disabling and re-enabling every SPN-registered service account.",
+    "Rotate the krbtgt password twice in succession — the first rotation invalidates tickets encrypted with the current key; the second rotation invalidates any tickets issued from the previous key window that may still be in circulation.",
+    "Perform a domain-level password policy reset; this flushes the Kerberos ticket cache on all domain controllers."
+  ],
+  correctIndex: 2,
+  explanation: "The TGT is encrypted with the krbtgt long-term key. Rotating krbtgt changes that key, making any TGT encrypted with the old key invalid. However, Active Directory caches the previous krbtgt password version — a TGT issued just before the first rotation may still be accepted using the cached previous-version key. The second rotation eliminates that window. This is a service-impacting operation (all active sessions invalidate and re-authenticate), which is why it requires a maintenance window and sequential service validation."
+}} />
+
+<Quiz question={{
+  id: "02-protocols/01-kerberos/q3",
+  prompt: "A developer registers an SPN for a new web application: HTTP/app01.corp.local. Three months later, a server rebuild registers the same SPN on a different service account. What is the IAM impact, and how is it detected?",
+  options: [
+    "Duplicate SPNs cause no authentication impact — the KDC uses the first registered account.",
+    "Duplicate SPNs cause Kerberos authentication to fail for that service with a generic KRB_ERR_S_PRINCIPAL_UNKNOWN error; users see 401 errors. Detected via setspn -X in AD or SPN uniqueness validation in IAM governance tooling.",
+    "Duplicate SPNs trigger a Golden Ticket alert because two accounts share the same key material.",
+    "Duplicate SPNs break LDAP queries but do not affect Kerberos ticket issuance."
+  ],
+  correctIndex: 1,
+  explanation: "Each SPN must map to exactly one service account in the domain — the KDC uses the SPN to look up the account whose long-term key will encrypt the service ticket. A duplicate SPN means the KDC cannot resolve the lookup unambiguously, and Kerberos authentication for that service fails. The setspn -X command queries all SPNs for duplicates. SPN lifecycle management — including decommission and cleanup — is an IAM governance responsibility that directly affects authentication availability."
+}} />
