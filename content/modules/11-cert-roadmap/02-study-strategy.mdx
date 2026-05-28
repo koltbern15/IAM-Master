@@ -1,0 +1,127 @@
+{/* Objectives current as of 2026-05-27. Verify all cert details before scheduling — exam blueprints + pricing change. */}
+
+# Study Strategy
+
+Knowing what is on the exam is not the same as being able to pass it. The gap between "I read through this" and "I scored 83% on a fresh practice exam" is almost entirely explained by how you studied, not how much. The techniques here have decades of cognitive science behind them. Most feel less comfortable than highlighting or rewatching a video — that discomfort is the mechanism. Difficulty during practice drives durable retention.
+
+## Spaced Repetition
+
+<HoloPanel label="SPACED REPETITION — THE EBBINGHAUS CADENCE">
+
+Hermann Ebbinghaus mapped the forgetting curve in 1885: without reinforcement, you lose roughly half of what you learned within 24 hours and 80% within a week. The curve is not a character flaw — it is how long-term memory consolidation works. New information lives in working memory first; it only transfers to long-term storage when you retrieve it under pressure at spaced intervals.
+
+Spaced repetition exploits this by scheduling each card for review at the exact moment you are about to forget it. Review too early and you waste time on material you already know. Review too late and it is gone.
+
+**The review cadence this platform uses:**
+
+| Review | When |
+|---|---|
+| First | 20 minutes after first exposure |
+| Second | 24 hours later |
+| Third | 1 week later |
+| Fourth | 1 month later |
+| Ongoing | Algorithm-scheduled based on your performance |
+
+Cards you answer correctly get pushed further out. Cards you miss get pulled back into the near rotation. After 4–6 cycles, most cards reach long-interval status — you could come back in three months and still pull the answer cleanly.
+
+**How to use this platform's Flashcard system:** The `CARDS DUE` counter on your dashboard is your daily work queue. Open it every morning, work every card that is due — not just the ones on topics you feel shaky on, all of them — then close it. That 15-minute daily habit outperforms a 4-hour Saturday cram session. The streak counter makes the cost of breaking visible. Use it.
+
+</HoloPanel>
+
+## Active Recall vs. Passive Re-Reading
+
+<HoloPanel label="ACTIVE RECALL — RETRIEVAL IS THE STUDY">
+
+Every study habit research review from the last 30 years reaches the same conclusion: retrieval practice is the single most effective study technique. Re-reading notes, highlighting, and rewatching videos sit near the bottom. They feel productive because they require no cognitive effort — and that is exactly why they fail. Retention requires retrieval, and retrieval requires effort.
+
+Active recall means attempting to produce the answer before you look at it. Close the notes. Ask yourself: "What are the four SC-300 exam domains and their weights?" Try to answer. Then check. Attempting retrieval — even when you fail — strengthens the memory trace more than reading the correct answer passively.
+
+**The Feynman Technique:** Pick a concept, close everything, and explain it out loud to an imaginary non-technical coworker. Note where you stumble — those are the gaps. Return to source material only for the gaps, then explain again. You do not understand something until you can explain it without notes. Apply this to every Flashcard: cover the back, produce the answer, then flip.
+
+</HoloPanel>
+
+<ProTip>
+Highlighting is the worst study technique with the highest perceived productivity. It feels like studying. It is not — it is decorating your notes. Every minute you spend highlighting is a minute you could have spent retrieving. If you catch yourself reaching for a highlighter, close the notes and attempt active recall instead.
+</ProTip>
+
+## Practice Exams and the 80% Threshold Rule
+
+<HoloPanel label="PRACTICE EXAMS — DON'T SIT UNTIL 80%">
+
+Practice exams serve two functions: diagnostic (finding gaps) and calibration (telling you when you are ready). Most people use them only as diagnostics, then sit the real exam before they hit the calibration bar.
+
+**The rule:** Do not schedule the real exam until you are scoring 80%+ on a fresh, unseen practice exam under timed conditions. Not a memorized run. A fresh exam — one you have not seen before.
+
+80% is the bar because real exams are harder than most practice products. Hitting 80% on a calibrated practice product puts you in the passing zone when difficulty scales up on exam day. Pushing for 90%+ has diminishing returns and increases anxiety without improving performance.
+
+**Practice resources by cert:**
+
+| Resource | Cost | Notes |
+|---|---|---|
+| Microsoft Learn practice assessments | Free | Built into SC-300/SC-900 learning paths on MS Learn. Start here. [VERIFY availability] |
+| MeasureUp | ~$99–$149 [VERIFY] | Official Microsoft practice exam partner. Closest to real exam style. Worth it for SC-300. |
+| Whizlabs | ~$15–$30 [VERIFY] | Large question bank. Good for volume after MeasureUp; slightly easier than real exam. |
+| Professor Messer (Security+) | Free videos + paid practice | Well-calibrated for SY0-701. [VERIFY still current] |
+| (ISC)² Official Study Guide | Paid | Authoritative CISSP resource. Non-negotiable. [VERIFY current edition] |
+
+When your score is below 80%: do not schedule. Drill Flashcards on weak domains, then take another fresh practice exam in 1–2 weeks. When you hit 80%+ on two consecutive fresh exams: schedule the real thing.
+
+</HoloPanel>
+
+## The Pre-Exam Week
+
+<HoloPanel label="PRE-EXAM WEEK — TAPER, DON'T CRAM">
+
+The week before your exam should look like a taper, not a sprint.
+
+Work your CARDS DUE queue each morning. Take one full practice exam early in the week to confirm calibration. Review weak-domain notes. Sleep eight hours a night — memory consolidation happens during deep sleep; cramming replaces sleep with information that will not transfer.
+
+Do not introduce new topics in the final 72 hours. Do not stack practice exams back-to-back. Do not alter your sleep schedule.
+
+If you do not know it seven days out, you will not know it the night before.
+
+</HoloPanel>
+
+## Test-Day Logistics
+
+<HoloPanel label="TEST-DAY — PROCTORING GOTCHAS">
+
+Cert exams run either online proctored (PSI or Pearson VUE depending on the cert [VERIFY current vendor per exam]) or in-person at a test center.
+
+**Online proctoring rules that bite people:**
+- No second monitors — even powered-off ones. If the proctoring software detects it connected via HDMI, your session ends. Physically disconnect.
+- No notebooks, phones, or whiteboards in the camera's field of view
+- Microphone must remain on; ambient noise can trigger proctor interruptions
+- Install the proctoring client (OnVUE for Pearson) 48 hours before the exam, not the morning of — test it, confirm it runs
+- ID must match your registration name exactly; middle-initial mismatches have denied candidates
+- Bathroom breaks: generally not permitted once the clock starts
+
+**Test center:** If your home environment is noisy or your internet is unreliable, the test center is the right choice. Quiet room, physical notepad, no connectivity risk. Book early — popular slots fill 2–3 weeks out.
+
+**Morning of:** Eat. Arrive 30 minutes early (test center) or enter the proctoring client 15 minutes before start (online). Bring ID and scheduling confirmation. If the proctoring software fails before you start, call vendor support — they can reschedule before the clock starts. Once it starts, the session is live.
+
+</HoloPanel>
+
+## Post-Exam: Log Everything
+
+<HoloPanel label="POST-EXAM — LOG IT BEFORE YOU CELEBRATE">
+
+The 20 minutes after you submit are the highest-fidelity window you will have for what was actually on the exam.
+
+**Pass or fail:** Open this platform's Notes tool and log which topic areas felt hardest, which question types surprised you, and what you would study differently. This becomes the input for your next cert's study plan.
+
+**If you fail:** The score report gives you a domain breakdown. Save it, convert it into a targeted Flashcard drilling plan. A failed attempt is the most accurate diagnostic you will ever get — most people who fail and sit again within 60–90 days of targeted remediation pass the second time. Take 2–3 days to process the report, build the plan, then book.
+
+**Using this platform for cert prep:** Work through every cert-aligned section before you sit. Hit 80%+ on every Quiz. Then take the official practice exam. Your CARDS DUE and STREAK panels are calibrated for this daily review cadence — if CARDS DUE is consistently at zero, you added cards too slowly.
+
+</HoloPanel>
+
+<WarStory title="The Second Monitor That Burned a Voucher">
+Sat a practice-run online proctored exam. Installed the proctoring client the morning of. System check passed. Twelve minutes in, the proctor flagged my second monitor — powered off and turned away from the camera, but the software detected it connected via HDMI. Session terminated. Voucher burned.
+
+The fix was trivial: unplug the cable, not just power off. I did not know that rule existed until it cost me a reschedule. Read all of the proctoring vendor's technical requirements. Run the system check 48 hours before. If you have a dual-monitor setup, physically disconnect the second one or go to a test center.
+</WarStory>
+
+<Flashcard front="What is the 80% threshold rule for practice exams?" back="Do not schedule the real exam until you score 80%+ on a fresh, unseen practice exam under timed conditions. Real exams are harder than most practice products — 80% on a calibrated practice puts you in the passing zone when difficulty scales up. Pushing higher returns diminishing gains." />
+
+<Flashcard front="What is the Ebbinghaus forgetting curve, and how does spaced repetition counter it?" back="Without reinforcement, you lose ~50% of learned material within 24 hours and ~80% within a week. Spaced repetition schedules each card at the moment of near-forgetting — intervals grow as retention strengthens, missed cards return sooner. Result: durable retention from a small daily investment." />
