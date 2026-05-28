@@ -7,6 +7,7 @@ import { SC300Badge } from '@/components/content/SC300Badge'
 import { Definition } from '@/components/content/Definition'
 import { PowerShellBlock } from '@/components/content/PowerShellBlock'
 import { CommandReference } from '@/components/content/CommandReference'
+import { HoloPanel } from '@/components/jarvis/HoloPanel'
 import { KerberosFlowDiagram } from '@/components/diagrams/KerberosFlowDiagram'
 import { SAMLFlowDiagram } from '@/components/diagrams/SAMLFlowDiagram'
 import { OAuthFlowDiagram } from '@/components/diagrams/OAuthFlowDiagram'
@@ -24,6 +25,7 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     Definition,
     PowerShellBlock,
     CommandReference,
+    HoloPanel,
     KerberosFlowDiagram,
     SAMLFlowDiagram,
     OAuthFlowDiagram,
