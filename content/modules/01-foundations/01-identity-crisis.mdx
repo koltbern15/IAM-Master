@@ -1,0 +1,105 @@
+{/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-900** Study Area 1 — Describe security, compliance, and identity concepts (Zero Trust subset) [VERIFY exact sub-objective label]
+- **SC-300** Objective 1.1 — Plan and implement an identity management solution (foundational framing) [VERIFY]
+- **Security+ SY0-701** Objective 1.2 — Summarize fundamental security concepts (Zero Trust)
+- **CISSP** Domain 5.1 — Control physical and logical access to assets (foundational principle)
+</HoloPanel>
+
+# The Identity Crisis
+
+The network perimeter is dead. Identity is the new perimeter. If you do not internalize that one sentence, nothing else in this curriculum will sit right in your head.
+
+## What it is
+
+The **identity crisis** is the security industry's belated admission that <Definition term="perimeter security">A defense model that treats the corporate network boundary — the firewall, the DMZ, the VPN concentrator — as the primary trust boundary. Things inside the perimeter are trusted; things outside are not. The model assumes you can draw a meaningful line around your assets.</Definition> never actually worked, and that in a cloud + remote + BYOD world the line cannot even be drawn anymore. The replacement model is <Definition term="Zero Trust">A security architecture in which no actor — user, device, service, or network segment — is ever trusted by default. Every request is authenticated, authorized, and continuously evaluated against current context. Codified in NIST SP 800-207 (2020).</Definition>: every request is authenticated, authorized, and continuously verified against context, regardless of where it originated.
+
+In practice, that shift means identity — not the network — becomes the primary policy enforcement surface. The question stops being "is this packet coming from the corporate subnet?" and becomes "is *this user* on *this device* in *this context* authorized for *this resource* right now?" Every one of those four variables flows through your identity provider. The IdP is no longer a sign-in service; it is the control plane for everything.
+
+This is not a vendor framing or a marketing campaign. It is the architectural consequence of three trends that became undeniable around 2020 and have only accelerated: applications moved to SaaS, users moved out of the office, and attackers moved to credential theft as the cheapest path in.
+
+## Why it exists
+
+The perimeter model came from the 1990s, when "the network" meant your office LAN and a T1 line to the WAN. Firewalls were a real boundary because data and identity both lived inside them. The model started cracking when the first laptop went home with an employee, and it shattered when SaaS adoption made the office network functionally irrelevant to where work happened.
+
+Google saw this earliest and most publicly. After the **Operation Aurora** breach in 2009 — Chinese state actors compromised internal Google systems via a single phished employee — Google built **BeyondCorp**, the first production Zero Trust architecture. The thesis: stop trusting the corporate network, period; treat every connection as if it came from the open internet; make the user and device — not the network location — the basis of every access decision. BeyondCorp papers (2014–2017) became the template the entire industry copied.
+
+The threat landscape independently forced the same conclusion. By the mid-2010s the dominant attack pattern was no longer perimeter penetration; it was credential compromise — phishing, password spray, MFA fatigue, OAuth consent grants. **Verizon's annual Data Breach Investigations Report** has flagged stolen credentials as the single most common breach vector for years running. If the attacker is logging in with valid credentials from outside, your firewall is not just unhelpful — it is the enemy of detection, because every alert about the legitimate-looking traffic is a false-positive candidate.
+
+NIST formalized the model in **SP 800-207** in August 2020. It is short — 50 pages — and worth reading once cover to cover, because most of what you will hear about Zero Trust in vendor decks is a distortion of what 800-207 actually says.
+
+<ProTip>
+Zero Trust is an *architecture*, not a *product*. Any vendor selling you "Zero Trust" as a SKU is selling you a component of an architecture you still have to design. The mature buying motion is: read NIST 800-207, identify which PEPs and PDPs you already have, then buy what fills the gaps. The immature motion is buying a "Zero Trust platform" first and reverse-engineering an architecture to justify it.
+</ProTip>
+
+## How it works under the hood
+
+NIST 800-207 decomposes Zero Trust into a few concrete pieces. Burn these into memory; you will see them again in every cloud IdP, every SASE platform, and every CISSP question on this topic.
+
+The **Policy Decision Point (PDP)** is the brain. It evaluates an access request against policy and produces a yes/no decision plus any conditions (require step-up MFA, restrict to read-only, expire the session in 15 minutes). In Microsoft Entra ID, the PDP is **Conditional Access**. In Okta, it is the policy engine behind sign-on policies. In AWS, the PDP for resource access is IAM combined with Cedar/Verified Permissions.
+
+The **Policy Enforcement Point (PEP)** is the hands. It sits in the data path of every request and enforces what the PDP decides. PEPs include reverse proxies (Cloudflare Access, Zscaler Private Access), application-layer gateways (the front door of every SaaS app evaluating SAML/OIDC assertions), and increasingly the workload sidecars in service meshes. A request never reaches a protected resource without passing through a PEP.
+
+Between PDP and PEP flows the **policy** itself, expressed as the conditions the PDP evaluates. Modern policies are multi-dimensional: user attributes (role, group membership, risk score), device posture (managed, compliant, OS patch level), session context (geo, network, time, anomaly score), and resource sensitivity (classification, data residency requirement). The Verizon-DBIR-driven insight is that no single signal is enough — credentials get stolen, devices get compromised, networks get spoofed — but the *combination* of signals is the lever Zero Trust pulls.
+
+The decision is **continuous**, not one-time. Traditional perimeter auth was a sign-in event: you authenticated once at the VPN concentrator, the session cookie was good for 8 hours, and during that window you were trusted. Zero Trust evaluates per-request or per-short-session, and re-evaluates whenever context shifts. Entra ID's **Continuous Access Evaluation** (CAE) is the canonical implementation: token lifetime drops from 1 hour to ~5 minutes, and a critical event (password change, risk detection, location change) revokes the session within seconds rather than waiting for the next refresh.
+
+The seven tenets of NIST 800-207, paraphrased: (1) all data sources and computing services are resources; (2) all communication is secured regardless of network location; (3) access is granted per-session; (4) access is determined by dynamic policy; (5) the org monitors the integrity and security posture of all assets; (6) authentication and authorization are dynamic and strictly enforced before access; (7) the org collects telemetry about asset state, network, and communications to improve security posture. Items 3, 4, and 6 are where the architecture stops resembling perimeter security.
+
+<Flashcard front="What does PDP stand for in NIST 800-207, and what is its Microsoft Entra ID equivalent?" back="Policy Decision Point — the component that evaluates an access request against policy and returns a yes/no decision with conditions. In Microsoft Entra ID, the PDP is Conditional Access." />
+
+<Flashcard front="Which NIST publication codified the Zero Trust Architecture, and what year?" back="NIST Special Publication 800-207, published August 2020. ~50 pages. The vendor-neutral source of truth for what Zero Trust actually means." />
+
+Notice what is *not* in the architecture: the network is not a trust signal. A request from inside the corporate LAN gets the same policy evaluation as a request from a coffee shop in Singapore. The network might be *evidence* (an unusual location bumps a risk score) but it is never *trust*.
+
+## War story
+
+<WarStory title="The 3am VPN incident">
+A regional community bank — about 30 branches, 600 employees, classic on-prem AD with a Cisco AnyConnect VPN for remote work. A teller's home PC, never managed by the bank, gets infected with Emotet via a phishing PDF on a Tuesday night. Emotet steals the saved VPN credentials and the cached SAML token for the bank's online-banking admin console. By 3am Wednesday the attacker is on the corporate network — through the VPN, with valid credentials, from an IP that geolocates to a residential cable modem two towns over from the teller's house. The IDS sees nothing because the traffic is encrypted VPN. The SIEM sees a sign-in from a "trusted" IP range (the VPN's NAT pool) so no alert fires. The attacker has six clean hours before the morning shift starts noticing core-banking transactions they did not initiate.
+
+The post-incident question from the CFO was the right one: *if you knew that one phished employee could give an attacker six hours of "trusted" access, why did you build the trust into the network in the first place?* Answer: because in 1998 it was the only model anyone had. The remediation 18 months later: Entra ID Conditional Access requiring **device compliance** (Intune-managed only) plus **MFA** plus **sign-in risk = low** for the online-banking admin console. Same console, same teller, same VPN — but the PDP now refuses the attacker's session because the device is unknown to Intune. The VPN remains in place for legacy on-prem traffic; it is no longer a trust signal for anything that matters.
+
+In a SaaS-first context the same incident plays out without the VPN at all — the attacker compromises a Salesforce admin's session token directly via a phished OAuth consent grant. The defense looks identical: device compliance + step-up MFA + risk-based CA in front of the SaaS app. In a defense-contractor context the architecture is rougher because air-gapped networks add real constraints — the answer is more aggressive segmentation and on-prem PDPs (Microsoft Defender for Cloud Apps in shielded mode, BeyondTrust PRA), but the principle is unchanged. In healthcare the wrinkle is the medical-device fleet: most are unmanageable, so the PEP moves to the network segment in front of them and the PDP evaluates the *application* identity reaching the device rather than the device's own identity.
+</WarStory>
+
+## Check your understanding
+
+<Quiz question={{
+  id: "01-foundations/01-identity-crisis/q1",
+  prompt: "A vendor pitches you 'Zero Trust in a box' — a single appliance that 'implements Zero Trust' for your network. What is the most accurate reaction?",
+  options: [
+    "Buy it if the price is right; Zero Trust is too complex to build in-house.",
+    "Reject it; Zero Trust is an architecture, not a product, so a single appliance cannot deliver it. Ask which PDP / PEP role the appliance fills and where the gaps remain.",
+    "Buy it and layer NIST 800-207 controls on top later.",
+    "Reject it; Zero Trust only works for cloud-native organizations, not regulated industries."
+  ],
+  correctIndex: 1,
+  explanation: "Zero Trust is an architecture defined by NIST SP 800-207 — multiple components (PDPs, PEPs, telemetry, policy engine) cooperating. No single appliance can be 'Zero Trust'; it can only be one component. The correct buying motion is to identify your existing PDPs/PEPs and buy what fills the gaps."
+}} />
+
+<Quiz question={{
+  id: "01-foundations/01-identity-crisis/q2",
+  prompt: "In NIST SP 800-207 terminology, Microsoft Entra ID's Conditional Access plays which role?",
+  options: [
+    "Policy Enforcement Point (PEP)",
+    "Policy Decision Point (PDP)",
+    "Trust Anchor",
+    "Identity Federation Service"
+  ],
+  correctIndex: 1,
+  explanation: "Conditional Access evaluates an access request against policy and returns a decision (allow / block / require step-up). That is the PDP role. The PEPs that enforce its decision are the apps and resources protected by Entra ID — Office 365 endpoints, federated apps, etc. — that refuse the request when CA returns block."
+}} />
+
+<Quiz question={{
+  id: "01-foundations/01-identity-crisis/q3",
+  prompt: "Your CISO wants 'continuous evaluation' instead of one-time sign-in. In a Microsoft Entra ID environment, which feature most directly implements this principle, and what is its primary mechanism?",
+  options: [
+    "Privileged Identity Management (PIM); it just-in-time elevates privileged roles for a limited window.",
+    "Continuous Access Evaluation (CAE); it shortens token lifetime and revokes sessions within seconds of critical events instead of waiting for the next refresh.",
+    "Multi-Factor Authentication (MFA); it requires a second factor on every request.",
+    "Conditional Access (CA); it evaluates policy once at the moment of sign-in."
+  ],
+  correctIndex: 1,
+  explanation: "Continuous Access Evaluation is Microsoft's CAE protocol — it drops effective token lifetime to ~5 minutes and lets the resource provider (e.g., Exchange Online, Teams) revoke a session in near-real-time when Entra signals a critical event (password change, risk detection, location change, user disable). PIM, MFA, and CA all play supporting roles but CAE is the specific mechanism for the continuous principle."
+}} />
