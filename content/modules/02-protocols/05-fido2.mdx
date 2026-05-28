@@ -1,0 +1,184 @@
+{/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Objective 2.1 — Plan, implement and manage Microsoft Entra user authentication (FIDO2 as passwordless option) [VERIFY]
+- **Security+ SY0-701** Objective 4.1 — Implement authentication factors (something you have / inherence)
+- **CISSP** Domain 5.5 — Implement authentication systems (FIDO2 as modern passwordless)
+</HoloPanel>
+
+# FIDO2 / WebAuthn: Passwordless Authentication That Actually Works
+
+Passwords are the original sin of authentication design. They can be guessed, stolen, phished, sprayed, leaked in data breaches, reused across sites, forgotten, written on a sticky note, or harvested by malware before the user finishes typing. The security industry spent 40 years building compensating controls around this fundamental flaw — MFA, password managers, complexity policies, breach detection — rather than removing the flaw. FIDO2 removes the flaw. It is the first authentication standard that makes phishing cryptographically impossible by design, not by policy.
+
+## What it is
+
+FIDO2 is an umbrella term for two specifications that work together:
+
+<Definition term="WebAuthn (Web Authentication API)">The W3C specification (WebAuthn Level 2, published April 2021) defining the browser JavaScript API through which relying party web applications interact with authenticators. The Relying Party (RP) is the application server that registers and verifies credentials. WebAuthn defines the registration ceremony, the authentication assertion ceremony, the credential data structures, and the attestation formats.</Definition>
+
+<Definition term="CTAP2 (Client to Authenticator Protocol 2)">The FIDO Alliance specification for the protocol between a platform or browser (the FIDO2 Client) and a roaming authenticator — hardware security keys, cross-platform attachments like YubiKeys. CTAP2 defines the USB HID, NFC, and Bluetooth transports, the CBOR-encoded command set, and the PIN/UV auth protocol. Platform authenticators (Windows Hello, Apple Touch ID) do not require CTAP2 — that protocol is for external authenticators.</Definition>
+
+The result: a cryptographic public-key authentication system where the credential private key never leaves the authenticator, credentials are domain-scoped (a credential registered at `bank.com` is cryptographically unusable at `evil-bank.com`), and biometric or PIN verification happens locally — it never reaches the server.
+
+## Why it exists
+
+The FIDO Alliance was formed in 2012 by a consortium that converged on the same conclusion: password-based authentication is the root cause of most account compromise, and MFA layered on top of passwords is an incomplete fix. AiTM (Adversary-in-the-Middle) phishing kits, MFA fatigue attacks, SIM swapping, and SS7 attacks demonstrated that out-of-band second factors can be bypassed if the phishing infrastructure is sophisticated enough.
+
+The FIDO design goal was phishing-resistance by construction: credentials cryptographically bound to the origin that registered them. A FIDO2 authenticator stores a domain-scoped key pair — the private key never leaves, the RP receives only the public key during registration, and every authentication assertion includes the RP ID as part of the signed data. A phishing site at `https://evilbank.com` that looks identical to the real bank cannot obtain a valid assertion — the authenticator refuses to produce one for the wrong origin. CISA's phishing-resistant MFA guidance names FIDO2 explicitly as the gold standard for this reason.
+
+<ProTip>
+The security property that makes FIDO2 categorically stronger than TOTP or push-based MFA: **credential origin binding**. An AiTM proxy can intercept an OTP in real time and forward it to the legitimate site before it expires. A FIDO2 assertion includes the RP ID in the signed client data — an AiTM proxy cannot present the `evilbank.com`-origin assertion to `bank.com`'s verifier because the RP IDs in the signed data will not match. Phishing the credential is not just difficult; it is cryptographically prevented. This is why FIDO2 is the only MFA category CISA classifies as phishing-resistant.
+</ProTip>
+
+## How it works under the hood
+
+FIDO2 has two distinct ceremonies: **Registration** (creating a credential) and **Authentication** (asserting a credential). They are different operations with different data flows. Confusing them is a common source of implementation errors.
+
+<HoloPanel label="REGISTRATION CEREMONY">
+```
+1. USER initiates registration at Relying Party (RP)
+
+2. RP SERVER generates:
+   - challenge: 32+ bytes cryptographic random
+   - rp: { id: "bank.com", name: "First National Bank" }
+   - user: { id: <userId bytes>, name: "jdoe", displayName: "Jane Doe" }
+   - pubKeyCredParams: [ { alg: -7, type: "public-key" } ]  // ES256 preferred
+   - options: { attestation: "direct", userVerification: "required" }
+   Sends PublicKeyCredentialCreationOptions to the browser.
+
+3. BROWSER (FIDO2 Client) calls:
+   navigator.credentials.create({ publicKey: creationOptions })
+
+4. AUTHENTICATOR:
+   - Performs user verification (biometric, PIN, or presence)
+   - Generates a NEW asymmetric key pair scoped to (rp.id, user.id)
+   - Private key stored securely on authenticator (never exported)
+   - Returns:
+     - attestationObject: { authData, fmt, attStmt }
+     - authData contains:
+         rpIdHash: SHA-256(rp.id)
+         flags: UP=1, UV=1, AT=1
+         signCount: 0
+         aaguid: authenticator model identifier
+         credentialId: unique public key handle
+         credentialPublicKey: COSE-encoded public key
+
+5. BROWSER forwards attestationObject + clientDataJSON to RP Server.
+
+6. RP SERVER:
+   - Verifies challenge matches the issued challenge
+   - Verifies origin in clientDataJSON matches expected origin
+   - Verifies rpIdHash matches SHA-256(rp.id)
+   - Verifies attestation signature (for attestation != "none")
+   - Stores { credentialId, credentialPublicKey, signCount, userId }
+   Registration complete.
+```
+</HoloPanel>
+
+<HoloPanel label="ASSERTION (AUTHENTICATION) CEREMONY">
+```
+1. USER initiates login at Relying Party
+
+2. RP SERVER generates:
+   - challenge: 32+ bytes cryptographic random (NEW per request)
+   - rpId: "bank.com"
+   - allowCredentials: [ { id: credentialId, type: "public-key" } ]
+   - userVerification: "required"
+   Sends PublicKeyCredentialRequestOptions to the browser.
+
+3. BROWSER calls:
+   navigator.credentials.get({ publicKey: requestOptions })
+
+4. AUTHENTICATOR:
+   - Performs user verification (biometric, PIN, or presence)
+   - Locates the key pair for (rpId, credentialId)
+   - Constructs authenticatorData:
+       rpIdHash: SHA-256(rpId)
+       flags: UP=1, UV=1
+       signCount: (previous + 1)
+   - Signs: SHA-256(clientDataJSON) || authenticatorData
+     using the credential private key (ES256 / RS256 / EdDSA)
+   - Returns signature + authenticatorData
+
+5. BROWSER forwards authenticatorData + clientDataJSON + signature to RP Server.
+
+6. RP SERVER verifies:
+   - challenge matches the issued challenge (replay prevention)
+   - origin in clientDataJSON matches expected origin (phishing prevention)
+   - rpIdHash matches SHA-256(rp.id) (domain binding)
+   - signature valid against stored credentialPublicKey
+   - signCount > stored signCount (clone detection)
+   Authentication succeeds. Session established.
+```
+</HoloPanel>
+
+Five concepts that get glossed over in vendor FIDO2 marketing:
+
+**1. Attestation formats and their trust implications.** During registration, the authenticator can provide an attestation statement proving the key was generated by a specific authenticated hardware model. The formats defined in WebAuthn include `packed` (most common, used by YubiKey), `tpm` (TPM-backed keys on Windows), `android-key` (Android Keystore), and `fido-u2f` (legacy U2F). Attestation is relevant in regulated environments where you need to enforce "only YubiKey 5 FIPS series is acceptable" — you verify the AAGUID against the FIDO Metadata Service (MDS) to confirm the authenticator model. Most deployments use `attestation: "none"` or `"indirect"` because authenticator model restriction is operationally painful. That is acceptable for general use but insufficient for high-assurance environments.
+
+**2. Resident credentials vs server-resident credentials.** A resident credential (discoverable credential) stores the `user.id` on the authenticator itself. This enables true passwordless usernameless login — the user touches the key, the authenticator presents its stored credentials for the RP, and no username is typed. A server-resident credential requires the RP to provide the `credentialId` in `allowCredentials` — meaning the user must identify themselves first (username entry) so the server knows which credential handle to request. Resident credentials require authenticator storage space, which is limited — security keys typically support 25-100 resident credentials depending on model.
+
+**3. The User Verification (UV) flag.** The `userVerification` parameter in the request options controls whether the authenticator must verify the user locally (biometric or PIN) or only confirm presence (simple tap). UV=`required` means the private key operation cannot proceed without local biometric or PIN — this is the FIDO2 "something you have + something you know/are" combination. UV=`preferred` or `discouraged` allows presence-only, which is still phishing-resistant but not true two-factor. In regulated financial and healthcare environments, UV=`required` should be the default.
+
+**4. Sign count and clone detection.** The authenticator increments a signCount on every assertion. The RP stores the last-seen signCount per credential. If the RP receives an assertion with a signCount less than or equal to the stored count, this signals possible credential cloning — two copies of the same private key. The WebAuthn spec recommends failing the authentication when this occurs. Software authenticators (passkeys synced via iCloud Keychain or Google Password Manager) often return signCount=0 because the count cannot be reliably synchronized across devices; the RP should handle this case without blanket rejection.
+
+**5. Passkeys are FIDO2 credentials in sync.** Apple, Google, and Microsoft use "passkey" as the consumer-facing brand for FIDO2 discoverable credentials that sync across the user's device ecosystem via cloud keychain. The underlying cryptography is identical to hardware FIDO2; the difference is private key storage location — synced passkeys live in encrypted cloud keystores rather than hardware secure enclaves. For consumer apps, this dramatically improves usability (no key loss problem). For regulated enterprise environments, synced passkeys raise policy questions about where the private key ultimately lives.
+
+<Flashcard front="What is the difference between a resident credential and a server-resident credential in FIDO2?" back="A resident (discoverable) credential stores the user.id and credential metadata on the authenticator itself, enabling usernameless login — the RP provides an empty allowCredentials list and the authenticator presents stored credentials. A server-resident credential requires the RP to provide the credentialId in allowCredentials, meaning the user must identify themselves first. Resident credentials require authenticator storage capacity (typically 25-100 slots)." />
+
+<Flashcard front="Why is FIDO2 categorically phishing-resistant when TOTP-based MFA is not?" back="FIDO2 assertions include the RP ID (origin domain) in the signed authenticatorData. The assertion is cryptographically bound to the specific domain that requested it — an AiTM proxy presenting the assertion to a different domain fails verification because the RP ID hash does not match. TOTP codes are one-time passwords that can be intercepted by a real-time phishing proxy and forwarded to the legitimate site before expiry. The domain binding is the categorical difference." />
+
+## War story
+
+<WarStory title="The Yubikey Rollout and the 14% Who Lost Everything">
+A 650-employee regional bank completed a full FIDO2 rollout — the CISO's mandate was hardware keys only, YubiKey 5 NFC series, attestation enforced against the FIDO MDS for key model verification. Every employee received two keys (primary + backup), enrollment was tracked in the IAM governance system, and the rollout was completed in six months. It was, by every metric at the six-month mark, a success.
+
+Year one post-rollout: 14% of employees had filed key loss or destruction reports. Hardware keys get left at home, dropped in parking lots, run through laundry, bent in laptop bags, or simply lost during moves. Each loss event triggered a fallback authentication workflow — the emergency recovery path was a help-desk-supervised video verification followed by enrollment of a new key. At 650 employees and 14% attrition rate, that is 91 recovery events in twelve months. At 30 minutes per incident including help-desk time, it was 45 hours of staff time — and the process was leaky, because some supervisors were approving recovery requests over Teams without video verification.
+
+The CISO's response was not to abandon FIDO2 — it was to implement a **layered fallback strategy** rather than a single-path recovery. The architecture shift: primary authentication is FIDO2 hardware key (UV=required, attestation enforced). Fallback path A is Windows Hello for Business with a Trusted Platform Module — hardware-bound to the managed corporate device, no synced passkey, TPM attestation enforced. Fallback path B is Microsoft Authenticator passkey (synced to the user's Microsoft account, phishing-resistant but not hardware-bound). Help-desk recovery is a last resort, requiring video verification plus manager attestation, and it resets both hardware key enrollment and issues a temporary passkey with a 72-hour expiration.
+
+The insurance side effect was unexpected: the bank's cyber insurance carrier, auditing the authentication posture at renewal, reduced the premium by 18% after reviewing the FIDO2 deployment documentation and the attestation enforcement policy. Phishing-resistant MFA across all employees triggered a meaningful actuarial discount.
+
+In a SaaS context, Cloudflare's internal "lockdown to FIDO2 only" policy — documented in their post-Twilio-incident response — is the model to study. Cloudflare requires FIDO2 for all employee authentication, no SMS fallback, and documents that this policy blocked the same credential-phishing attack that compromised Twilio and Okta in the 2022 wave. In a defense context, FIDO2 and CAC smart card authentication are being bridged via custom authenticator implementations that present CAC-derived assertions through the WebAuthn API — this allows existing CAC PKI infrastructure to feed into FIDO2-aware applications without replacing the card infrastructure. In healthcare, the most awkward deployment reality: FIDO2 assumes a per-user authenticator, but hospital workflows often involve shared workstations (nursing stations, patient-check-in kiosks) where multiple users authenticate sequentially on a single machine. Shared workstation patterns with FIDO2 require fast-user-switching implementations and per-user key enrollment at the workstation level — it is solvable, but it requires explicit design rather than assuming the consumer-device model.
+</WarStory>
+
+## Check your understanding
+
+<Quiz question={{
+  id: "02-protocols/05-fido2/q1",
+  prompt: "During a FIDO2 registration ceremony, what does the Relying Party server verify before storing the credential, and what specific data in the attestationObject proves the assertion came from the correct origin?",
+  options: [
+    "The RP verifies the AAGUID against the FIDO MDS to confirm the authenticator model; the AAGUID in the authData proves origin binding.",
+    "The RP verifies the challenge matches the one issued, the origin in clientDataJSON matches the expected RP origin, and the rpIdHash in authData matches SHA-256(rp.id). These three checks prevent replay, phishing, and credential substitution respectively.",
+    "The RP verifies the user's biometric hash matches the stored template; biometric matching is the origin binding mechanism.",
+    "The RP verifies the signCount is greater than zero; an incremented signCount proves the authenticator performed a local user verification."
+  ],
+  correctIndex: 1,
+  explanation: "The three critical verifications during registration: (1) challenge matching prevents replay of a captured registration flow; (2) origin checking confirms the request came from the legitimate RP, not a phishing site — this is the origin binding; (3) rpIdHash verification confirms the authenticator bound the key to the correct RP ID. The RP never receives or stores biometric data — user verification is local to the authenticator. signCount is relevant to authentication assertions, not registration."
+}} />
+
+<Quiz question={{
+  id: "02-protocols/05-fido2/q2",
+  prompt: "Your organization deploys FIDO2 hardware security keys. During an audit, you discover that passkeys synced via iCloud Keychain are returning signCount=0 on every authentication assertion, which your RP code flags as potential cloning. What is the correct interpretation and the right policy response?",
+  options: [
+    "signCount=0 always indicates credential cloning. Revoke all iCloud Keychain passkeys immediately and require hardware keys only.",
+    "Software passkeys that sync across devices cannot reliably synchronize a monotonic counter, so the WebAuthn spec permits signCount=0 as a valid value for synced passkeys. The RP should accept signCount=0 without treating it as a cloning signal, while applying hardware-key-only policy for high-assurance roles.",
+    "signCount=0 means the credential was never used. Treat it as a fresh credential and reset the counter to 1.",
+    "iCloud Keychain passkeys use a different signCount algorithm. Configure the RP to accept signCount decrements for Apple platform authenticators."
+  ],
+  correctIndex: 1,
+  explanation: "The WebAuthn Level 2 specification explicitly notes that authenticators that do not implement monotonic counters (common in synced passkey implementations where count synchronization across devices is impractical) may return signCount=0. The spec recommends that RPs accept signCount=0 from authenticators and treat it as a no-clone-detection signal rather than a failure. The correct enterprise policy response is not to ban synced passkeys globally but to enforce hardware-key-only enrollment for privileged or high-assurance roles while accepting synced passkeys for standard user workflows."
+}} />
+
+<Quiz question={{
+  id: "02-protocols/05-fido2/q3",
+  prompt: "A regulated bank wants to enforce that only FIPS 140-2 Level 2 certified YubiKey 5 FIPS hardware security keys are accepted for employee authentication. Which FIDO2 mechanism enables this hardware model restriction, and what infrastructure is required?",
+  options: [
+    "Set userVerification=required in the PublicKeyCredentialRequestOptions. This restricts authentication to hardware authenticators with certified user verification hardware.",
+    "Use attestation=direct during registration and verify the AAGUID in the attestationObject against the FIDO Metadata Service (FIDO MDS). The AAGUID identifies the authenticator model; the MDS provides model certificates and certification status including FIPS level.",
+    "Configure allowCredentials with a list of known-good credentialIds. Pre-approved credential IDs are only issued by certified hardware.",
+    "Require attestation=packed and verify the attStmt algorithm is -7 (ES256). ES256 is only supported by FIPS-certified hardware."
+  ],
+  correctIndex: 1,
+  explanation: "Attestation is the FIDO2 mechanism for hardware model enforcement. During registration with attestation=direct, the authenticator provides a signed statement from its manufacturer that the key was generated on a specific authenticated hardware model. The AAGUID in the authData is a UUID identifying the authenticator model. The FIDO Metadata Service (MDS3) provides the manufacturer's root certificates, model descriptions, and certification status — including FIPS 140-2 level. The RP verifies the attestation signature chains to a trusted AAGUID entry in the MDS and checks that the model's certification status meets the required assurance level. userVerification controls local verification but not hardware model. allowCredentials are per-user, not model-scoped. ES256 is not exclusive to FIPS hardware."
+}} />
