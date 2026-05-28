@@ -1,0 +1,132 @@
+{/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-900** Study Area 1 — Describe security, compliance, and identity concepts (identity vocabulary subset) [VERIFY exact sub-objective label]
+- **SC-300** Objective 1.1 — Plan and implement an identity management solution (foundational vocabulary) [VERIFY]
+- **Security+ SY0-701** Objective 4.6 — Implement and maintain identity and access management (AAA model)
+- **CISSP** Domain 5.2 — Manage identification and authentication of people, devices, and services
+</HoloPanel>
+
+# The IAM Lexicon
+
+Terminology is where most IAM engineers bleed out quietly. They confuse authentication with authorization, use "identity" and "account" interchangeably, and reach for "delegation" when they mean "impersonation." The confusion compounds for years, then surfaces in architecture reviews, audit findings, and job interviews at the worst possible moment. This section is the canonical fix. Learn these distinctions now and you will spend the rest of your career correcting other people instead of being corrected.
+
+## What it is
+
+The IAM lexicon is the shared vocabulary underlying every protocol, product, and framework in this discipline. The terms were invented independently across operating systems, directory protocols, federated identity standards, and cloud platforms — so the same concept arrives with different names depending on where you are standing. A <Definition term="claim">A name-value pair carried inside a security token (typically a JWT or SAML assertion) that asserts something about the subject — their email address, role memberships, department, authentication method. Claims are the OIDC vocabulary; the equivalent in SAML is an *attribute*, in LDAP it is also an *attribute*, and the full signed envelope is an *assertion*. Same underlying idea; different protocol vocabulary.</Definition> in OIDC is an <Definition term="attribute">A named property of a directory object — user, group, device — stored in a directory service like Active Directory or LDAP. Attributes become claims when they are packaged into a token at authentication time. The IdP reads the attribute store, selects the relevant attributes, and includes them as claims in the outbound token.</Definition> in LDAP and an assertion in SAML. The concept is identical; only the label shifts with the protocol. A working IAM engineer holds all three names in memory simultaneously and translates on the fly.
+
+This section builds that translation table. Every term is defined precisely, cross-referenced to the protocol or standard that coined it, and placed in relation to the terms it is most commonly confused with.
+
+## Why it exists
+
+Loose vocabulary is not a soft problem. It produces hard defects.
+
+A 2019 post-incident review at a financial-services firm documented that the root cause of a privilege escalation was a misconfigured <Definition term="role">An abstraction that bundles a set of permissions and can be assigned to subjects. Roles describe *what operations are permitted* — read, write, admin. They are one axis of policy. In RBAC (Role-Based Access Control), subjects get permissions via role assignment rather than direct grant. The distinction from a group: roles bundle permissions; groups bundle subjects.</Definition> that the team had named "Auditor Group," leading a later engineer to treat it as a <Definition term="group">A directory object that bundles identity references — users, service accounts, other groups — into a named collection. Groups describe *who is included*. Groups are one layer of indirection below roles: you typically assign a role to a group, and users get the role by being members of the group. Group ≠ role.</Definition> in a provisioning workflow and assign it without scoping review. Two different words for two different concepts, but the team used them interchangeably and the ambiguity had a blast radius.
+
+The same vocabulary problem hits protocol boundaries hard. SAML, OIDC, WS-Federation, and Kerberos all express the same trust handshake but with completely different terminology. Engineers without the translation table internalized build integrations that *almost* work and produce misrouted tokens that *almost* validate.
+
+NIST SP 800-63B codifies the **Authentication Assurance Level (AAL)** model because terminology matters for compliance: AAL1 is single-factor, AAL2 is MFA with a phishing-resistant element, AAL3 is a hardware-bound authenticator. Regulators who write controls in terms of AAL do not accept "we have MFA" — they require a stated level with evidence. That requires owning the vocabulary.
+
+<ProTip>
+When you join a new team or a new engagement, spend 30 minutes mapping their vocabulary to canonical terms before touching anything architectural. Ask: "When you say 'role,' do you mean a directory group, an application permission bundle, or an RBAC assignment?" The answer tells you where the abstraction debt lives. An engineer who can translate between vendor vocabularies fluently is worth three who can only operate inside one vendor's ecosystem.
+</ProTip>
+
+## How it works under the hood
+
+### The AAA model
+
+The canonical frame for access control is **Authentication, Authorization, and Accounting** — abbreviated AAA and pronounced "triple-A." Every access decision in IAM decomposes into these three phases.
+
+**Authentication (AuthN)** answers *who are you?* It is the act of verifying that a claimed identity is genuine. Authentication never grants access; it only establishes a verified identity that the next phase can operate on. NIST SP 800-63B defines three assurance levels: AAL1 (single-factor, password is fine), AAL2 (multi-factor with a phishing-resistant element like TOTP or push notification), AAL3 (hardware-bound authenticator, FIDO2 passkey or PIV card). A login form that accepts a username and password is AAL1. Entra ID with Microsoft Authenticator and number matching is AAL2. A PIV smart card on a DoD workstation is AAL3.
+
+**Authorization (AuthZ)** answers *what can you do?* It evaluates a verified identity against policy to determine what operations are permitted on which resources. The four major frameworks:
+
+- **RBAC** (Role-Based Access Control) — permissions bundle into roles; subjects inherit permissions via role assignment. Dominant in enterprise IAM; brittle under role explosion.
+- **ABAC** (Attribute-Based Access Control) — permissions evaluated at runtime from subject, resource, and environment attributes. More expressive than RBAC; harder to audit. AWS IAM condition keys are production ABAC.
+- **ReBAC** (Relationship-Based Access Control) — permissions derived from the relationship graph between subjects and objects. Google Zanzibar is the reference implementation; GitHub repo permissions are ReBAC in practice.
+- **PBAC** (Policy-Based Access Control) — an umbrella term where named policies are first-class objects. Often used interchangeably with ABAC when the policy language is exposed to administrators.
+
+**Accounting** (also called Audit or the third A) answers *what did they do?* It is the log of every access event — successful authentications, failed authorizations, resource operations — that enables forensic reconstruction after an incident and demonstrates compliance during an audit. Accounting is the least glamorous of the three and the one most likely to be under-invested. It is also the one that saves you during a SOX finding or a breach investigation.
+
+<Flashcard front="A user presents a username and password. Which AAA phase has just completed, and what has it produced?" back="Authentication (AuthN). The user has proven they are who they claim to be. The output is a verified identity — typically a session token or security principal — that AuthZ can now evaluate against policy. No access has been granted yet." />
+
+### Identity vs account vs credential vs session
+
+These four terms describe four different layers of the same concept and are used interchangeably by people who should know better.
+
+An **identity** is the abstract individual — the human being, the service, the device. It has no direct representation in a system; it is the real-world entity that the system is trying to represent. A single person has one identity regardless of how many accounts they have.
+
+An **account** is the IdP-side record that represents an identity inside a specific system. One identity can have many accounts: a domain user account, an admin account, a service account, a break-glass account. Accounts are the objects that live in your directory and get provisioned, deprovisioned, reviewed, and audited.
+
+A **credential** is the secret the account uses to prove authenticity during authentication — a password, a certificate, a TOTP seed, a passkey. Credentials are scoped to accounts. When you rotate a password, you are updating the credential; the account and the identity behind it are unchanged.
+
+A **session** is the active grant produced when authentication succeeds — the token, cookie, or Kerberos TGT that the system issues and that subsequent requests carry to prove they already authenticated. Sessions have lifetimes. They expire. They can be revoked. The session is not the credential and is not the account; it is a time-bounded artifact of a successful authentication event.
+
+<Flashcard front="A service account's password is rotated. Which of the four layers — identity, account, credential, or session — changes? Which does not?" back="The credential changes (the password is a new secret). The account, the identity it represents, and any active sessions using a certificate or token that was not explicitly revoked are unchanged. This is why credential rotation alone does not terminate a live attacker session — you must also revoke the active session." />
+
+### Subject / principal / actor
+
+Three terms from three contexts for the same concept: the entity making an access request. **Subject** (SAML, access-control theory) is the entity whose identity is being asserted. **Principal** (OS security, AWS IAM) is the entity whose permissions are being evaluated — in AWS IAM, any entity that can make a request: user, role, federated user, or service. **Actor** (OAuth 2.0 token exchange, RFC 8693) is the service or user acting on behalf of another party, distinct from the subject on whose behalf they act. Same concept, three protocol badges.
+
+### Federation vs delegation vs impersonation
+
+This triad is where the most expensive confusions live.
+
+**Federation** is the act of delegating authentication responsibility to an external identity provider. When your application sends an unauthenticated user to Okta for sign-in instead of maintaining its own username/password database, that is federation. The trust relationship is established at the application layer (via SAML metadata exchange or OIDC client registration), and the IdP asserts identity back to the application via a signed token. The user authenticates to the IdP, not the application. Federation is a system-to-system trust arrangement.
+
+**Delegation** is a user authorizing another user or service to act on their behalf, with their knowledge and explicit consent. OAuth 2.0 is the canonical delegation framework: a user grants a third-party application a limited access token that allows the app to act on their behalf for a specified scope, without sharing their credentials. The delegated actor can only do what the token scope allows; the user retains ultimate ownership of the resource.
+
+**Impersonation** is acting as another user — typically without that user's knowledge or consent, and usually with elevated privilege. A help-desk technician impersonating a user's account to troubleshoot a problem is impersonation. An administrator signing in as a service account to test something is impersonation. Exchange's "Send As" permission, when misused, is impersonation. Impersonation should be logged, time-limited, and reviewed — because it is operationally identical to an attacker who has compromised credentials, and your audit trail needs to distinguish the two.
+
+## War story
+
+<WarStory title="The SOX finding that vocabulary built">
+A community bank's IT policy had two account categories: "user accounts" and "service accounts." During a SOX Type II audit the external auditor asked for all privileged accounts and quarterly access review evidence. The bank produced its domain admin list and its service account inventory. The auditor found 14 Active Directory accounts named `svc-backup`, `svc-monitoring`, `svc-replication` that were members of Domain Admins — but had never appeared in the privileged-user access review, because the access review team classified them as service accounts, which ran on an annual (not quarterly) cadence.
+
+Material finding: 14 DA-equivalent accounts unreviewed for a full year. Remediation cost $180K in audit time and process re-engineering.
+
+The root cause was a missing definition. "Service account" was a provisioning category, not a privilege category. The bank had no definition of "privileged account" that was independent of naming convention. Once they adopted one — "any account that is a member of a tier-zero group is a privileged account regardless of type or name" — the problem became structural and auditable.
+
+In a SaaS context the same gap surfaces with machine identities: API keys and OAuth service principals get classified as "technical accounts" exempt from access reviews, when a compromised API key with admin scope is operationally identical to a compromised admin user. In defense contexts the stakes are higher — a service account with access beyond its mission need in a cleared environment can be a reportable incident regardless of its name. In healthcare, HIPAA's minimum-necessary standard applies to machine identities: an interface engine with read access to the entire patient record database because nobody scoped it properly is a vocabulary failure with a regulatory consequence.
+</WarStory>
+
+## Check your understanding
+
+<Quiz question={{
+  id: "01-foundations/02-lexicon/q1",
+  prompt: "A nurse signs into the EHR with her badge and PIN, then accesses a patient record. Her manager asks: 'Was she authenticated to access that record?' Which statement is most accurate?",
+  options: [
+    "Yes — her badge and PIN proved she could access the record.",
+    "Authentication and authorization are the same thing; the question is unanswerable as posed.",
+    "She was authenticated (identity verified by badge + PIN) but whether she was authorized to access that specific patient record is a separate question answered by the EHR's access policy, not her login event.",
+    "Authentication was not complete until she opened the patient record, because access implies authorization."
+  ],
+  correctIndex: 2,
+  explanation: "Authentication establishes identity — the badge and PIN prove she is who she claims to be. Authorization is the separate decision about whether that verified identity may access a specific resource. A user can be authenticated and then denied authorization (the EHR might block access to a VIP patient record she has no care relationship with). Conflating the two is the most common IAM vocabulary error and produces systems where 'logging in' is treated as equivalent to 'permitted to do anything.'"
+}} />
+
+<Quiz question={{
+  id: "01-foundations/02-lexicon/q2",
+  prompt: "An engineer rotates the password on a service account after a suspected compromise. The attacker still has an active OAuth access token issued to that account six hours ago. Which IAM layer explains why the rotation alone did not terminate the attacker's access?",
+  options: [
+    "The identity layer — the attacker now controls the real-world identity behind the account.",
+    "The account layer — the account record still exists in the directory and must be disabled.",
+    "The session layer — the OAuth token is an active session artifact with its own lifetime; rotating the credential does not revoke already-issued tokens unless the session is explicitly terminated.",
+    "The credential layer — the old password hash is cached and the rotation has not propagated."
+  ],
+  correctIndex: 2,
+  explanation: "An OAuth access token is a session artifact — it was issued at authentication time and has its own expiry independent of the credential that produced it. Rotating the password updates the credential layer; it does not revoke the already-issued token. To terminate the attacker's access you must revoke the active tokens and sessions directly — in Entra ID, that means revoking refresh tokens via Revoke-AzureADUserAllRefreshToken or the equivalent Graph API call."
+}} />
+
+<Quiz question={{
+  id: "01-foundations/02-lexicon/q3",
+  prompt: "Your org uses Okta as the IdP. A partner company's employees sign into your internal application via Okta after authenticating to their own identity system. A new employee on your team says 'we delegated authentication to Okta.' What is the precise correct term for what your application is doing with the partner relationship, and why?",
+  options: [
+    "Delegation — your application delegated access to the partner's employees on behalf of your users.",
+    "Impersonation — Okta is acting as the partner users when they access your application.",
+    "Federation — your application trusts Okta as an external IdP, and Okta has a trust relationship with the partner's IdP, so the partner's authenticated identity is asserted to your application via a signed token chain.",
+    "Delegation — OAuth is handling the trust handshake between the two identity systems."
+  ],
+  correctIndex: 2,
+  explanation: "This is federation: your application has outsourced authentication to Okta (application-to-IdP federation), and Okta has established a trust with the partner's IdP (IdP-to-IdP federation, often called cross-tenant federation or inbound federation). The partner user authenticates to their own IdP; that IdP asserts identity to Okta; Okta issues a token your application trusts. Delegation would mean the partner's employees explicitly granted your application a scoped token to act on their behalf — a different model entirely."
+}} />
