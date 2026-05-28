@@ -1,0 +1,178 @@
+{/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Objective 1.1 — Plan and implement an identity management solution (PowerShell tooling is assumed throughout) [VERIFY specific sub-objective label]
+- **Security+ SY0-701** Objective 4.7 — Automate and orchestrate security using scripting (PowerShell as the canonical example)
+- **CISSP** Domain 7.7 — Operate and maintain detective and preventative measures (script-based audit context)
+</HoloPanel>
+
+# PowerShell Fundamentals for IAM
+
+Every IAM practitioner who touches Microsoft infrastructure will eventually collide with PowerShell. It is not optional, and "I use the portal" is not a strategy — the portal cannot do bulk operations, cannot be audited consistently, and cannot be scheduled. PowerShell is the control plane the portal is a thin wrapper over. Learn it once, use it forever.
+
+## When to reach for it
+
+The honest answer: PowerShell for almost everything that touches Active Directory or Microsoft Entra ID at scale. But the choice is more nuanced than that.
+
+The **Azure portal** is for one-off, exploratory actions — adding a single conditional access exclusion, checking a user's sign-in logs manually. If you are doing it more than twice or the result needs to be auditable, open PowerShell.
+
+**Microsoft Graph Explorer** (developer.microsoft.com/graph/graph-explorer) is useful for prototyping REST calls before you turn them into scripts. It is not a workflow tool. Use it the way you use a REPL: experiment, then codify.
+
+The **Azure CLI** (`az login`, `az ad user list`) is the right choice in cross-platform pipelines, CI/CD runners on Linux, or when you are already deep in Azure Resource Manager operations. IAM-specific tasks in Azure are thinner through the CLI than through the Graph SDK — the CLI does not have first-class cmdlets for PIM, Conditional Access, or entitlement management.
+
+**Microsoft Graph PowerShell SDK** is the answer for repeatable, schedule-able, peer-reviewable IAM operations on Entra ID. It maps 1:1 to the Graph REST API surface, it is actively maintained, and Microsoft has committed to it as the forward path. Everything else is either deprecated or a thinner wrapper.
+
+**ActiveDirectory module** (RSAT) is the right tool for on-premises Active Directory — user and group objects in AD DS, OUs, GPO linkage inspection, stale account audits. It does not talk to Entra ID. The two live in separate namespaces and you will use both in a hybrid environment.
+
+## The recipes
+
+### Connect to Microsoft Graph with required scopes
+
+Before any Graph cmdlet runs, you authenticate. The scope list is not cosmetic — Graph enforces it at the API layer, and requesting too little scope returns a 403, not a helpful error message.
+
+<PowerShellBlock title="Connect to Microsoft Graph">{`# Interactive sign-in (device code flow — works from any machine including headless)
+Connect-MgGraph -Scopes "User.Read.All", "Group.Read.All", "Directory.Read.All" -UseDeviceAuthentication
+
+# Verify what you connected as and what scopes are active
+Get-MgContext | Select-Object -Property Account, Scopes, TenantId
+
+# For automation: use a Service Principal with a certificate (never a client secret in prod)
+Connect-MgGraph -TenantId "your-tenant-id" \`
+                -ClientId "your-app-registration-client-id" \`
+                -CertificateThumbprint "CERT_THUMBPRINT"
+
+# Disconnect cleanly when done (matters in scheduled tasks — stale sessions accumulate)
+Disconnect-MgGraph`}</PowerShellBlock>
+
+The `-Scopes` parameter maps directly to Microsoft Graph API permissions. `User.Read.All` is read-only on user objects; it does not grant write access. If a script needs to write, add the matching `.ReadWrite.All` scope. Principle of least privilege applies to PowerShell sessions exactly as it does to service accounts.
+
+### Find all users with a specific UPN suffix
+
+Useful when you have acquired a domain, are deprecating a legacy domain, or are auditing which users are routed to which federated IdP.
+
+<PowerShellBlock title="Find users by UPN suffix">{`# Server-side filter — fast, doesn't pull the full directory
+$targetDomain = "contoso.com"
+Get-MgUser -Filter "endsWith(userPrincipalName,'@$targetDomain')" \`
+           -ConsistencyLevel eventual \`
+           -CountVariable userCount \`
+           -All |
+  Select-Object DisplayName, UserPrincipalName, AccountEnabled, CreatedDateTime
+
+Write-Host "$userCount users found with @$targetDomain suffix"`}</PowerShellBlock>
+
+The `-ConsistencyLevel eventual` flag is required for advanced OData filters like `endsWith()`. Without it the API returns a 400. This is Graph-specific behavior that catches everyone at least once.
+
+### Export all enabled users to CSV with selected columns
+
+The bread-and-butter audit export. Useful for HR reconciliation, SOX evidence, and onboarding audits.
+
+<PowerShellBlock title="Export enabled users to CSV">{`$timestamp = Get-Date -Format "yyyyMMdd-HHmm"
+$outputPath = "C:\Audits\EnabledUsers_$timestamp.csv"
+
+Get-MgUser -Filter "accountEnabled eq true" \`
+           -All \`
+           -Property "DisplayName,UserPrincipalName,Mail,Department,JobTitle,CreatedDateTime" |
+  Select-Object DisplayName, UserPrincipalName, Mail, Department, JobTitle, CreatedDateTime |
+  Export-Csv -Path $outputPath -NoTypeInformation -Encoding UTF8
+
+Write-Host "Exported to $outputPath"
+# Hash the file immediately for evidence integrity
+$hash = Get-FileHash $outputPath -Algorithm SHA256
+Write-Host "SHA256: $($hash.Hash)"  # Include this in your audit ticket`}</PowerShellBlock>
+
+Hash the output file before you attach it to anything. If the SOX auditor asks "how do I know this wasn't modified after you ran it?", you want an answer.
+
+### Find all groups a user is a member of (including transitive)
+
+Direct group membership is easy. Transitive membership — membership inherited through nested groups — is where access reviews go wrong. Graph handles this with a single API call.
+
+<PowerShellBlock title="Transitive group membership">{`$upn = "jsmith@contoso.com"
+$user = Get-MgUser -UserId $upn -ErrorAction Stop
+
+# Transitive member of — follows nested group chains
+$groups = Get-MgUserTransitiveMemberOf -UserId $user.Id -All |
+  Where-Object { $_.AdditionalProperties["@odata.type"] -eq "#microsoft.graph.group" }
+
+$groups | ForEach-Object {
+  [PSCustomObject]@{
+    GroupName   = $_.AdditionalProperties["displayName"]
+    GroupId     = $_.Id
+    Description = $_.AdditionalProperties["description"]
+    GroupType   = $_.AdditionalProperties["groupTypes"] -join ", "
+  }
+} | Sort-Object GroupName | Format-Table -AutoSize`}</PowerShellBlock>
+
+### Find all stale AD DS accounts (no logon in 90+ days)
+
+On-prem Active Directory does not expire idle accounts by default. In every regulated environment I have worked in, there are accounts that have not authenticated in over a year that are still enabled and fully credentialed. This recipe finds them.
+
+<PowerShellBlock title="Stale AD account audit">{`# Requires: ActiveDirectory module (RSAT); run from a domain-joined machine or RODC
+Import-Module ActiveDirectory
+
+$cutoffDate = (Get-Date).AddDays(-90)
+
+# LastLogonDate is replicated; LastLogon is per-DC and NOT replicated (don't use it for this)
+$staleAccounts = Get-ADUser -Filter {
+    Enabled -eq $true -and
+    LastLogonDate -lt $cutoffDate
+  } \`
+  -Properties LastLogonDate, Department, Manager, PasswordLastSet |
+  Select-Object Name, SamAccountName, LastLogonDate, Department, PasswordLastSet,
+    @{Name="DaysSinceLogon"; Expression={ ((Get-Date) - $_.LastLogonDate).Days }}
+
+$staleAccounts |
+  Sort-Object DaysSinceLogon -Descending |
+  Export-Csv -Path "C:\Audits\StaleAccounts_$(Get-Date -Format 'yyyyMMdd').csv" \`
+             -NoTypeInformation
+
+Write-Host "$($staleAccounts.Count) stale enabled accounts found"`}</PowerShellBlock>
+
+Use `LastLogonDate` (replicated across all DCs) and not `LastLogon` (per-DC, unreplicated). Every junior AD admin makes the `LastLogon` mistake. Every senior AD admin has cleaned up after a junior admin who made it.
+
+## Pitfalls
+
+<ProTip>
+**AzureAD and MSOnline are dead.** The `AzureAD` module reached end-of-support in March 2024 and will not be available in environments running Azure AD PowerShell module past its retirement date. `MSOnline` was deprecated before that. If you are looking at a script that starts with `Connect-MsolService` or `Connect-AzureAD`, you are looking at a script that is either already broken or on borrowed time. Migrate it to `Microsoft.Graph`. There is no "eventually" here — the deprecation timeline slipped twice; it will not slip again.
+</ProTip>
+
+<ProTip>
+**PowerShell 7+ is required for the Microsoft Graph module.** If you are still on Windows PowerShell 5.1 — the version that ships with Windows and lives at `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe` — `Install-Module Microsoft.Graph` will technically work but runtime behavior is inconsistent. Microsoft's official stance is PowerShell 7+. The `ActiveDirectory` module runs fine on 5.1. Use `pwsh` for Graph work, `powershell` for AD DS work if you have to, but standardize on 7+ across the board.
+</ProTip>
+
+<WarStory title="The deprovisioning script that went dark">
+2019. A community bank's IT team writes a PowerShell script to bulk-deprovision contractor accounts at the end of each engagement. Smart idea, good intentions. The script uses `Connect-MsolService` — the MSOnline module, already deprecated at the time but still working. The script is scheduled in Windows Task Scheduler, runs weekly, nobody thinks about it again.
+
+2023. Microsoft begins the MSOnline retirement sequence. The authentication flow breaks silently — no error thrown, no email alert, just a `Connect-MsolService` call that returns success against a local token cache and then quietly fails to reach the Graph API. The script completes with exit code 0. Task Scheduler marks it green.
+
+Seven months pass. No contractor accounts are deprovisioned. A SOX external audit samples terminated contractor access and finds 23 accounts still enabled, several with active Outlook mailboxes, two with elevated SharePoint permissions. None of the contractors were still employed. Audit finding: material weakness in access termination controls.
+
+The remediation cost — emergency re-audit, remediation attestation, auditor time, internal incident response — was an order of magnitude more expensive than migrating the script would have been. The bank now has a rule: every automation script has a named owner, a quarterly health-check calendar entry, and a documented dependency list including module versions and their EOL dates. Treat your scripts like production software, because they are.
+</WarStory>
+
+## Drill
+
+<Quiz question={{
+  id: "06-powershell/01-fundamentals/q1",
+  prompt: "A colleague shows you a script that begins with `Import-Module AzureAD` and `Connect-AzureAD`. What is the most accurate assessment?",
+  options: [
+    "This is correct modern practice; AzureAD is the official Entra ID PowerShell module.",
+    "This script targets a deprecated module (end-of-support March 2024) and should be migrated to Microsoft.Graph with Connect-MgGraph.",
+    "This only works in Azure Government clouds, not commercial tenants.",
+    "AzureAD is fine for read operations; only write operations require Microsoft.Graph."
+  ],
+  correctIndex: 1,
+  explanation: "The AzureAD module reached end-of-support in March 2024. Microsoft.Graph (Connect-MgGraph) is the official replacement for all Entra ID PowerShell operations. There is no read-only exception — the entire AzureAD module is deprecated."
+}} />
+
+<Quiz question={{
+  id: "06-powershell/01-fundamentals/q2",
+  prompt: "You run `Get-MgUser -Filter \"endsWith(userPrincipalName,'@contoso.com')\"` and receive a 400 Bad Request error. What is the most likely missing parameter?",
+  options: [
+    "-All (required for any filtered query)",
+    "-ConsistencyLevel eventual (required for advanced OData filter functions like endsWith)",
+    "-Select (you must specify properties when using -Filter)",
+    "-TenantId (cross-tenant filter requires explicit tenant context)"
+  ],
+  correctIndex: 1,
+  explanation: "Advanced OData filter functions (endsWith, startsWith, contains) require the ConsistencyLevel: eventual header, exposed in the Graph SDK as -ConsistencyLevel eventual. Without it, the API returns a 400 for these filter types."
+}} />

@@ -1,0 +1,151 @@
+{/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Objective 2.2 — Implement hybrid identity [VERIFY]
+- **SC-900** Study Area 2 — Microsoft Entra ID capabilities (hybrid scenarios) [VERIFY]
+- **Security+ SY0-701** Objective 4.6 — Hybrid identity
+- **CISSP** Domain 5.5 — Implement authentication systems — federated identity subset [VERIFY]
+</HoloPanel>
+
+# Hybrid Identity
+
+Most real enterprises live in the space between AD DS and Entra ID. They have 20 years of on-prem infrastructure, a forest full of users and devices, and a Microsoft 365 deployment that predates any serious identity governance conversation. The bridge between those two worlds — the plumbing that makes one user account work in both — is hybrid identity. Getting this architecture right is one of the most consequential infrastructure decisions a Microsoft-focused enterprise will make in this decade.
+
+## What it is
+
+Hybrid identity is the model in which an on-premises Active Directory Domain Services forest is the <Definition term="authoritative source of truth">The system whose identity data is treated as canonical. In a hybrid identity deployment, AD DS is typically the authoritative source: users are created, modified, and disabled in AD DS first. Entra Connect (formerly AAD Connect) replicates those changes to Entra ID. Changes made directly to cloud-only attributes in Entra ID are permitted but changes to synchronized attributes (displayName, UPN, password hash) must flow from AD DS, or they will be overwritten on the next sync cycle.</Definition> for user identities, and Entra ID serves as the cloud-facing authentication layer for SaaS applications and Microsoft 365 workloads.
+
+<Definition term="Entra Connect (AAD Connect)">Microsoft's synchronization engine that runs on-prem (on a domain-joined Windows Server) and replicates identity objects from AD DS to Entra ID on a ~30-minute cycle by default. It handles user account sync, group sync, device sync, and — depending on the sign-in method chosen — password hash synchronization. Entra Connect is the mechanical heart of every hybrid identity deployment. Its replacement, Cloud Sync, runs as an Entra ID-managed lightweight agent rather than a full Windows Server application.</Definition>
+
+There are three sign-in methods. The choice between them determines where authentication happens, which system owns the credential, and what your blast radius is if something gets compromised.
+
+<HybridIdentityDiagram />
+
+The diagram above gives you the data flow for each mode. What it cannot show you is the decision matrix — the reasoning behind choosing one over the others. That reasoning is the point of this section.
+
+## Why it exists
+
+Pure cloud (Entra-only, no AD DS) is the clean architectural ideal. It is also the rarest deployment pattern in practice. Most enterprises have accumulated decades of on-prem infrastructure — applications that speak Kerberos and LDAP, printers that authenticate against AD DS, legacy LOB systems that the vendor explicitly requires be integrated with an on-prem domain, and organizational muscle memory built around AD DS admin tooling.
+
+The alternative to hybrid identity is a forklift migration: lift every application off AD DS dependency simultaneously, move every user account to cloud-only, and flip the switch. In practice this is a 3-7 year program for a large organization, not an event. Hybrid identity is the architecture that lets you make incremental progress — migrating application by application toward cloud authentication while the on-prem world continues to function — rather than betting everything on a big-bang cutover.
+
+<ProTip>
+The "hybrid" designation is often temporary in aspiration even when permanent in practice. Most organizations that began hybrid identity deployments in 2018-2020 are still hybrid in 2026, usually because of the same small set of blockers: a legacy application with a hard Kerberos dependency, a vendor who cannot be persuaded to update their SAML configuration, or an organizational decision to keep AD DS as the HR source-of-truth for provisioning. Plan for hybrid to be durable infrastructure. Do not architecture as though you will finish migrating to cloud-only "by Q3."
+</ProTip>
+
+## How it works under the hood
+
+### Password Hash Synchronization (PHS)
+
+PHS is the method Microsoft recommends for most organizations, and it is the correct default choice unless you have a specific documented requirement for something else.
+
+The mechanism: Entra Connect extracts the `unicodePwd` attribute (the NT hash of the user's password) from AD DS, applies an additional PBKDF2-HMAC-SHA256 derivation with 1,000 iterations and a random salt, and ships the resulting value to Entra ID every approximately 2 minutes. The original NT hash never leaves your network. What Entra ID receives is a double-hashed, salted derivative — it can be used to validate the same password, but it cannot be reversed to obtain the original hash or the plaintext password.
+
+The consequential characteristic of PHS: **authentication happens in Entra ID**. The user's credentials are validated against the synced hash in the cloud. This means AD DS does not need to be reachable for authentication to succeed. If your VPN goes down, if your DC has a storage failure, if half your data center loses power — users can still authenticate to Microsoft 365 and Entra-integrated SaaS apps. This outage resilience is the dominant reason PHS wins most PHS-vs-PTA decisions in practice.
+
+PHS also enables **Entra ID Identity Protection's leaked credential detection**. Microsoft can compare the hashed derivatives against known-compromised credential databases and alert when a match is found — a capability that requires Entra ID to hold the hash derivative. PTA and Federation cannot enable this feature.
+
+The objection most often raised against PHS: "We can't let our passwords leave the building." This objection is technically imprecise (the NT hash, not the password, is being derived and synced — and even the NT hash is not what's synced), but organizationally real. In high-assurance environments where any credential material leaving the network perimeter triggers a compliance finding, PTA is the answer.
+
+### Pass-Through Authentication (PTA)
+
+PTA keeps the credential validation on-prem. A lightweight PTA Agent runs on one or more domain-joined servers in your environment. When a user signs in to Entra ID, Entra ID does not validate the password itself — instead it encrypts the credentials with a public key, places the request on an Azure Service Bus queue, and the on-prem PTA Agent pulls the request, decrypts it with its private key, and calls `LogonUser()` against the local domain controller. The DC returns pass or fail; the PTA Agent relays the result back through the service bus to Entra ID, which issues or denies the token.
+
+What PTA provides that PHS does not: **on-prem AD DS owns every authentication decision in real time**. If a user account is disabled in AD DS, the next PTA authentication returns failure immediately — there is no window between when the account is disabled and when Entra ID knows about it. With PHS, the disabled account state syncs within ~30 minutes; during that window, a user with a recently disabled account could theoretically authenticate against the cached hash in Entra ID (Entra Connect handles this via the `accountDisabled` sync, but the timing is looser than PTA).
+
+What PTA does not provide: outage resilience. If on-prem AD DS is unavailable (DC failure, network outage), PTA authentication fails. Users cannot sign in to Microsoft 365 even though the cloud service is fully operational. This is often the argument that breaks PTA adoption in organizations that have experienced extended DC outages. You can mitigate this with multiple PTA agents across multiple sites, but the fundamental on-prem dependency remains.
+
+PTA also does not enable leaked credential detection from Identity Protection for the same reason PHS does — Entra ID does not hold any credential material to compare against breach databases.
+
+### Federation (ADFS)
+
+Federation is the legacy architecture that organizations adopted before PHS and PTA existed, and that Microsoft has been actively deprecating since 2019.
+
+In federated mode, Entra ID does not validate credentials at all. When Entra ID sees a sign-in attempt for a federated domain, it performs Home Realm Discovery (HRD), determines that the UPN suffix is federated, and redirects the browser to the on-prem ADFS endpoint. ADFS validates the user against AD DS via Windows Integrated Authentication (Kerberos + NTLM), mints a SAML 2.0 assertion with the user's claims, and posts it back to Entra ID. Entra ID trusts the ADFS assertion (because you configured a federated trust when you ran `Convert-MsolDomainToFederated`) and issues its own Entra ID tokens to the user.
+
+Why Federation became dangerous: the federated trust model means Entra ID's security is contingent on ADFS's security. If an attacker compromises your ADFS server — gains code execution, steals the token signing certificate — they can mint SAML tokens for **any user in your Entra ID tenant**, including Global Administrators, with no on-prem credential required. The forged token passes Entra ID's signature verification because it's signed with the real ADFS signing certificate.
+
+This is not a theoretical attack. It is exactly what happened in the **Solorigate / SolarWinds breach (2020)**. The threat actor (Cozy Bear / APT29) gained access to ADFS infrastructure at dozens of organizations and used forged SAML tokens to access Microsoft 365 data, persistence tooling, and email with no additional authentication required. The breach disclosure caused Microsoft to significantly accelerate its PHS + Seamless SSO recommendation and introduce a new class of Identity Protection detections specifically for anomalous SAML token activity.
+
+ADFS is now formally in maintenance mode. Microsoft ships security patches; no new features are planned. The official guidance is to migrate all federated domains to PHS + Seamless SSO.
+
+### Seamless SSO — the desktop trick
+
+Seamless SSO is a feature that works alongside either PHS or PTA to provide single sign-on from domain-joined Windows devices without requiring users to re-enter credentials. The mechanism: Entra Connect creates a computer account in AD DS named `AZUREADSSOACC`. Kerberos is configured to issue Kerberos tickets to this account for users signing in from domain-joined machines. When a user opens a browser on a domain-joined PC and navigates to a Microsoft 365 sign-in, Entra ID asks the browser to present a Kerberos ticket for `AZUREADSSOACC`. The browser does so silently via Windows Integrated Authentication. Entra ID validates the ticket and issues tokens without the user seeing a sign-in prompt.
+
+The security implication: `AZUREADSSOACC`'s Kerberos keys are the trust anchor for Seamless SSO. The keys must be rotated regularly (Microsoft recommends every 30 days) to limit the blast radius if the account is compromised. Failure to rotate leaves you with a permanent, high-value target in AD DS — a computer account whose compromise yields silent SSO for any domain user to Microsoft 365.
+
+### Cloud Sync vs. Connect Sync
+
+Microsoft has introduced a new synchronization architecture alongside the original Entra Connect: **Entra Cloud Sync**. Cloud Sync replaces the heavyweight Windows Server application (Entra Connect requires a dedicated VM running .NET 4.x and has complex installation requirements) with a lightweight provisioning agent that communicates outbound to the Entra ID service. The sync configuration lives in the Entra portal rather than on-prem tooling.
+
+Cloud Sync is the forward-looking architecture. It supports multi-forest synchronization without complex metadirectory configuration, has a simpler deployment footprint, and receives new feature investment. The current gap: Cloud Sync does not yet support **all** the features of Connect Sync. As of 2026, key Connect-only features include: device writeback (required for Hybrid Entra Join), Exchange hybrid writeback (for Exchange on-prem mailbox attributes), and some custom attribute flow scenarios. For organizations that need those capabilities, Connect Sync remains required.
+
+The migration path: deploy Cloud Sync for new forests or for scopes where Connect Sync's gaps are not blockers. Plan to migrate existing Connect Sync deployments to Cloud Sync as the feature parity gap closes — Microsoft's roadmap signals Cloud Sync will achieve full parity and Connect Sync will enter deprecation, though no end-of-life date has been announced as of this writing.
+
+<Flashcard front="What is the primary architectural reason Microsoft recommends PHS over PTA for most organizations?" back="PHS makes Entra ID authoritative for authentication — it validates credentials against the synced hash without calling back to on-prem AD DS. This means AD DS outages do not break cloud authentication. PTA is dependent on on-prem AD DS for every sign-in; an AD DS or network outage blocks Microsoft 365 logins even when the cloud is healthy. PHS also enables Identity Protection's leaked credential detection. The primary counter-argument for PTA is that on-prem AD DS controls every credential validation in real time — useful when strict on-prem credential ownership is a compliance requirement." />
+
+## War story
+
+<WarStory title="The 18-Month ADFS Migration Nobody Wanted to Do">
+A community bank — about 2,200 employees, 45 branches — had been running ADFS 3.0 (Windows Server 2012 R2) since 2014. The original architect had read a Microsoft whitepaper arguing that "regulated industries require federation" and had built the federated trust before PHS was even a supported option. By the time federation was questioned, it had been in place for six years and nobody alive on the team had been there to build it.
+
+Solorigate broke in December 2020. Within two weeks of the public disclosure, every security team in financial services was having the same conversation: what is our ADFS blast radius? At this bank, the answer was stark. The ADFS servers were running on hardware that hadn't been patched since the previous year's maintenance window. The token signing certificate had never been rotated. The ADFS farm was accessible from the general employee VLAN — no firewall rule restricted it to the DMZ. If an attacker reached the ADFS server with code execution, they owned the Entra ID tenant.
+
+The CISO decided: migrate off ADFS. The target: PHS + Seamless SSO. Estimated timeline: 6 months. Actual duration: 18 months.
+
+The first eight months went as planned — Entra Connect deployed, password hashes syncing, `AZUREADSSOACC` created, Seamless SSO working for the majority of the user population. The converted domain validated against a test group of 50 users. No issues.
+
+Month nine: the project hit the first surprise. The bank's internet banking platform used a home-grown SAML integration that was hardcoded to the ADFS `entityID` (`https://adfs.bankname.com/adfs/services/trust`). The vendor who built the integration had gone out of business. The SAML metadata was configured on the bank's internet banking server with no fallback. Converting the domain to PHS broke internet banking for every external customer the moment the federated domain was converted.
+
+The remediation required engaging a third-party middleware vendor to reconfigure the SAML SP to trust Entra ID's SAML endpoint directly. That took three months and a meaningful contract negotiation.
+
+Month fourteen: a second surprise. A critical third-party HR application used ADFS for its SCIM provisioning connector — the provisioning logic queried ADFS for group membership claims to determine which employees got access to which HR modules. The documentation said "SAML IdP integration"; nowhere did it mention the hardcoded claim mapping against ADFS-specific attributes. Another two months of vendor engagement.
+
+Month eighteen: all federated domains converted. ADFS servers decommissioned. The ADFS retirement runbook took two days to execute cleanly.
+
+The lessons: federation creates an invisible web of dependencies that are invisible until you try to remove them. Before beginning an ADFS-to-PHS migration, run a discovery exercise specifically looking for SAML Service Provider integrations, ADFS claim rules used by downstream applications, and any hardcoded endpoint references to your ADFS `entityID` or ADFS hostname. That inventory will surface the surprises before they block the project.
+
+In a SaaS-first organization, federation is rarely the architecture — Entra-only or Okta-brokered SAML is more common, and the ADFS migration problem doesn't apply. In defense environments, ADFS is still common where the classified AD DS forest is the air-gapped source of truth and federation is the only practical way to produce tokens for on-prem apps without syncing hashes off-network — a legitimate use case that PHS cannot serve in a disconnected environment. In healthcare, the canonical nightmare is the organization running ADFS + Epic + on-prem AD DS where Epic has been integrated against the ADFS SAML endpoint by the Epic implementation team and the Epic contract specifies that changes to the authentication architecture require a paid engagement. Challenge that contract before you commit to an ADFS migration timeline.
+</WarStory>
+
+## Check your understanding
+
+<Quiz question={{
+  id: "03-microsoft-identity/03-hybrid-identity/q1",
+  prompt: "A bank's security team is choosing between PHS and PTA for their hybrid identity deployment. Their key requirements: (1) Microsoft 365 must remain accessible during on-prem AD DS outages; (2) disabled accounts must stop being able to authenticate within 5 minutes of the disable action. Which sign-in method satisfies both requirements, or do they conflict?",
+  options: [
+    "PHS satisfies both — password hashes sync every 2 minutes and disabled account state syncs in the same cycle.",
+    "PTA satisfies both — on-prem AD validates every sign-in in real time, ensuring disabled accounts are blocked immediately, and PTA agents maintain an always-on service bus connection that survives DC outages.",
+    "The requirements conflict. PHS provides outage resilience but has a ~30-minute sync lag for disabled account state. PTA provides real-time account state enforcement but breaks authentication during AD DS outages. The team must prioritize one or accept the trade-off.",
+    "Neither PHS nor PTA supports outage resilience — only Federation provides this because ADFS has built-in high availability."
+  ],
+  correctIndex: 2,
+  explanation: "This is a real architectural trade-off. PHS authenticates against the cloud-cached hash — AD DS outages do not break authentication, but there is a sync lag (typically 30-minute cycle) before disabled account state reaches Entra ID. A disabled account can potentially authenticate against the cached hash during that window (Entra Connect does propagate account state, but not instantaneously). PTA enforces account state in real time via the on-prem DC's LogonUser() response — disabled accounts are blocked immediately — but PTA requires on-prem AD DS to be reachable for every authentication. An AD DS outage blocks Microsoft 365 logins. The team must make a risk decision: which failure mode is more acceptable? For most banks, outage resilience (PHS) wins. For environments with strict IAM compliance requirements around immediate account disable enforcement, PTA may be required."
+}} />
+
+<Quiz question={{
+  id: "03-microsoft-identity/03-hybrid-identity/q2",
+  prompt: "After reading about the Solorigate breach, your CISO asks you to explain exactly how a compromised ADFS server leads to Entra ID tenant compromise, and why this risk does not exist with PHS. What is the accurate explanation?",
+  options: [
+    "Solorigate worked because the ADFS server had weak passwords. PHS uses stronger password hashing so the same attack doesn't apply.",
+    "A compromised ADFS server gives an attacker the token signing certificate. With that certificate, the attacker can mint SAML assertions for any user in the Entra ID tenant — including Global Admins — and Entra ID will accept them because the signature is valid. With PHS, Entra ID validates credentials directly and does not trust an external SAML assertion — there is no token signing certificate for an attacker to steal.",
+    "Solorigate only affected government tenants. Commercial tenants using ADFS are not affected.",
+    "PHS is not vulnerable because password hashes are stored on-prem; an ADFS compromise in a PHS deployment would still give the attacker the same ability to forge tokens."
+  ],
+  correctIndex: 1,
+  explanation: "The core of the Solorigate attack was token forgery. The federated trust between ADFS and Entra ID means Entra ID cryptographically trusts SAML tokens signed by the ADFS token signing certificate — that is the entire premise of federation. If an attacker gains the signing certificate (or code execution on the ADFS server, from which the certificate can be exported), they can issue arbitrarily-privileged SAML assertions that Entra ID accepts without any credential validation. The assertions can claim any user, any group membership, any privileged role. With PHS, Entra ID validates credentials against the locally-held hash derivative — there is no external SAML trust relationship and no token signing certificate an attacker can leverage. The attack surface simply does not exist in the same form."
+}} />
+
+<Quiz question={{
+  id: "03-microsoft-identity/03-hybrid-identity/q3",
+  prompt: "Your organization is running Entra Connect (Connect Sync) and is evaluating migration to Cloud Sync. A colleague says: 'We can migrate today — Cloud Sync does everything Connect Sync does.' Is this accurate, and what would you check before migrating?",
+  options: [
+    "Accurate — Microsoft has confirmed full feature parity between Cloud Sync and Connect Sync as of 2025.",
+    "Inaccurate — Cloud Sync does not support any multi-forest scenarios, which makes it unsuitable for most enterprise deployments.",
+    "Inaccurate — as of 2026, Cloud Sync still has gaps relative to Connect Sync. Before migrating, check whether you use device writeback (Hybrid Entra Join), Exchange hybrid writeback for on-prem Exchange mailbox attributes, or custom attribute flow configurations that Connect Sync's rules editor supports but Cloud Sync does not yet replicate.",
+    "Inaccurate — Cloud Sync requires Entra ID P2 licensing, which most organizations do not have, making it unavailable as a replacement for Connect Sync."
+  ],
+  correctIndex: 2,
+  explanation: "Cloud Sync is the forward-looking architecture and Microsoft is investing new feature development there, but feature parity with Connect Sync is not complete as of 2026. The most commonly encountered blockers: device writeback (required for Hybrid Entra Join — needed when you want domain-joined Windows devices to register in Entra ID for device-based Conditional Access), Exchange hybrid writeback (required for Exchange on-prem coexistence scenarios), and complex custom synchronization rules. Organizations that rely on these capabilities must stay on Connect Sync until Microsoft closes the gaps. The migration path is: evaluate your Connect Sync configuration against the Cloud Sync feature matrix, identify blockers, and plan the migration when your blockers are resolved — not before."
+}} />

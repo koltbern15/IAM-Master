@@ -1,0 +1,164 @@
+{/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Objective 1.1 — Plan and implement an identity management solution [VERIFY]
+- **SC-300** Objective 2.1 — Plan and implement authentication and authorization [VERIFY]
+- **SC-300** Objective 2.4 — Plan and implement Conditional Access [VERIFY]
+- **SC-300** Objective 3.1 — Plan and implement workload identity [VERIFY]
+- **SC-300** Objective 4.1 — Plan and implement identity protection [VERIFY]
+- **SC-900** Study Area 2 — Describe the capabilities of Microsoft Entra [VERIFY]
+- **Security+ SY0-701** Objective 4.6 — Cloud identity providers
+- **CISSP** Domain 5.5 — Implement authentication systems (Entra ID as canonical cloud IdP) [VERIFY]
+</HoloPanel>
+
+# Entra ID
+
+If SC-300 had a center of gravity, this section is it. Microsoft Entra ID — rebranded from Azure Active Directory in 2023, abbreviated to Entra ID throughout — is Microsoft's cloud identity provider. It is the SaaS-era successor to AD DS, the PDP for every Conditional Access policy, the authentication layer for Microsoft 365, Azure, and thousands of federated applications, and the platform most Microsoft-centric enterprises will spend the rest of this decade building everything on top of.
+
+## What it is
+
+Entra ID is a <Definition term="cloud identity provider (IdP)">A service that stores identities and issues cryptographic tokens (SAML assertions, OIDC ID tokens, OAuth access tokens) that applications can verify to grant access. The IdP owns the authentication conversation; the application trusts the IdP's assertion rather than doing its own credential verification. In the Microsoft ecosystem, Entra ID is the IdP for every application that trusts Microsoft's identity platform.</Definition> operating at global scale — over 700 million users in the Microsoft commercial cloud as of 2024. Unlike AD DS, which is deployed per-organization into your own infrastructure, Entra ID is a multi-tenant SaaS service. Your tenant is logically isolated; the infrastructure is shared and operated by Microsoft.
+
+The central primitive is the **tenant** — a dedicated, isolated instance of Entra ID associated with one organization's Microsoft 365 or Azure subscription. Within a tenant you manage users, groups, service principals, application registrations, Conditional Access policies, and identity governance settings. The tenant boundary is a security boundary in Entra ID the way the forest boundary is a security boundary in AD DS: cross-tenant access requires explicit B2B federation or cross-tenant access settings.
+
+<Definition term="service principal">Every application that wants to authenticate against Entra ID needs an identity in the directory. That identity is the service principal. Think of it as the application's account — it has its own object ID, its own credentials (client secrets or certificates), and its own permissions. The service principal is created in the tenant where the application is being consumed. The app registration, by contrast, lives in the tenant where the app is developed/owned.</Definition>
+
+<EcosystemMap />
+
+In the ecosystem map, Entra ID is the cyan node at the center — deliberately. Every other node has at least one edge connecting to it. That is not a bias in the diagram; it reflects the actual architecture of Microsoft-centric environments. Entra ID is the hub. AD DS (the gray node, lower left) is still present, but the edge between them is bidirectional: Entra Connect syncs objects from AD DS to Entra ID, making the on-prem directory the source of truth for identities while Entra ID handles cloud authentication.
+
+## Why it exists
+
+AD DS was built for a world where your identity and your resources lived in the same building. Entra ID was built for a world where your users might be in 40 countries and your applications are SaaS services running on someone else's infrastructure.
+
+The architectural problem AD DS could not solve: how do you authenticate a user to a SaaS application (Salesforce, ServiceNow, Workday) running outside your network, from a device you do not own, from a country your VPN does not cover? AD DS cannot do this directly. You could federate it through ADFS — and organizations did, from about 2010 through 2018 — but ADFS was a complex on-premises infrastructure you had to maintain, and the Solorigate breach in 2020 demonstrated in the most public way possible that compromised ADFS servers gave attackers the ability to forge tokens for any user in the tenant. ADFS is the architecture Microsoft built and then had to warn everyone away from.
+
+Entra ID solves the problem by moving authentication to the cloud and building the policy engine — Conditional Access — into the IdP itself rather than bolting it on afterward. The sign-in conversation happens at `login.microsoftonline.com`. Microsoft operates the infrastructure. Your job is to configure policy.
+
+## How it works under the hood
+
+### Conditional Access — the policy engine
+
+Conditional Access (CA) is Entra ID's Policy Decision Point. Every sign-in passes through it. CA evaluates a set of **signals** — attributes of the authentication request — and makes a policy decision: Allow, Block, or Allow With Controls (require MFA, require compliant device, restrict the session, etc.).
+
+The signal categories:
+
+- **User and group**: Which user is signing in? What groups do they belong to? Are they in scope for this policy?
+- **Application**: What application is the user signing in to? High-sensitivity apps (admin portals, Azure management) get stricter policy than a general productivity app.
+- **Location**: What named location or IP range is the request coming from? Corporate IP ranges can be trusted locations; sign-ins from unfamiliar countries can trigger step-up MFA or block.
+- **Device**: Is the device Entra-joined or Entra-registered? Is it marked compliant in Intune? Is it running a supported OS? A managed, compliant device is a trust signal; an unmanaged device elevates risk.
+- **Sign-in risk**: What is the Entra ID Identity Protection risk score for this specific sign-in event? Anonymous IP, atypical travel, password spray patterns — Identity Protection feeds a risk level (Low/Medium/High) back to CA.
+- **User risk**: What is the cumulative risk score for this user based on all prior detections? A high user-risk score (e.g., leaked credentials detected) can require a password reset before access is granted.
+
+The output of CA is a grant control, a session control, or a block. Grant controls are the "what you have to prove" layer: require MFA, require compliant device, require approved client app, require terms of use acceptance. Session controls are the "what happens after you're in" layer: use Conditional Access App Control (MCAS proxy) to restrict download, set sign-in frequency, disable persistent browser sessions.
+
+<Flashcard front="What is 'report-only mode' in Conditional Access and why is it non-negotiable before deploying any CA policy?" back="Report-only mode evaluates a CA policy against real sign-in traffic and logs what the policy *would* have done — without actually enforcing it. It surfaces unintended impacts (users who would be blocked, devices that would fail compliance checks) before the policy goes live. Deploying a CA policy directly to enforcement without a report-only phase risks blocking legitimate users at scale. Microsoft recommends all CA changes start in report-only and remain there until you've reviewed the What If tool results and live sign-in logs for your target population." />
+
+### MFA — the authenticator landscape
+
+Multi-factor authentication in Entra ID supports a hierarchy of authenticator methods, ranked roughly by phishing resistance:
+
+- **FIDO2 security keys** (e.g., YubiKey): hardware-bound, origin-bound challenges — the credential cannot be phished. The gold standard for privileged accounts.
+- **Certificate-based authentication (CBA)**: X.509 certificates on smart cards or device TPMs. Common in government and defense environments where PIV/CAC cards are already issued.
+- **Microsoft Authenticator (passkey / number matching)**: the Authenticator app in passkey mode (FIDO2 on device) or with number matching enabled is substantially more phishing-resistant than push notifications alone. Number matching shows a number on screen during sign-in that the user must enter in the app — eliminates MFA fatigue attacks where an attacker simply waits for the user to approve a spurious push.
+- **TOTP authenticator apps**: Time-based one-time passwords (RFC 6238). Phishable — an attacker with a real-time phishing proxy can relay the TOTP code. Better than nothing; not acceptable for privileged access.
+- **SMS / voice OTP**: Deprecated for new deployments. Vulnerable to SIM swap attacks. Microsoft has been actively deprecating SMS as a default MFA method in the Microsoft Authenticator migration. If you are still deploying SMS as a primary MFA method in 2026, you are making a security mistake you will have to walk back.
+
+<Flashcard front="Why is push notification MFA without number matching vulnerable to MFA fatigue attacks, and what Entra ID setting mitigates this?" back="MFA fatigue exploits the fact that a standard push notification (Approve / Deny) does not tie the push to a specific sign-in context. An attacker who has compromised credentials can trigger repeated push requests to the user's phone until the user approves one to stop the noise. Microsoft Authenticator's number matching feature requires the user to enter a 2-digit code displayed during the sign-in into the app, cryptographically binding the approval to the specific sign-in attempt. Enable number matching in Entra ID > Authentication methods > Microsoft Authenticator > Configure." />
+
+### Privileged Identity Management — just-in-time elevation
+
+PIM is Entra ID's answer to the problem of permanent privileged role assignments. In a pre-PIM world, a Global Administrator account is permanently Global Administrator, 24/7, 365 days a year — providing a large, always-available attack surface. PIM replaces permanent assignment with **just-in-time** (JIT) activation:
+
+- **Eligible assignment**: The user has the right to activate the role but does not hold it actively. When they need it, they request activation through the PIM portal (or via API), provide a business justification, and optionally complete MFA or approval by a second party.
+- **Active assignment**: The user holds the role continuously. PIM still manages this and can enforce a time-bound expiration — no permanent active assignments for privileged roles.
+
+PIM also generates the audit trail that compliance teams live on: every activation, every approval, every expiration is logged. For SOX-regulated environments, PIM activation logs are first-class audit evidence that privileged access was controlled.
+
+The practical governance model: no permanent Global Administrator. Every admin has an eligible assignment. Activations expire after 1-4 hours. Activations require MFA and a justification ticket number. This does not eliminate the risk of a compromised admin account — but it shrinks the window from "permanent" to "hours."
+
+### Identity Protection — risk-based signals
+
+Entra ID Identity Protection continuously evaluates sign-in behavior and user activity against a global threat intelligence corpus drawn from billions of authentications daily. It surfaces two risk signals:
+
+**Sign-in risk detections**: Anonymous IP address (Tor, VPN, proxy), atypical travel (sign-in from Nairobi 20 minutes after one from Columbus — physically impossible), unfamiliar sign-in properties (device, browser, location not seen before for this user), malware-linked IP, admin-confirmed compromise.
+
+**User risk detections**: Leaked credential detection (Microsoft scours dark web dumps and credential breach databases and matches hashes to your users), anomalous user activity, suspicious sending patterns (for mail accounts), threat intelligence signals from Microsoft Defender XDR.
+
+Identity Protection exposes these risk levels to Conditional Access via the risk signal integration. The canonical risk-based CA policy: when `sign-in risk = Medium or High`, require MFA. When `user risk = High`, require a secure password reset and block until complete. This creates a self-remediating loop: the attacker's anomalous sign-in triggers risk elevation, which triggers MFA they cannot satisfy (they don't have the user's phone), which blocks the session.
+
+### App registrations, enterprise apps, and the consent model
+
+An **app registration** is the developer-side identity of an application — created in the tenant that owns and develops the app. It defines what the app is, what OAuth scopes it requests, what redirect URIs it accepts, and holds the app's credentials (client secrets or certificates). One app registration can serve users across every tenant (multitenant apps).
+
+An **enterprise application** (service principal) is the per-tenant instance created in each tenant where the app is being consumed. When you add Salesforce to your Entra ID tenant, you are creating an enterprise app (service principal) in your tenant. The service principal holds the local configuration: which users can access it, what claims it receives, how SAML attributes are mapped, whether admin consent has been granted for the OAuth scopes the app requests.
+
+**Admin consent** is the mechanism by which a tenant administrator pre-approves an app's permission requests on behalf of all users in the tenant. Without admin consent, each user sees an OAuth consent screen when they first sign in to the app. With admin consent, the consent is pre-granted and the screen does not appear. This matters: a fraudulent app requesting `Mail.ReadWrite` and `Files.ReadWrite.All` and tricking users into individual consent is a real attack vector (illicit consent grant attack). Admin consent workflows — where users request consent and admins review and approve — are the correct control.
+
+### Entra ID licensing tiers
+
+The features you can configure depend heavily on your licensing tier:
+
+- **Entra ID Free**: comes with every Microsoft 365 license. Basic user/group management, SSO to SaaS apps via SAML/OIDC, MFA (TOTP + Authenticator), basic audit logs, self-service password reset for cloud-only users.
+- **Entra ID P1**: the baseline for serious security work. Adds Conditional Access (the full CA engine), group-based application assignment, Hybrid Entra ID join for device compliance, self-service password reset for hybrid users, and Entra Connect Health monitoring. If you are building CA policies, you need P1.
+- **Entra ID P2**: adds PIM (just-in-time role activation), Identity Protection (risk-based CA signals, leaked credential detection), access reviews (periodic attestation campaigns for group membership and app assignments), and entitlement management (access packages). The SC-300 exam heavily tests P2 features. If you are building a serious governance program, you need P2.
+- **Entra Suite**: Microsoft's premium bundle (announced 2024), adds Entra Internet Access (ZTNA for internet), Entra Private Access (ZTNA for on-prem apps, replacing VPN), Entra ID Governance (full IGA features), and Verified ID (verifiable credentials). Priced as an add-on per-user per-month on top of the Microsoft 365 stack.
+
+The licensing gate matters for exam scenarios: read every CA-related question for clues about whether PIM or Identity Protection is in play. If the scenario involves JIT activation, the answer is PIM — which requires P2. If the scenario involves risk-based CA, Identity Protection is providing the signal — also P2.
+
+## War story
+
+<WarStory title="The CA Policy That Broke 200 Tellers at 8am">
+A community bank, about 1,400 employees, 200 teller workstations across 30 branches. The security team had just achieved P1 licensing and was eager to deploy Conditional Access. The first policy: require a compliant, Intune-managed device for all sign-ins to Microsoft 365.
+
+The policy was written on a Thursday afternoon. It was tested by one engineer on one laptop that was already fully enrolled in Intune. It passed. The engineer set it to `On` — not report-only — and went home for the weekend.
+
+Monday, 8am. Four hundred people could not log in. The teller workstations — Windows 10 PCs that had been assigned to Intune but never completed the compliance policy evaluation sync — were returning a "device not compliant" state in Entra ID. Conditional Access was blocking them. The tellers couldn't run the bank's core-banking software, which launched through a browser SSO session tied to Microsoft 365 auth. Branch managers were calling the helpdesk. The helpdesk couldn't process the calls because their workstations were also blocked.
+
+Emergency response: the security team broke glass on a Global Admin account (a permanent active assignment — PIM was not yet deployed), excluded the teller workstation group from the CA policy, and restored access within 40 minutes. Total impact: 2.5 hours of teller downtime across 30 branches on a Monday morning, during peak transaction volume.
+
+The 6-week remediation: the team rebuilt the CA policy from scratch in report-only mode. They ran the **What If** tool against a sample of user accounts in each affected population. They reviewed sign-in logs under report-only for 10 days. They found three additional device populations that would have been blocked: shared kiosks, conference room displays running Teams Rooms, and a fleet of 45 iPads used by loan officers. Each needed a separate exclusion or a different compliance policy. The final rollout was staged by branch over 4 weeks, with the helpdesk pre-briefed at each branch before the change date.
+
+The lesson is not that CA is dangerous. It is that CA is powerful and must be treated with the same change-management discipline as a firewall ACL change — which is to say, report-only is not optional, it is the minimum. In a SaaS-first organization with no Intune, the equivalent failure mode is a CA policy requiring device compliance when no devices are enrolled — same outcome, same Monday morning. In a defense environment, Entra ID Government cloud has CA with the same feature set but operates in a FedRAMP High boundary; the lesson holds. In healthcare, the gotcha is shared clinical workstations that multiple nurses log into with different accounts — device-based exclusions are often necessary, and the compliance signal must come from the workstation identity, not the user identity.
+</WarStory>
+
+## Check your understanding
+
+<Quiz question={{
+  id: "03-microsoft-identity/02-entra-id/q1",
+  prompt: "A Conditional Access policy is configured with the following signals: User group = All Finance Users, Application = Azure Management Portal, Location = All Locations, Grant = Require MFA + Require compliant device. A finance analyst signs in from her personal iPhone (not enrolled in Intune) while traveling internationally. What does CA return?",
+  options: [
+    "Allow — MFA can be satisfied on the iPhone and location is not restricted.",
+    "Block — the user is in an unfamiliar international location, which triggers an automatic block.",
+    "Block — the grant condition requires a compliant device; the personal iPhone is not Intune-enrolled and therefore not compliant. MFA alone is insufficient.",
+    "Allow with MFA — Conditional Access does not evaluate device compliance for mobile devices."
+  ],
+  correctIndex: 2,
+  explanation: "CA grant controls are evaluated with AND logic when multiple controls are listed. Require MFA AND require compliant device means both conditions must be satisfied. The personal iPhone is not enrolled in Intune and therefore has no compliance state — Entra ID treats it as non-compliant. The session is blocked regardless of whether MFA was satisfied. The analyst would need to use a bank-managed, Intune-enrolled device. Location (international travel) elevates sign-in risk in Identity Protection but does not automatically block — that requires a separate risk-based CA policy."
+}} />
+
+<Quiz question={{
+  id: "03-microsoft-identity/02-entra-id/q2",
+  prompt: "A user is listed as an *eligible* Global Administrator in Privileged Identity Management. She calls the helpdesk and says she cannot make changes to Azure AD because she does not have the required permissions. What is the most likely explanation?",
+  options: [
+    "The eligible assignment is broken — eligible assignments in PIM do not grant any access.",
+    "She needs to activate the Global Administrator role in PIM. Eligible assignments require explicit activation (and potentially MFA + justification) before the role is granted. Until she activates, she has no Global Admin rights.",
+    "Her account has been blocked by Conditional Access and she cannot activate PIM roles until she signs in from a compliant device.",
+    "PIM eligible assignments only work during business hours unless configured otherwise."
+  ],
+  correctIndex: 1,
+  explanation: "This is the fundamental PIM behavior distinction. An eligible assignment means the user *may* activate the role — it does not mean they currently have it. The user must go to the PIM portal (or My Access), request activation of the Global Administrator role, complete any configured requirements (MFA, approval, justification), and then the role is granted for the configured activation duration (e.g., 1-4 hours). Outside of that activation window she is a standard user. This is expected and correct behavior — the confusion is common when PIM is new to an organization."
+}} />
+
+<Quiz question={{
+  id: "03-microsoft-identity/02-entra-id/q3",
+  prompt: "A developer registers an application in Entra ID and tells you they need to add it to your organization's tenant so employees can sign in. What is the correct term for the per-tenant identity object that gets created when an application is added to a tenant for consumption, and how does it differ from the app registration?",
+  options: [
+    "They are the same object. The app registration and the enterprise application are different names for one object stored in the tenant.",
+    "The enterprise application (service principal) is the per-tenant consumption identity, created in each tenant where the app is used. The app registration is the developer-side identity created in the app's home tenant, defining the app's properties and permissions. An app registration in one tenant can produce service principals in thousands of consuming tenants.",
+    "The service principal is created only for Microsoft first-party applications. Third-party apps use app registrations directly.",
+    "The enterprise application contains the OAuth scopes; the app registration contains the user assignments. They are always 1:1 in the same tenant."
+  ],
+  correctIndex: 1,
+  explanation: "The app registration / enterprise app (service principal) split is one of the most-tested Entra ID concepts on SC-300. The app registration lives in the *home* tenant (the developer/publisher's tenant) and defines the application's identity, credentials, redirect URIs, and requested scopes. When a user or admin adds the application to a *consuming* tenant (via admin consent or user sign-in), Entra ID creates a service principal in that tenant. The service principal is the local object you configure: who can use it, how claims are mapped, whether admin consent has been granted. One app registration → potentially thousands of service principals across thousands of tenants for a popular multitenant app."
+}} />

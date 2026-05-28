@@ -1,0 +1,116 @@
+{/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Objective 2.2 — Implement hybrid identity (AD DS as the on-prem source-of-truth) [VERIFY]
+- **Security+ SY0-701** Objective 4.6 — Directory services
+- **CISSP** Domain 5.4 — Implement and manage authorization mechanisms (AD DS as canonical enterprise example) [VERIFY]
+</HoloPanel>
+
+# Active Directory Domain Services
+
+Microsoft shipped Active Directory Domain Services in 1999 alongside Windows 2000 Server. Twenty-seven years later it still authenticates logins at the majority of enterprise organizations on earth. It is brittle, attack-surface-rich, 25-year-old software running mission-critical workloads — and you absolutely must understand it before anything else in this curriculum makes sense.
+
+## What it is
+
+AD DS is Microsoft's on-premises <Definition term="LDAP directory">A directory service built on the Lightweight Directory Access Protocol (RFC 4511). An LDAP directory is a hierarchical, attribute-based store optimized for read-heavy identity lookups. AD DS exposes LDAP on port 389 (or 636 for LDAPS) and stores every user, computer, group, and policy object in a replicated database called the NTDS.DIT.</Definition> combined with a Kerberos authentication service (RFC 4120), a DNS resolver, and a Group Policy engine. Those four components are deeply entangled — AD DS does not work without DNS, Kerberos does not work without AD DS, and Group Policy does not work without either.
+
+The logical structure is a strict hierarchy: <Definition term="Forest">The outermost boundary of an Active Directory deployment. A forest contains one or more domains that share a single schema and a single global catalog. The forest is also the security boundary — a compromise of any domain in a forest must be treated as a compromise of all domains in the forest. This is the architectural fact that makes cross-forest trusts a strategic risk decision, not a technical one.</Definition> at the top, domains below it, and Organizational Units (OUs) inside domains. The schema — the master template that defines every object class and attribute — is forest-wide and replicated to every domain controller. This is a hard constraint: you cannot have a per-domain schema. If your forest has five domains and you extend the schema to support a custom application attribute, all five domains absorb that extension whether they want it or not.
+
+<EcosystemMap />
+
+The diagram above shows AD DS as the "directory" node (gray), positioned on the left. Every edge connecting it to other nodes — Entra ID, CyberArk, BeyondTrust, SailPoint — represents a dependency or integration. The edge between AD DS and Entra ID is the one this entire module lives on: AAD Connect (now called Microsoft Entra Connect) is the synchronization engine that makes that edge real.
+
+## Why it exists
+
+In 1999, the enterprise identity problem was straightforward in scope if not in implementation: how do you let one Windows domain account log into any machine in the building and access any file share it is authorized to reach? The answer was Kerberos — a ticket-granting protocol designed at MIT (RFC 1510, now superseded by RFC 4120) — layered on top of an LDAP directory that stored the accounts, and glued together by DNS so that clients could find domain controllers automatically via SRV records.
+
+This was genuinely elegant for its era. The Kerberos model has a clean separation between authentication (proving who you are to the Key Distribution Center) and authorization (presenting a service ticket to a resource). Kerberos tickets are short-lived and cryptographically bound. Group Policy provided the first serious enterprise Configuration-as-Code: one XML-like document, linked to an OU, and every machine in that OU gets the security baseline applied automatically on next refresh. For 2000, this was remarkable.
+
+The problem is that the world changed and AD DS did not. The protocol trust model that was elegant in a sealed office LAN is dangerous when laptops leave the building, when service accounts accumulate privileges over decades because nobody documented what they did, and when a single domain controller compromise gives an attacker Domain Admin over the entire forest.
+
+<ProTip>
+Microsoft's AD DS engineering team is in maintenance mode. Security patches ship; new capabilities do not. Every roadmap document Microsoft publishes steers you toward Entra ID for modern identity workloads. This does not mean you can ignore AD DS — most organizations will run it for another decade — but you should not be making architectural bets that depend on AD DS becoming more capable. Assume it will remain exactly as dangerous as it is today.
+</ProTip>
+
+## How it works under the hood
+
+**The replication topology.** AD DS replicates via a multi-master model within a domain: any writable domain controller can accept a change, and the Knowledge Consistency Checker (KCC) automatically builds a replication topology between DCs using site and subnet objects you define. Sites and subnets are AD DS's model of your physical network — you tell AD DS which IP ranges belong to which site, and AD DS uses that information to route client logon requests to a nearby DC and to control when inter-site replication happens (you can throttle it to off-hours across slow WAN links). Get your sites-and-subnets configuration wrong and clients in a remote branch are authenticating across a 10 Mbps MPLS link instead of the DC sitting in the server room next to them.
+
+**FSMO roles.** Five operations in AD DS cannot be multi-master safely, so Microsoft designates a single DC for each as a Flexible Single Master Operation role. The five roles, their scope, and what breaks when they go offline:
+
+- **Schema Master** (forest-wide): the only DC that can write schema changes. Going offline means you cannot extend the schema; normal operations are unaffected.
+- **Domain Naming Master** (forest-wide): must be online to add or remove a domain from the forest. Normal operations unaffected when offline.
+- **PDC Emulator** (per-domain): the most operationally critical role. It processes password changes preferentially (so a just-changed password works before replication completes), synchronizes the domain's time hierarchy (Kerberos tickets fail if clocks drift more than 5 minutes — the PDC Emulator is the authoritative time source), and processes Group Policy changes. A PDC Emulator outage produces intermittent authentication failures, account lockout storms, and GPO application failures within minutes in a busy environment.
+- **RID Master** (per-domain): allocates pools of Relative Identifiers to other DCs. A DC without RIDs cannot create new objects. Outage is low-impact until RID pools exhaust — then object creation halts.
+- **Infrastructure Master** (per-domain): maintains cross-domain group membership references. Low operational impact except in multi-domain forests where it produces stale membership data if offline for extended periods.
+
+The practical implication: the PDC Emulator is your highest-availability FSMO requirement. In any serious environment it lives on a virtualized DC with a very aggressive recovery SLA.
+
+**The protocol triad.** AD DS exposes three protocols everything else depends on: LDAP (directory queries and object management), Kerberos (authentication ticket exchange), and DNS (DC and service location). Remove any one of them and AD DS stops functioning. This also means that anyone with network access to your domain controllers has three distinct protocol attack surfaces pointed at them — which is why DC placement behind tight firewall rules and the Tier 0 isolation model are non-negotiable in hardened environments.
+
+**Group Policy as Configuration-as-Code.** A Group Policy Object (GPO) is a collection of settings — registry values, script execution, software installation, security policy, audit configuration — linked to a site, domain, or OU and applied to every computer and user object in scope at next refresh. GPOs process in LSDOU order: Local, Site, Domain, OU (innermost OU wins for conflicts). This inheritance model is powerful and merciless. A single misconfigured GPO linked to the domain root affects every machine in the domain.
+
+**The attack surface.** BloodHound is an open-source graph analysis tool that ingests data from an AD DS environment and maps every privilege escalation path from an arbitrary user account to Domain Admin. It was released in 2016 and has been in continuous production use by red teams and attackers ever since. The existence of BloodHound is the most honest indictment of AD DS's security model available: the attack paths it finds are not exotic bugs — they are the logical consequence of permission inheritance, nested group membership, delegation rights, and Kerberoastable service accounts accumulated over years of normal operations.
+
+The canonical attack chain: Kerberoasting extracts a service ticket encrypted with a service account's password hash from the KDC (no special privileges required — any domain user can request a service ticket for any SPN). The attacker takes the ticket offline and cracks the hash. If the service account has elevated privileges or a path to elevated privileges in BloodHound, the attacker follows that path to Domain Admin. Average time from initial Kerberoasting to Domain Admin in an unhardened environment on a red team engagement: under an hour.
+
+<Flashcard front="What are the five FSMO roles, their scope, and which one has the highest operational impact when offline?" back="Schema Master (forest-wide) — blocks schema changes only. Domain Naming Master (forest-wide) — blocks domain add/remove only. PDC Emulator (per-domain) — highest impact: drives password sync, time sync (Kerberos), and GPO processing. RID Master (per-domain) — blocks new object creation when pools exhaust. Infrastructure Master (per-domain) — degrades cross-domain group membership accuracy in multi-domain forests." />
+
+<Flashcard front="What is the Microsoft AD DS tiering model and what is in Tier 0?" back="Microsoft's admin tiering model (Enterprise Access Model) separates administration into three tiers to contain lateral movement. Tier 0 = the identity control plane: domain controllers, FSMO role holders, AD DS admin accounts, privileged workstations (PAWs) used to manage Tier 0. A Tier 0 compromise is a forest compromise. Tier 1 = servers and services. Tier 2 = user workstations. Admin accounts must not be used across tiers." />
+
+## War story
+
+<WarStory title="The 45-Minute Path to Domain Admin">
+A regional community bank, 38 branches, about 800 employees. The AD DS forest was 22 years old — it predated the bank's last two core-banking platform migrations and had absorbed two acquisitions. Nobody alive at the bank had been there when the forest was built.
+
+During a red team engagement, the initial foothold was a phished branch teller — a credential harvested from a fake password-reset email. The account had no special privileges. Standard domain user. The red team ran SharpHound (the BloodHound data collector) from the compromised workstation. Forty-five minutes after the initial foothold, they had Domain Admin.
+
+The path BloodHound mapped: the teller's account was a member of a distribution list that had been granted "GenericWrite" on an OU containing IT helpdesk computers (someone had done this to allow automated printer installs years ago, never documented, never reviewed). GenericWrite on a computer object lets you set the `msDS-AllowedToActOnBehalfOfOtherIdentity` attribute, which enables Resource-Based Constrained Delegation (RBCD) abuse. From there, the red team impersonated a Domain Admin to the helpdesk workstation, harvested credentials from memory via the compromised session, and walked into the domain.
+
+None of the components were bugs. Every permission was "by design" — it was just design from a decade ago that nobody had reviewed. There was no Tier 0 boundary. Domain controllers were on the same VLAN as member servers. There was no PAW. There were 47 accounts with Domain Admin rights, 12 of which appeared to belong to former employees.
+
+The remediation project ran 14 months. The hardest part was not technical — it was organizational. Every quarter, someone wanted to re-add their admin account to Domain Admins "just to fix something real quick." The security team built an approval workflow using PIM (via Entra ID, for the hybrid-synced accounts) so that Domain Admin elevation required a ticket, a second approver, and a 4-hour window. The workflow was resented and fought. It held.
+
+In a SaaS-first organization running Entra-only, there is no forest to compromise — but the conceptual equivalent is an Entra ID Global Administrator account with no PIM, no MFA, and a permanent active assignment. The attack path is different; the organizational pattern is identical. In a defense environment, air-gapped AD DS forests at classification boundaries mean there is no Entra Connect sync — the attack surface is contained to the network, which is why physical and logical access control to domain controllers is treated as a Tier 0 perimeter problem. In healthcare, Epic's integration with AD DS creates a common exception pattern: "Epic needs this service account to be a Domain Admin because the vendor said so." It is almost never true. Challenge it every time.
+</WarStory>
+
+## Check your understanding
+
+<Quiz question={{
+  id: "03-microsoft-identity/01-active-directory/q1",
+  prompt: "Your PDC Emulator goes offline at 8am on a Monday. Which of the following is most likely to happen first in an active 500-user environment?",
+  options: [
+    "Users cannot log in at all because Kerberos stops issuing tickets entirely.",
+    "Schema changes fail silently because the Schema Master is co-located with the PDC Emulator.",
+    "Users who changed their password over the weekend begin seeing intermittent authentication failures and accounts lock out, because password change replication preferentially routes through the PDC Emulator.",
+    "Group Policy stops applying to all computers because the PDC Emulator holds the SYSVOL master."
+  ],
+  correctIndex: 2,
+  explanation: "The PDC Emulator processes password changes preferentially — when you change your password, the change is immediately communicated to the PDC Emulator so that if you try to log in to a DC that hasn't replicated the new hash yet, it can forward the authentication to the PDC Emulator for validation. With it offline, recent password changes cause authentication failures and lockouts until replication catches up. The PDC Emulator also owns the time master role (Kerberos failures take 5+ minutes of clock drift, not seconds) and is *involved* in GPO processing but not the sole mechanism — Group Policy continues to apply from cached data."
+}} />
+
+<Quiz question={{
+  id: "03-microsoft-identity/01-active-directory/q2",
+  prompt: "You are reviewing a new junior admin's proposal to use Domain Admin accounts for all server management tasks because 'they always work.' Which Microsoft hardening model does this violate, and what is the specific risk?",
+  options: [
+    "It violates the principle of least privilege only — the risk is accidental permission misuse.",
+    "It violates the Enterprise Access Model (tiering model) by allowing Tier 0 credentials to be used at Tier 1, enabling a Tier 1 compromise to yield Tier 0 access via credential theft.",
+    "It violates AD DS replication policy — Domain Admin accounts cannot replicate changes across sites.",
+    "It is technically acceptable as long as the Domain Admin accounts use MFA."
+  ],
+  correctIndex: 1,
+  explanation: "Microsoft's Enterprise Access Model (formerly the admin tiering model) exists precisely to prevent this. A Domain Admin account used on a Tier 1 server exposes those Tier 0 credentials to any attacker who can compromise that server — via memory scraping (mimikatz/LSASS dump), pass-the-hash, or pass-the-ticket. If the Tier 1 server is compromised, the attacker gets a free path to Tier 0. The entire point of tiering is to ensure that credential exposure at a lower tier cannot produce escalation to a higher tier. MFA on the account does not protect against post-auth credential theft from memory."
+}} />
+
+<Quiz question={{
+  id: "03-microsoft-identity/01-active-directory/q3",
+  prompt: "A security analyst shows you a BloodHound screenshot with a path: UserA → [MemberOf] → GroupB → [GenericAll] → ComputerC → [AllowedToDelegate] → DomainController01. What does this finding mean in plain English?",
+  options: [
+    "UserA can read all attributes of ComputerC but cannot authenticate to the domain controller.",
+    "UserA, through group membership and inherited permissions, can modify ComputerC in ways that enable Kerberos delegation abuse to impersonate any user — including Domain Admins — to DomainController01, effectively yielding domain compromise.",
+    "UserA is a member of a group that has read access to the domain controller's event logs, which is a low-severity finding.",
+    "The path shows that ComputerC requires a domain admin to join it to the domain — a routine Active Directory operation."
+  ],
+  correctIndex: 1,
+  explanation: "GenericAll on a computer object gives an attacker control over that computer's AD attributes, including the ability to configure Resource-Based Constrained Delegation (RBCD). RBCD lets you specify which accounts can impersonate other accounts to that resource. Combined with an existing machine account (or a new one created within the default MS-DS-MachineAccountQuota of 10), the attacker can impersonate Domain Admin to DomainController01 via S4U2Proxy, obtaining a service ticket that grants domain controller access — effectively Domain Admin. BloodHound finds these paths automatically. Every path BloodHound shows you is a real attack path, not a theoretical one."
+}} />

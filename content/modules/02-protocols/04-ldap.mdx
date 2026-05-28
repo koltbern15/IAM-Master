@@ -1,0 +1,131 @@
+{/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Objective 2.2 — Implement hybrid identity (LDAP-based source-of-truth context) [VERIFY]
+- **Security+ SY0-701** Objective 4.5 — LDAP authentication
+- **CISSP** Domain 5.4 — Implement and manage authorization mechanisms (LDAP-based stores)
+</HoloPanel>
+
+# LDAP: The Directory Protocol That Runs Everything You Think Is Modern
+
+The Lightweight Directory Access Protocol was designed in 1993 as a lighter alternative to the X.500 DAP that ran over OSI networking stacks nobody wanted to maintain. "Lightweight" in the original sense meant: simplified protocol, TCP/IP transport, sane query syntax. What it did not mean was: temporary. LDAP is in your Active Directory. It is in your Linux PAM stack. It is in your network switches' RADIUS backend. It is in the check-imaging app your bank deployed in 2003 that you are still supporting on Windows Server 2012 R2. LDAP is infrastructure in the same sense that TCP/IP is infrastructure — you do not replace it; you learn it.
+
+## What it is
+
+LDAP is a <Definition term="directory service protocol">A client-server protocol for accessing and maintaining distributed directory information services. Directories are specialized databases optimized for read-heavy workloads and tree-structured data — they are not relational databases. LDAP defines the wire protocol (RFC 4511), the data model (RFC 4512), and the authentication mechanisms (RFC 4513).</Definition> The three RFCs that define modern LDAP are:
+
+- **RFC 4511** — the wire protocol: how messages are encoded (BER/DER), the operation types (Bind, Search, Modify, Add, Delete, ModifyDN, Compare, Extended), and the result codes.
+- **RFC 4512** — the data model: the Directory Information Tree (DIT), the schema (objectClass, attributeType, matching rules), and the entry model.
+- **RFC 4513** — authentication: simple bind (plaintext credentials), SASL bind mechanisms, TLS requirements, and anonymous bind semantics.
+
+The core data unit is the <Definition term="entry">An LDAP entry is a collection of attributes identified by a Distinguished Name (DN). The DN is the entry's unique identifier in the DIT — a comma-separated sequence of Relative Distinguished Names (RDNs) tracing the path from the entry to the root. Example: cn=jdoe,ou=users,dc=corp,dc=local. Each entry must have an objectClass attribute that defines which attributes are required and which are permitted. objectClass is the schema enforcement mechanism.</Definition>
+
+## Why it exists
+
+In the early 1990s, the problem of distributing user and resource identity data across a networked organization was already painful. Relational databases were powerful but wrong-shaped for the problem — RDBMS schemas assume flat tables; organizational identity is inherently hierarchical (forest → domain → OU → user). X.500 had the right model but ran over OSI network stacks and was operationally expensive. LDAP stripped X.500 down to what organizations actually needed: read the user's attributes, check the user's password, search the tree by filter.
+
+The result was a protocol purpose-built for the identity data access pattern: high read volume (every application authentication triggers an LDAP search), low write volume (users are provisioned and deprovisioned, not continuously updated), hierarchical structure (organizational unit trees map naturally to the DIT), and flexible schema (add an attribute type when you need it, without altering existing entries).
+
+Active Directory is the world's largest LDAP deployment — Microsoft extended the standard with proprietary attributes and operational overlays, but the core access pattern is LDAP. Every time Windows authenticates a user against AD, Kerberos is the authentication protocol, but the group membership and attribute data the Kerberos PAC references originated in LDAP. The two work together; you cannot fully understand one without understanding the other.
+
+<ProTip>
+LDAP over port 389 is cleartext. Every bind operation — including simple binds that transmit the user's password — crosses the wire in plaintext unless you are using StartTLS (LDAP with in-band TLS upgrade, port 389) or LDAPS (LDAP over TLS, port 636). In any environment where LDAP is used for authentication, you should be running LDAPS or StartTLS. If someone tells you "we use LDAP for authentication and it works fine," your first question is: "on what port, and what does Wireshark show?" The correct answer is 636. The depressingly common answer is 389 with no TLS.
+</ProTip>
+
+## How it works under the hood
+
+The **Directory Information Tree (DIT)** is the central data structure — a hierarchical namespace where every entry has a Distinguished Name that is its unique path from root to leaf. A well-organized DIT looks like:
+
+<HoloPanel label="THE DIT">
+```
+dc=corp,dc=local
+├── ou=users
+│   ├── cn=jdoe,ou=users,dc=corp,dc=local
+│   └── cn=alice,ou=users,dc=corp,dc=local
+├── ou=groups
+│   ├── cn=domain-admins,ou=groups,dc=corp,dc=local
+│   └── cn=tellers,ou=groups,dc=corp,dc=local
+└── ou=service-accounts
+    └── cn=svc-printers,ou=service-accounts,dc=corp,dc=local
+```
+</HoloPanel>
+
+The **Bind operation** is LDAP's authentication. Three forms:
+
+- **Anonymous Bind** — no credentials. The client connects and issues operations as an unauthenticated identity. Many directory configurations allow anonymous binds for search, which is an information disclosure risk if attribute ACLs are not configured tightly.
+- **Simple Bind** — username (as a DN or a non-DN identifier depending on server configuration) and password transmitted in cleartext. Only acceptable over TLS. This is what most legacy application integrations use.
+- **SASL Bind** — SASL (Simple Authentication and Security Layer) allows pluggable authentication mechanisms: GSSAPI (Kerberos), DIGEST-MD5, PLAIN, EXTERNAL (client certificate). In Active Directory environments, GSSAPI via Kerberos is the preferred bind mechanism for service accounts.
+
+The **Search operation** is LDAP's workhorse. A search specifies: base DN (where in the DIT to start), scope (base-level, one-level, or whole-subtree), filter (a Boolean expression over attribute values), and a list of attributes to return. The filter syntax is where LDAP injection lives.
+
+An LDAP search filter is a parenthesized Boolean expression:
+- `(cn=jdoe)` — entries where cn equals "jdoe"
+- `(mail=j*)` — entries where mail starts with "j" (wildcard)
+- `(&(objectClass=user)(department=Banking))` — AND of two conditions
+- `(|(mail=j*)(mail=J*))` — OR of two patterns
+- `(!(userAccountControl:1.2.840.113556.1.4.803:=2))` — enabled accounts (Active Directory OID filter)
+
+The special LDAP metacharacters are: `*` (wildcard), `(` `)` (grouping), `\` (escape), `\00` (null byte). If an application constructs LDAP filters by concatenating user-supplied input without escaping these characters, the user can manipulate the filter logic — **LDAP injection**.
+
+A classic LDAP injection pattern: application filter is `(&(uid={username})(password={password}))`. If username is `*)(uid=*))(|(uid=*` the filter becomes `(&(uid=*)(uid=*))(|(uid=*)(password=anything))` — which matches all users. The fix: sanitize all input that enters an LDAP filter by escaping the RFC 4515 metacharacter set. Every modern LDAP library provides an escaping function; use it.
+
+<Flashcard front="What are the three bind types in LDAP (RFC 4513), and which is the correct choice for a service account integration?" back="Anonymous Bind (no credentials, information disclosure risk), Simple Bind (username + password in cleartext — only safe over TLS/LDAPS), SASL Bind (pluggable mechanisms including GSSAPI/Kerberos, DIGEST-MD5, EXTERNAL). For service account integrations: SASL/GSSAPI (Kerberos) when AD is the backend; Simple Bind over LDAPS when SASL is not available. Never simple bind over port 389 without TLS." />
+
+<Flashcard front="What is the LDAP search filter syntax to find all user objects where the mail attribute starts with 'j'?" back="(&(objectClass=user)(mail=j*)) — the AND of objectClass=user (to constrain to user entries) and the wildcard filter mail=j* (the trailing asterisk matches any suffix). In Active Directory, objectClass=person or objectCategory=person are more efficient than objectClass=user for large directory searches." />
+
+## War story
+
+<WarStory title="The Teller Named O'Brien and the Four-Hour Outage">
+A regional bank's back-office check-imaging application — a third-party vendor product deployed in 2009 — used LDAP search-bind for authentication. The pattern was textbook (badly): the application took the username from a web form, constructed the filter `(cn={username})` by string concatenation with zero sanitization, searched the directory, retrieved the first matching entry's DN, then did a simple bind with the retrieved DN and the submitted password.
+
+This worked for fifteen years without incident, across hundreds of employees, because employee names are generally alphabetic characters and the domain is `corp.local`. Nobody thought about the filter construction because it always worked.
+
+Then the bank hired a teller whose legal name contained an asterisk — specifically, the surname was stored in the HR system as `O'Brien*` (a data entry artifact from a legacy HR import that appended an asterisk to flag records needing review). The asterisk was provisioned into Active Directory as the cn attribute verbatim.
+
+The day this employee attempted to log in, the LDAP filter the application generated was `(cn=O'Brien*)`. The wildcard matched every entry in the `ou=users` OU whose cn started with "O'B" — 23 users. The application's error handling retrieved the first DN and attempted to bind with the submitted password against a random user's account. The first retrieved entry was a service account, the bind failed with LDAP_INVALID_CREDENTIALS, but LDAP's account lockout policy counted it as a failed authentication attempt. The application retried. Four hours later, the bank discovered that 23 accounts had been locked out from repeated LDAP bind failures triggered by the malformed filter cycling through DN results.
+
+The immediate fix was cleaning the asterisk from the `cn` attribute. The architectural fix — overdue — was replacing the string-concatenated filter with parameterized LDAP queries using the vendor's RFC 4515 escaping utilities, which the vendor shipped in the library but the integrator had never used. The longer-term fix was adding LDAP search result validation: the application now rejects any search that returns more than one entry for a single-user authentication attempt.
+
+In a SaaS context, LDAP is rarely native — organizations use LDAP-as-a-service products (JumpCloud, Foxpass, Google Cloud Directory) to provide an LDAP interface for legacy apps that cannot speak SAML or OIDC. The gotcha is that LDAP-as-a-service introduces a cloud dependency into what was previously an on-prem authentication path — plan for it in your BCP/DR design. In a defense context, Active Directory with LDAP is so dominant that the more interesting question is LDAP ACL hardening: by default, AD allows authenticated users to read most attributes of most objects, which is an information gathering goldmine for a lateral-movement attacker. In healthcare, the depressingly common architecture is Active Directory for identity, an LDAP proxy (typically pointing at AD) for legacy clinical systems that cannot join a domain, and a migration project to SAML or OIDC that has been "six months away" for four years.
+</WarStory>
+
+## Check your understanding
+
+<Quiz question={{
+  id: "02-protocols/04-ldap/q1",
+  prompt: "Write the LDAP search filter that returns all user objects where the mail attribute starts with 'j'. Which LDAP RFC defines the filter syntax?",
+  options: [
+    "FILTER: (mail~=j*) — RFC 4511 defines filter syntax.",
+    "FILTER: (&(objectClass=user)(mail=j*)) — RFC 4515 defines the filter syntax string representation.",
+    "FILTER: (SELECT * FROM users WHERE mail LIKE 'j%') — LDAP filters use SQL-like syntax per RFC 4512.",
+    "FILTER: {objectClass: user, mail: /^j/} — LDAP filters are JSON per RFC 4513."
+  ],
+  correctIndex: 1,
+  explanation: "The correct LDAP filter is (&(objectClass=user)(mail=j*)) — an AND of an objectClass constraint and a wildcard equality assertion. RFC 4515 defines the string representation of LDAP search filters (the parenthesized syntax). RFC 4511 defines the binary encoding of the filter in the wire protocol (BER). RFC 4512 defines the data model (schema, objectClass, attributeType). SQL and JSON are not LDAP filter syntax."
+}} />
+
+<Quiz question={{
+  id: "02-protocols/04-ldap/q2",
+  prompt: "A legacy web application uses LDAP simple bind over port 389 (no TLS) to authenticate users against Active Directory. A security audit flags this. What is the correct remediation, and why is the risk more severe than 'just don't sniff the network'?",
+  options: [
+    "Migrate to LDAPS (port 636) or StartTLS (port 389 with in-band TLS upgrade). The risk is severe because simple bind over cleartext transmits the user's AD password in plaintext — any network position between the app and the domain controller captures every password for every authentication event.",
+    "Upgrade to SASL/DIGEST-MD5 on port 389. DIGEST-MD5 provides password hashing without requiring TLS.",
+    "Enable LDAP signing in Group Policy. Signing provides integrity without encryption and is sufficient for password protection.",
+    "Restrict the LDAP query to read-only attributes. Passwords are not stored as LDAP attributes so simple bind is safe over cleartext."
+  ],
+  correctIndex: 0,
+  explanation: "LDAP simple bind over port 389 without TLS transmits the bind DN and password in cleartext. Any attacker with network visibility — inside the LAN, on a compromised network device, or on the VLAN segment — captures every credential every time someone authenticates. LDAPS (port 636) wraps the entire LDAP session in TLS. StartTLS upgrades the port-389 connection to TLS in-band. SASL/DIGEST-MD5 is deprecated and does not protect the full session. LDAP signing provides integrity (tamper detection) but not confidentiality (encryption). Passwords are stored as derivates in Active Directory but simple bind still transmits the plaintext password in the Bind Request message."
+}} />
+
+<Quiz question={{
+  id: "02-protocols/04-ldap/q3",
+  prompt: "A developer shows you this LDAP authentication code: filter = '(uid=' + username + ')'. A security reviewer flags it for LDAP injection. What input demonstrates the vulnerability, and what is the correct fix?",
+  options: [
+    "Input: 'admin' — the attacker guesses a valid uid. Fix: require MFA for all LDAP-authenticated users.",
+    "Input: '*' — the filter becomes (uid=*) which matches every entry in the directory. Fix: use the LDAP library's escaping function (e.g., ldap.dn.escape_filter_chars() in Python-ldap) to sanitize user input before constructing the filter.",
+    "Input: 'admin;DROP TABLE users' — SQL injection in LDAP. Fix: use parameterized queries.",
+    "Input: 'admin' with a forwarded Kerberos ticket — Kerberos ticket injection. Fix: disable SASL/GSSAPI."
+  ],
+  correctIndex: 1,
+  explanation: "The wildcard (*) is an LDAP filter metacharacter. The filter (uid=*) matches every entry in the search scope — the application would retrieve all users instead of one, bypassing the authentication logic. Other injection examples: injecting )(objectClass=* closes the filter early and adds a new condition. The fix is RFC 4515-compliant input escaping: every LDAP library provides an escape function that encodes metacharacters (*, (, ), \\, \\00) as their escape sequences before they are concatenated into the filter. LDAP is not SQL; SQL injection patterns do not apply."
+}} />

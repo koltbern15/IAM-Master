@@ -1,0 +1,109 @@
+{/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Objective 2.3 — Implement Microsoft Entra app gallery enterprise applications (SAML SSO config) [VERIFY]
+- **Security+ SY0-701** Objective 4.5 — Federation protocols (SAML)
+- **CISSP** Domain 5.5 — Federated identity (SAML as classic federation)
+</HoloPanel>
+
+# SAML 2.0: The XML Protocol That Refused to Die
+
+SAML 2.0 was ratified by OASIS in March 2005. The web was a different place — Web 2.0 was still a buzzword, mobile was a Nokia screen, and REST APIs were a conversation about what Roy Fielding had written in 2000. The committee that designed SAML chose XML, XML Signatures, XML Encryption, HTTP redirects, and browser-based form POSTing as its delivery mechanism. It reflects every design decision that made sense in 2004.
+
+It is 2026 and SAML is still running mission-critical SSO at every bank, hospital, defense contractor, and Fortune 500 company you can name. You will configure it, debug it, and get paged about it. Learn it properly.
+
+## What it is
+
+SAML is a <Definition term="federated identity protocol">A mechanism that allows an Identity Provider (IdP) in one security domain to issue cryptographically signed assertions about a user's identity and attributes that are trusted by a Service Provider (SP) in a different security domain — without the SP ever receiving or storing the user's credential.</Definition> for web browser-based SSO. Its core artifact is the <Definition term="SAML Assertion">An XML document containing three statement types: AuthnStatement (this user authenticated at this time via this mechanism), AttributeStatement (these are the user's attributes — role, email, department), and optionally AuthzDecisionStatement (rarely used). The Assertion is signed by the IdP using XML Signature (XMLDSig) so the SP can verify its integrity and authenticity.</Definition>. The IdP signs the Assertion; the SP validates the signature using the IdP's public certificate. No credential touches the SP. The trust is cryptographic.
+
+The OASIS SAML 2.0 specification set covers the core (SAMLCore), bindings (HTTP-Redirect, HTTP-POST, HTTP-Artifact), and profiles (Web Browser SSO Profile, ECP, etc.). When practitioners say "SAML" they almost exclusively mean the Web Browser SSO Profile with HTTP-Redirect binding for the AuthnRequest and HTTP-POST binding for the Response.
+
+## Why it exists
+
+The problem SAML solved was real and painful: in the early 2000s, every enterprise application maintained its own user directory and its own login page. An employee authenticating to the HR portal, the finance system, and the customer CRM was maintaining three separate passwords, three separate sessions, and three separate attack surfaces. When that employee left the organization, deprovisioning meant manually removing access from every system — if someone remembered to do it.
+
+SAML separated the question of *who authenticates the user* (the IdP — Active Directory, later Ping, Okta, Entra ID) from the question of *who the user is accessing* (the SP — Salesforce, ServiceNow, Workday). The IdP owns the credential. The SP trusts the IdP's signed assertion. The user logs in once. Every SaaS app downstream gets an assertion. Deprovisioning becomes: disable the account in the IdP, and every SAML-protected SP stops accepting that user's assertions the next time they try.
+
+That architectural separation is still the right answer in 2026. SAML's problem is not the concept — it is the implementation.
+
+<ProTip>
+SAML metadata exchange is the operational substrate that makes federation work. The SP exposes a metadata XML file containing its EntityID, Assertion Consumer Service URL, and the public certificate it will use to verify SP-signed requests. The IdP exposes a metadata XML file containing its EntityID, SSO endpoint URL, and its signing certificate. Connecting a new SaaS SP to your IdP is fundamentally a metadata exchange problem — if the EntityIDs mismatch, the ACS URL is wrong, or the certificate has expired, the assertion will fail validation and the user will see a cryptic XML error. Build a runbook for your team. Most Tier-1 SAML break-fix at noon on a Monday is expired signing certificate.
+</ProTip>
+
+## How it works under the hood
+
+The diagram below visualizes both flows — use the SP-initiated / IdP-initiated toggle to walk through each path. Click each step to see the XML structure of the message. The diagram accurately captures the message sequence and what flows through the browser as the intermediary. What the diagram cannot show are the four failure modes that make SAML a recurring security finding in penetration tests and compliance reviews:
+
+**1. XML Signature Wrapping (XSW) attacks.** The SAML Assertion is signed, but the *location* of the signature within the XML envelope can be manipulated. An attacker modifies the unsigned portion of the Response (the part outside the `ds:Signature` scope), leaves the original signed Assertion intact, and inserts it in a way that passes signature validation but causes the SP's XML parser to consume the *unsigned* content as authoritative. This is not a theoretical attack — there are at least eight documented XSW variants (XSW1-XSW8). The mitigation: the SP must sign the *entire* Response or validate that the signed Assertion is the *first* Assertion in the document, that the signature covers exactly the node consumed, and that no sibling unsigned assertions exist. Most SAML libraries handle this correctly if they are current. Outdated SAML toolkit versions are routinely XSW-vulnerable.
+
+**2. NameID format gotchas.** The `saml:Subject` element's `NameID` identifies the user to the SP. The format matters:
+- `urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress` — the user's email address. Human-readable. Breaks if users change their email, breaks across mergers where email format changes.
+- `urn:oasis:names:tc:SAML:2.0:nameid-format:persistent` — an opaque, IdP-generated, SP-specific identifier that is stable across sessions. The right choice for account linking.
+- `urn:oasis:names:tc:SAML:2.0:nameid-format:transient` — a one-time identifier, generated fresh per session. Breaks any SP that stores the NameID as a persistent identifier (most of them).
+
+Choosing the wrong NameID format produces phantom duplicate accounts, broken session resumption after password changes, and failed deprovisioning audits. I will say it plainly: use `persistent` for any SP that stores user state. Full stop.
+
+**3. Unsolicited Response acceptance.** In IdP-initiated flow, the IdP posts an Assertion to the SP without a prior AuthnRequest. The Assertion therefore has no `InResponseTo` attribute linking it to a specific request the SP made. An SP that accepts unsolicited assertions without verifying `InResponseTo` is vulnerable to replay and injection attacks — an attacker who can forge or steal a valid Assertion can deliver it to the SP's ACS endpoint at any time and establish a session. The mitigation is strict: either disable IdP-initiated flow at the SP, or require and validate `InResponseTo` when SP-initiated flow is expected.
+
+**4. Expired assertion acceptance.** The `saml:Conditions` element contains `NotBefore` and `NotOnOrAfter` attributes defining the assertion's validity window — typically 5-10 minutes. An SP that does not enforce this window will accept an Assertion indefinitely after it was issued. Combined with an XSW or replay, this extends an attacker's window from seconds to hours or days. Clock skew between IdP and SP (common in environments with poor NTP discipline) causes legitimate assertions to fail; the wrong fix is disabling time validation rather than fixing NTP.
+
+<SAMLFlowDiagram />
+
+<Flashcard front="What is an XML Signature Wrapping (XSW) attack against SAML, and what does it exploit?" back="XSW exploits the fact that XML Signature validates a specific subtree of the document. An attacker inserts unsigned content that the SP parser reads as authoritative while the signature validation passes on the original signed element. The attack does not break the cryptography — it abuses the mismatch between what is signed and what is consumed. Mitigation: current, well-maintained SAML libraries with strict schema validation." />
+
+<Flashcard front="When should you use persistent vs transient NameID format in a SAML deployment?" back="Persistent: when the SP stores user state (account, preferences, history, entitlements) and needs a stable, IdP-assigned, SP-specific identifier that does not change if the user's email or username changes. Transient: only for stateless, session-anonymous SSO where no user record is stored at the SP — almost never the right choice for enterprise SaaS." />
+
+## War story
+
+<WarStory title="The Forged Assertion and the Compromised Backup">
+A mid-size regional bank's core online-banking administration portal used SAML SSO via a self-hosted IdP (a now-legacy Ping Federate installation). The SP was configured to accept IdP-initiated flow for convenience — several admin users started their day from the Ping dashboard and clicked through to the banking portal directly.
+
+During a third-party penetration test, the testers discovered two things: the SP accepted unsolicited Responses (no `InResponseTo` validation), and the IdP's XML signing certificate private key existed in an unencrypted backup archive on a network share that a compromised service account could read. The service account had been compromised via Kerberoasting (a theme that recurs). From those two findings, the path was direct: copy the private key, forge a SAML Assertion with a `saml:Subject` NameID matching the bank's Domain Admin equivalent in the banking portal, POST it directly to the ACS endpoint. The SP accepted it. No user authenticated. No IdP log entry. The only evidence was the SP's own access log, which showed a successful authentication at an unusual hour.
+
+The fix required three sequential changes: (1) enable `InResponseTo` validation at the SP and disable IdP-initiated flow; (2) rotate the IdP signing certificate and move private key storage from the file-system backup to a hardware security module (HSM) with no direct file export; (3) build an alerting rule on the SP's ACS endpoint for assertions where `InResponseTo` is absent but an existing session was established. Item 3 required custom log parsing because the SP vendor did not emit that as a structured event.
+
+The broader monitoring shift: every SAML SP now emits assertion validation events — timestamp check, audience restriction check, InResponseTo check — to the SIEM. Any validation failure that precedes a successful session is flagged as a priority-1 alert. Before that change, the SIEM had no SAML-layer visibility at all.
+
+In a SaaS context, every SaaS vendor's SAML implementation is slightly broken in its own specific way. The Salesforce SP implementation has been a reference implementation nightmare; Workday has historically required XML canonicalization method quirks; ServiceNow has had documented issues with Response vs Assertion-level signatures. The operational reality is that standing up a new SAML integration is a SAML toolkit evaluation, not a standards exercise. In a defense context, SAML federations crossing security domain boundaries require auditor review of the metadata exchange — the signing certificates must be approved, the binding must be documented, and the attribute release policy must be formally signed off. In healthcare, SMART on FHIR uses SAML profiles as one of its authentication pathways for clinical app SSO, with HL7-specific attribute statements.
+</WarStory>
+
+## Check your understanding
+
+<Quiz question={{
+  id: "02-protocols/02-saml/q1",
+  prompt: "Your SP is configured to accept IdP-initiated flow. A penetration tester demonstrates that they can replay a captured SAML Assertion from 90 minutes ago and successfully authenticate. What two conditions at the SP enabled this attack?",
+  options: [
+    "The SP is using HTTP-Redirect binding instead of HTTP-POST, and the signing certificate is expired.",
+    "The SP is not validating the NotOnOrAfter condition on the Assertion, and the SP is not tracking and rejecting previously-seen Assertion IDs (replay prevention).",
+    "The SP is accepting persistent NameID format instead of transient, and the IdP's metadata is stale.",
+    "The SP is using XML Signature at the Response level instead of the Assertion level, creating a wider attack surface."
+  ],
+  correctIndex: 1,
+  explanation: "Two controls prevent SAML replay: time-window validation (NotOnOrAfter rejects assertions after their validity window expires) and assertion ID tracking (the SP should maintain a short-lived cache of seen Assertion IDs and reject duplicates within the NotOnOrAfter window). Both must be implemented. Binding type and NameID format do not affect replay vulnerability. Signature scope affects XSW, not replay."
+}} />
+
+<Quiz question={{
+  id: "02-protocols/02-saml/q2",
+  prompt: "Which NameID format should you configure for a Salesforce SP integration where user accounts in Salesforce must be persistently linked to specific employee records, and employee email addresses may change due to name changes or mergers?",
+  options: [
+    "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress — human readable and auditable.",
+    "urn:oasis:names:tc:SAML:2.0:nameid-format:transient — one-time identifiers prevent correlation.",
+    "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent — opaque, stable, SP-specific identifier that does not change when email changes.",
+    "urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified — let the SP choose the most appropriate format at runtime."
+  ],
+  correctIndex: 2,
+  explanation: "Persistent NameID provides a stable, IdP-assigned, SP-specific opaque identifier that does not change when the user's email or username changes. This is critical for any SP that maintains user state (accounts, roles, history). Email format breaks on name/email changes and creates orphaned accounts. Transient creates a new identifier every session, breaking any SP that stores user records by NameID. Unspecified defers to the SP and typically defaults to email."
+}} />
+
+<Quiz question={{
+  id: "02-protocols/02-saml/q3",
+  prompt: "A security researcher presents an XSW (XML Signature Wrapping) attack against your SAML SP. They modify the unsigned wrapper XML of the Response while keeping the original signed Assertion intact, causing the SP to accept a manipulated identity claim. What is the root cause, and what is the architectural fix?",
+  options: [
+    "The IdP signing certificate is too weak. Upgrade to RSA-4096.",
+    "The SP is not using encrypted assertions (XML Encryption). Enable XML Encryption to prevent modification.",
+    "The SP's XML parser consumes content outside the signed Assertion subtree. Fix: ensure the SP validates that the signature covers the exact element consumed, enforces Assertion uniqueness in the Response, and uses a current, XSW-hardened SAML library.",
+    "The SP accepts both SP-initiated and IdP-initiated flows. Disable IdP-initiated flow to eliminate the attack vector."
+  ],
+  correctIndex: 2,
+  explanation: "XSW does not break the cryptographic signature — it exploits the mismatch between what is signed and what the XML parser presents as the authoritative content. The fix is in the SP's assertion consumption logic: it must cryptographically verify that the Assertion it processes is precisely the Assertion that is signed, with no sibling unsigned assertions in the document. XML Encryption prevents content interception but not XSW. Disabling IdP-initiated flow reduces attack surface but does not fix SP-side XSW vulnerability."
+}} />
