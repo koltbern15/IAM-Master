@@ -48,7 +48,19 @@ const AUTHORED_SECTIONS = new Set([
   '01-foundations/02-lexicon',
   '01-foundations/03-ecosystem-map',
   '02-protocols/01-kerberos',
+  '02-protocols/02-saml',
+  '02-protocols/03-oauth-oidc',
+  '02-protocols/04-ldap',
+  '02-protocols/05-fido2',
+  '02-protocols/06-scim',
   '03-microsoft-identity/01-active-directory',
+  '03-microsoft-identity/02-entra-id',
+  '03-microsoft-identity/03-hybrid-identity',
+  '06-powershell/01-fundamentals',
+  '06-powershell/02-cookbook',
+  '06-powershell/03-tips-tricks',
+  '11-cert-roadmap/01-sc300-roadmap',
+  '11-cert-roadmap/02-study-strategy',
 ])
 
 // Static map for sections that have been authored. Webpack resolves these
@@ -69,33 +81,32 @@ async function loadAuthoredComponent(
       return (await import('@/content/modules/01-foundations/03-ecosystem-map.mdx')).default
     case '02-protocols/01-kerberos':
       return (await import('@/content/modules/02-protocols/01-kerberos.mdx')).default
+    case '02-protocols/02-saml':
+      return (await import('@/content/modules/02-protocols/02-saml.mdx')).default
+    case '02-protocols/03-oauth-oidc':
+      return (await import('@/content/modules/02-protocols/03-oauth-oidc.mdx')).default
+    case '02-protocols/04-ldap':
+      return (await import('@/content/modules/02-protocols/04-ldap.mdx')).default
+    case '02-protocols/05-fido2':
+      return (await import('@/content/modules/02-protocols/05-fido2.mdx')).default
+    case '02-protocols/06-scim':
+      return (await import('@/content/modules/02-protocols/06-scim.mdx')).default
     case '03-microsoft-identity/01-active-directory':
       return (await import('@/content/modules/03-microsoft-identity/01-active-directory.mdx')).default
-    // --- Future authored sections: uncomment + add to AUTHORED_SECTIONS when the MDX file is committed ---
-    // case '02-protocols/02-saml':
-    //   return (await import('@/content/modules/02-protocols/02-saml.mdx')).default
-    // case '02-protocols/03-oauth-oidc':
-    //   return (await import('@/content/modules/02-protocols/03-oauth-oidc.mdx')).default
-    // case '02-protocols/04-ldap':
-    //   return (await import('@/content/modules/02-protocols/04-ldap.mdx')).default
-    // case '02-protocols/05-fido2':
-    //   return (await import('@/content/modules/02-protocols/05-fido2.mdx')).default
-    // case '02-protocols/06-scim':
-    //   return (await import('@/content/modules/02-protocols/06-scim.mdx')).default
-    // case '03-microsoft-identity/02-entra-id':
-    //   return (await import('@/content/modules/03-microsoft-identity/02-entra-id.mdx')).default
-    // case '03-microsoft-identity/03-hybrid-identity':
-    //   return (await import('@/content/modules/03-microsoft-identity/03-hybrid-identity.mdx')).default
-    // case '06-powershell/01-fundamentals':
-    //   return (await import('@/content/modules/06-powershell/01-fundamentals.mdx')).default
-    // case '06-powershell/02-cookbook':
-    //   return (await import('@/content/modules/06-powershell/02-cookbook.mdx')).default
-    // case '06-powershell/03-tips-tricks':
-    //   return (await import('@/content/modules/06-powershell/03-tips-tricks.mdx')).default
-    // case '11-cert-roadmap/01-sc300-roadmap':
-    //   return (await import('@/content/modules/11-cert-roadmap/01-sc300-roadmap.mdx')).default
-    // case '11-cert-roadmap/02-study-strategy':
-    //   return (await import('@/content/modules/11-cert-roadmap/02-study-strategy.mdx')).default
+    case '03-microsoft-identity/02-entra-id':
+      return (await import('@/content/modules/03-microsoft-identity/02-entra-id.mdx')).default
+    case '03-microsoft-identity/03-hybrid-identity':
+      return (await import('@/content/modules/03-microsoft-identity/03-hybrid-identity.mdx')).default
+    case '06-powershell/01-fundamentals':
+      return (await import('@/content/modules/06-powershell/01-fundamentals.mdx')).default
+    case '06-powershell/02-cookbook':
+      return (await import('@/content/modules/06-powershell/02-cookbook.mdx')).default
+    case '06-powershell/03-tips-tricks':
+      return (await import('@/content/modules/06-powershell/03-tips-tricks.mdx')).default
+    case '11-cert-roadmap/01-sc300-roadmap':
+      return (await import('@/content/modules/11-cert-roadmap/01-sc300-roadmap.mdx')).default
+    case '11-cert-roadmap/02-study-strategy':
+      return (await import('@/content/modules/11-cert-roadmap/02-study-strategy.mdx')).default
     default:
       return null
   }
