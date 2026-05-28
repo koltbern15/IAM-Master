@@ -1,0 +1,175 @@
+{/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Objective 3.3 — Plan, implement and manage entitlement management (SCIM as the provisioning rail) [VERIFY]
+- **Security+ SY0-701** Objective 4.6 — Identity lifecycle management (SCIM context)
+- **CISSP** Domain 5.3 — Federated identity management (SCIM as the provisioning layer)
+</HoloPanel>
+
+# SCIM: The Provisioning Protocol That Should Work Better Than It Does
+
+The authentication problem — how do you prove identity — has SAML, OIDC, and FIDO2 as increasingly mature answers. The provisioning problem — how do you reliably create, update, and delete user accounts across dozens of SaaS applications when an employee joins, transfers, or leaves — has SCIM. SCIM (System for Cross-Domain Identity Management) is defined in RFC 7643 (the core schema) and RFC 7644 (the protocol). It is a REST-over-HTTP, JSON-based provisioning standard that is conceptually elegant, interoperably aspirational, and in practice a landscape of subtly incompatible implementations where every SaaS vendor has done something slightly wrong with the spec.
+
+You will use SCIM. You will also debug SCIM. Both require knowing what the spec actually says versus what vendors actually implement.
+
+## What it is
+
+SCIM defines two things:
+
+<Definition term="SCIM Core Schema (RFC 7643)">The data model for user and group objects. The User resource has mandatory attributes (id, userName, name, emails) and optional ones (phoneNumbers, addresses, entitlements, roles, photos). The Group resource has id, displayName, and members. Both include a common attribute set: id (server-assigned, immutable), externalId (client-assigned, used by the provisioning client to correlate records), and meta (created, lastModified, resourceType, location). Schema extensions allow vendor-specific attributes under the urn:ietf:params:scim:schemas:extension namespace.</Definition>
+
+<Definition term="SCIM Protocol (RFC 7644)">The REST API definition for SCIM operations. Endpoints: /Users, /Groups, /ServiceProviderConfig (capabilities), /ResourceTypes, /Schemas. Operations: GET (retrieve), POST (create), PUT (full replace), PATCH (partial update using Operations array), DELETE (deprovision). The protocol defines filtering syntax (eq, ne, co, sw, ew, pr, gt, lt, ge, le), sorting, pagination (startIndex + count), and bulk operations (/Bulk endpoint).</Definition>
+
+The authentication model is straightforward: SCIM endpoints are protected by Bearer token (most common in SaaS integrations) or OAuth 2.0 client credentials grant. The provisioning identity provider (Entra ID, Okta, Ping) acts as the SCIM client; the SaaS application acts as the SCIM server.
+
+## Why it exists
+
+Before SCIM, provisioning to SaaS applications was a custom integration problem for every application. Box had a proprietary API. Salesforce had SOAP-based provisioning. Slack had its own user management API. Each required a custom connector, a custom field mapping, a custom error-handling path, and a custom deprovisioning workflow. At 20 SaaS applications — which is conservative for a mid-size financial institution — that is 20 custom provisioning connectors to build and maintain.
+
+SCIM was designed to collapse that to a single standard REST API: the IdP connects to any SCIM-compliant endpoint using the same client code, the same authentication model, and the same JSON payload format. A user provisioned to Box, Salesforce, and Slack through SCIM should use identical provisioning logic — just different endpoint URLs. The promise is convergence on a standard that allows commodity connector infrastructure rather than bespoke integrations.
+
+The reality falls somewhat short of the promise because SCIM 2.0 defines an aspirational standard that many vendors implement partially, incorrectly, or with proprietary extensions that are required for full functionality. But the standard has raised the floor significantly — even a broken SCIM implementation is easier to debug than a proprietary provisioning API was to build.
+
+<ProTip>
+The single most important operational insight about SCIM deployments: **test PATCH semantics explicitly for every vendor before you go to production**. RFC 7644 defines three PATCH operation types — `add`, `replace`, and `remove` — with specific semantics for updating multi-valued attributes like group membership. The difference between `add` and `replace` on a group's `members` attribute determines whether you are adding a user to a group or replacing the entire group membership with a single-user list. This is not a theoretical concern — it is the exact failure mode that caused an 18-month security gap in a banking environment I will describe in the war story.
+</ProTip>
+
+## How it works under the hood
+
+Three operations cover 90% of day-to-day SCIM provisioning work. The payloads below are real-world representative examples:
+
+**Creating a user (POST /Users):**
+
+<PowerShellBlock>{`POST /scim/v2/Users
+Authorization: Bearer <provisioning-token>
+Content-Type: application/scim+json
+
+{
+  "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+  "externalId": "emp-00482",
+  "userName": "jdoe@corp.local",
+  "name": {
+    "formatted": "Jane Doe",
+    "familyName": "Doe",
+    "givenName": "Jane"
+  },
+  "displayName": "Jane Doe",
+  "emails": [
+    {
+      "value": "jdoe@corp.local",
+      "type": "work",
+      "primary": true
+    }
+  ],
+  "active": true,
+  "title": "Senior Teller",
+  "department": "Retail Banking"
+}`}</PowerShellBlock>
+
+The server responds with 201 Created and the full User resource including the server-assigned `id`. The `externalId` is what the provisioning client (Entra ID, Okta) uses to correlate its internal user record with the SCIM server's record. Do not lose track of it.
+
+**Updating group membership via PATCH (the operation with the most vendor-specific bugs):**
+
+<PowerShellBlock>{`PATCH /scim/v2/Groups/grp-tellers-01
+Authorization: Bearer <provisioning-token>
+Content-Type: application/scim+json
+
+{
+  "schemas": ["urn:ietf:params:scim:schemas:api:messages:2.0:PatchOp"],
+  "Operations": [
+    {
+      "op": "add",
+      "path": "members",
+      "value": [
+        {
+          "value": "usr-00482",
+          "display": "Jane Doe"
+        }
+      ]
+    }
+  ]
+}`}</PowerShellBlock>
+
+The semantic distinction: `"op": "add"` appends the user to the `members` array. `"op": "replace"` with `"path": "members"` replaces the entire members array with the new value. A vendor that processes `add` as `replace` will silently deprovision every existing group member whenever a new member is added. This is not hypothetical — it has happened in production at multiple organizations.
+
+**Deprovisioning a user (PATCH active=false vs DELETE):**
+
+<PowerShellBlock>{`PATCH /scim/v2/Users/usr-00482
+Authorization: Bearer <provisioning-token>
+Content-Type: application/scim+json
+
+{
+  "schemas": ["urn:ietf:params:scim:schemas:api:messages:2.0:PatchOp"],
+  "Operations": [
+    {
+      "op": "replace",
+      "path": "active",
+      "value": false
+    }
+  ]
+}`}</PowerShellBlock>
+
+Most enterprise integrations prefer PATCH `active=false` over DELETE for deprovisioning — it disables the account while preserving data (audit logs, content ownership, licensing cost recovery). Hard DELETE is appropriate for data-minimization compliance scenarios. Some vendors do not implement PATCH `active=false` correctly and require DELETE for actual account deactivation — test before you trust the deprovisioning workflow in a compliance-relevant system.
+
+<CommandReference category="scim" />
+
+<Flashcard front="What are the three SCIM PATCH operation types and what does each do to a multi-valued attribute?" back="add: appends the new value(s) to the existing array without removing existing values. replace: replaces the entire attribute value (or the targeted array) with the new value. remove: deletes matching value(s) from the attribute. The add/replace distinction is where most SCIM vendor bugs live — a vendor treating add as replace silently destroys existing group membership on every member add operation." />
+
+<Flashcard front="What is the difference between externalId and id in a SCIM resource, and why does it matter for provisioning?" back="id is the server-assigned, immutable identifier the SCIM server generates when the resource is created. externalId is an optional identifier the provisioning client assigns, representing the user's identity in the client's system (e.g., Entra Object ID, Okta user ID). The provisioning client uses externalId to correlate its own records with the SCIM server's records across create/update/delete operations. If externalId is not stored or is lost (e.g., after a SCIM sync reset), the provisioning client may create duplicate users instead of updating existing ones." />
+
+## War story
+
+<WarStory title="The Slack Accounts That Were Never Deactivated and the SOX Auditor Who Found Out">
+A regional bank's IT department implemented automated employee offboarding via SCIM in 2022. The workflow: on an employee's termination date, the HR system triggered a lifecycle event in Entra ID, which disabled the account. Entra ID's SCIM provisioning connector was supposed to push a `PATCH active=false` to Box, Salesforce, and Slack — three of the bank's primary SaaS platforms. Box and Salesforce deprovisioned correctly. Slack did not.
+
+The specific failure: the bank's Slack workspace was on an older SCIM API version, and the Slack SCIM implementation at that time required the `active` attribute to be set in a full `PUT /Users/{id}` operation rather than accepting a `PATCH` with `op: replace, path: active`. Entra ID's SCIM connector sent PATCH — Slack returned 200 OK (no error), and then did absolutely nothing. The accounts remained active.
+
+This continued for 18 months, through multiple employee terminations. No one checked because the SCIM connector's provisioning logs showed successful 200 responses. The auditor discovered it during a SOX access review: she pulled the list of active Slack accounts and cross-referenced it against the terminated employee roster from HR. Sixty-three accounts were active in Slack for users who had been terminated between 6 and 18 months prior.
+
+The remediation had two components: (1) immediate manual deprovisioning of all 63 accounts with a documented management attestation for the SOX finding; (2) architectural: switch the Entra ID → Slack SCIM integration from PATCH to PUT for active-state changes, after confirming with Slack support which operation their version actually honored. The second component required rebuilding the attribute mapping in the Entra ID provisioning configuration.
+
+The broader lesson: SCIM provisioning logs showing HTTP 200 are not proof that deprovisioning occurred. For compliance-relevant systems — anything in a SOX, SOC 2, or HIPAA access control scope — the access review process must include a direct query of the SaaS system's active user list, not just the SCIM provisioning log. A 200 from a misconfigured endpoint is indistinguishable from a 200 from a correctly deprovisioned endpoint.
+
+In a SaaS context, building a "SCIM testing matrix" before integrating any new vendor is real engineering work: create a user, verify the user appears, update group membership with both add and replace, disable the user, verify the account is actually inactive (not just returning 200), re-enable, delete, verify deletion. Every vendor will fail at least one of these. In a defense context, SCIM rarely crosses security domain boundaries — manual provisioning remains the norm for systems that span classification levels, with ICAM (Identity, Credential, and Access Management) frameworks specifying signature-required provisioning workflows. In healthcare, SCIM for Epic and ancillary clinical systems typically falls under strict change control: provisioning events require documentation, supervisor approval, and audit trail retention that most turnkey SCIM integrations do not provide out of the box.
+</WarStory>
+
+## Check your understanding
+
+<Quiz question={{
+  id: "02-protocols/06-scim/q1",
+  prompt: "Your SCIM provisioning client sends the following PATCH to a SaaS vendor's /Groups endpoint to add a single user to a 50-member group: { op: 'replace', path: 'members', value: [{ value: 'usr-00482' }] }. Twenty minutes later, 49 users report they have lost access to the application. What happened, and what is the correct PATCH operation?",
+  options: [
+    "The vendor's SCIM server interpreted replace on members as a full replacement of the members array with only the new value. The correct operation is op: 'add', path: 'members', value: [{ value: 'usr-00482' }] — which appends the new member without removing existing ones.",
+    "The vendor's SCIM server rejected the PATCH and deleted all group members as an error recovery behavior. The correct fix is to use PUT /Groups instead of PATCH.",
+    "The 49 users' sessions expired coincidentally. SCIM PATCH replace on members appends by definition.",
+    "The externalId field was missing from the value array. SCIM requires externalId for all member entries in a replace operation."
+  ],
+  correctIndex: 0,
+  explanation: "RFC 7644 defines PATCH replace on a multi-valued attribute as replacing the entire attribute value with the new value. op: replace on members with a single-element array replaces the group's entire membership with that one user, silently removing all 49 existing members. The correct operation for adding a single user to an existing group without disturbing current membership is op: add — which appends the new value to the existing array. This is the most common destructive SCIM misconfiguration in group management."
+}} />
+
+<Quiz question={{
+  id: "02-protocols/06-scim/q2",
+  prompt: "A security auditor questions whether your SCIM-based offboarding workflow actually deprovisioned accounts, pointing out that SCIM provisioning logs only show HTTP 200 responses. What is the most accurate statement about using SCIM provisioning logs as evidence of deprovisioning?",
+  options: [
+    "HTTP 200 from a SCIM server is definitive proof of successful deprovisioning — RFC 7644 requires servers to return 4xx errors for all failures.",
+    "SCIM provisioning logs showing 200 responses are necessary but not sufficient evidence. A vendor SCIM server may return 200 for a PATCH active=false operation and then fail to actually deactivate the account due to implementation bugs. Compliance-relevant access reviews must directly query the SaaS system's active user list and cross-reference it with termination records.",
+    "SCIM provisioning logs are sufficient if they include the full response body confirming the active attribute was set to false.",
+    "HTTP 200 responses from SCIM servers are reliable because SCIM 2.0 mandates idempotent behavior — a 200 means the state change was applied."
+  ],
+  correctIndex: 1,
+  explanation: "RFC 7644 does not require SCIM servers to validate that a state change actually took effect before returning 200 — the HTTP response code confirms the request was received and syntactically valid, not that the business logic executed correctly. Multiple documented vendor implementations return 200 for active=false PATCH operations while not actually deactivating the account. For SOX, SOC 2, HIPAA, or any compliance-relevant access control review, the authoritative evidence is the SaaS application's own active user list, not the provisioning system's HTTP log."
+}} />
+
+<Quiz question={{
+  id: "02-protocols/06-scim/q3",
+  prompt: "A new SaaS vendor supports SCIM 2.0. You need to choose an authentication method for the SCIM provisioning connection between your IdP (Entra ID) and the vendor. The vendor supports both long-lived Bearer tokens and OAuth 2.0 client credentials grant. Which should you choose, and why?",
+  options: [
+    "Long-lived Bearer token — simpler to configure and SCIM provisioning is a machine-to-machine operation where token rotation is unnecessary.",
+    "OAuth 2.0 client credentials grant — it produces short-lived access tokens with automatic rotation, limits exposure if the provisioning credential is compromised, and provides a revocation path. Long-lived Bearer tokens are static credentials that may be valid for months or years and are difficult to rotate without service disruption.",
+    "Either is acceptable — SCIM connections are always TLS-encrypted so credential exposure is not a risk.",
+    "Long-lived Bearer token — the client credentials grant requires the SCIM client to store a client_secret, which is a credential exposure risk equivalent to storing a long-lived token."
+  ],
+  correctIndex: 1,
+  explanation: "OAuth 2.0 client credentials grant produces time-limited access tokens. If the provisioning credential is compromised (e.g., a rotation script commits it to a public repo), the attacker's window is the access_token lifetime (typically minutes to hours) rather than the lifetime of a static Bearer token (months to years until someone rotates it manually). Long-lived Bearer tokens are the industry-standard SCIM default because most vendors do not implement client credentials — but where the option exists, client credentials is the better security posture. TLS protects the channel but does not address credential compromise at the storage or configuration layer."
+}} />
