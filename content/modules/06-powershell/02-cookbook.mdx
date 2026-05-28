@@ -1,0 +1,338 @@
+{/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Objective 3.1 — Plan and implement workload identities (service principal and app credential management) [VERIFY]
+- **SC-300** Objective 4.1 — Plan and implement identity protection (bulk user management, privileged role audit) [VERIFY]
+- **Security+ SY0-701** Objective 4.7 — Automate and orchestrate security using scripting
+- **CISSP** Domain 7.7 — Operate and maintain detective and preventative measures (audit-script context)
+</HoloPanel>
+
+# The PowerShell IAM Cookbook
+
+These are the recipes you will actually reach for on a Tuesday afternoon. Not academic exercises — real patterns that appear in HR onboarding pipelines, SOX evidence packages, access reviews, and incident response runbooks. Bookmark this section. Every recipe is a working template you can adapt in under 10 minutes.
+
+## When to reach for it
+
+This is the execution layer. You know PowerShell fundamentals from the previous section. Now you need the pattern for a specific problem — bulk user creation, finding all admin role holders, rotating a credential, generating the audit report your CISO needs by Friday. Work backward from the problem to the recipe. Every pattern here follows the same discipline: server-side filtering where available, explicit output columns, export with a timestamp, error handling that does not silently swallow failures.
+
+## The recipes
+
+### Recipe 1: Bulk-create users from a CSV
+
+The HR team hands you a spreadsheet. You have 200 new hires starting Monday. This is the pattern — not the portal, not individual tickets.
+
+<PowerShellBlock title="Bulk user creation from CSV">{`# CSV columns expected: FirstName, LastName, Department, JobTitle, Manager (UPN)
+# Generate a cryptographically random temp password — never use a static default
+function New-SecureRandomPassword {
+  $chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789!@#$%^&*'
+  -join (1..16 | ForEach-Object { $chars[(Get-Random -Maximum $chars.Length)] })
+}
+
+$csvPath = "C:\HR\NewHires.csv"
+$newHires = Import-Csv -Path $csvPath
+$results  = @()
+
+foreach ($hire in $newHires) {
+  try {
+    $tempPassword  = New-SecureRandomPassword
+    $upn           = "$($hire.FirstName.ToLower()).$($hire.LastName.ToLower())@contoso.com"
+    $passwordProfile = @{
+      Password                      = $tempPassword
+      ForceChangePasswordNextSignIn = $true   # require change on first login
+    }
+
+    $newUser = New-MgUser -DisplayName    "$($hire.FirstName) $($hire.LastName)" \`
+                          -UserPrincipalName $upn \`
+                          -MailNickname   "$($hire.FirstName).$($hire.LastName)" \`
+                          -Department     $hire.Department \`
+                          -JobTitle       $hire.JobTitle \`
+                          -AccountEnabled $true \`
+                          -PasswordProfile $passwordProfile
+
+    $results += [PSCustomObject]@{
+      UPN          = $upn
+      TempPassword = $tempPassword   # write to secure channel (not email)
+      Status       = "Created"
+      ObjectId     = $newUser.Id
+    }
+  } catch {
+    $results += [PSCustomObject]@{
+      UPN    = $upn
+      Status = "FAILED: $($_.Exception.Message)"
+    }
+  }
+}
+
+# Write temp passwords to a file that lives in a secure network share, not email
+$results | Export-Csv -Path "C:\Audits\BulkCreate_$(Get-Date -Format 'yyyyMMdd-HHmm').csv" \`
+                      -NoTypeInformation
+Write-Host "$($results.Where({ $_.Status -eq 'Created' }).Count) users created."`}</PowerShellBlock>
+
+The `ForceChangePasswordNextSignIn` flag is not optional. A temp password that users are never forced to change is a credential that lives forever in a CSV file someone inevitably emails to the wrong person.
+
+### Recipe 2: Find all guest users and their inviter
+
+Guest (B2B) sprawl is one of the most common access review findings. Guests are invited, complete their project, and are never removed. This surfaces them.
+
+<PowerShellBlock title="Guest user inventory with inviter">{`# B2B guests have userType -eq "Guest"
+$guests = Get-MgUser -Filter "userType eq 'Guest'" \`
+                     -Property "DisplayName,UserPrincipalName,Mail,CreatedDateTime,SignInActivity" \`
+                     -All
+
+$guests | ForEach-Object {
+  [PSCustomObject]@{
+    DisplayName       = $_.DisplayName
+    ExternalEmail     = $_.Mail
+    UPN               = $_.UserPrincipalName
+    InvitedOn         = $_.CreatedDateTime
+    LastSignIn        = $_.SignInActivity?.LastSignInDateTime
+    DaysSinceSignIn   = if ($_.SignInActivity?.LastSignInDateTime) {
+                          ((Get-Date) - $_.SignInActivity.LastSignInDateTime).Days
+                        } else { "Never" }
+  }
+} | Sort-Object DaysSinceSignIn -Descending |
+  Export-Csv -Path "C:\Audits\Guests_$(Get-Date -Format 'yyyyMMdd').csv" -NoTypeInformation`}</PowerShellBlock>
+
+Sort by DaysSinceSignIn descending and the guests who should have been removed six months ago surface immediately. In regulated environments, guests with "Never" as a last sign-in date and an InvitedOn older than 90 days are automatic candidates for removal.
+
+### Recipe 3: Find all apps with admin consent and their permission grants
+
+OAuth app consent is the modern credential-theft vector that most orgs do not have clean visibility into. This surfaces every app with admin-consented permissions.
+
+<PowerShellBlock title="Admin-consented app permission audit">{`# Get all service principals that are not first-party Microsoft apps
+$servicePrincipals = Get-MgServicePrincipal -All |
+  Where-Object { $_.Tags -notcontains "WindowsAzureActiveDirectoryIntegratedApp" }
+
+$results = foreach ($sp in $servicePrincipals) {
+  # OAuth2 delegated permission grants
+  $delegated = Get-MgServicePrincipalOauth2PermissionGrant -ServicePrincipalId $sp.Id -All
+  # App role assignments (application permissions, no user context)
+  $appRoles  = Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -All
+
+  if ($delegated.Count -gt 0 -or $appRoles.Count -gt 0) {
+    [PSCustomObject]@{
+      AppName          = $sp.DisplayName
+      AppId            = $sp.AppId
+      PublisherName    = $sp.PublisherName
+      DelegatedScopes  = ($delegated | ForEach-Object { $_.Scope }) -join " | "
+      AppRoleCount     = $appRoles.Count
+      CreatedDateTime  = $sp.AdditionalProperties["createdDateTime"]
+    }
+  }
+}
+
+$results | Export-Csv -Path "C:\Audits\AppConsent_$(Get-Date -Format 'yyyyMMdd').csv" \`
+                      -NoTypeInformation
+Write-Host "$($results.Count) apps with consent grants found"`}</PowerShellBlock>
+
+### Recipe 4: Find all users with a Privileged Role via PIM
+
+Privilege creep is the slow leak in every environment. This gives you the current state — both permanent assignments and eligible (PIM) assignments — for every privileged role.
+
+<PowerShellBlock title="Privileged role assignment audit (PIM)">{`# Get all privileged role definitions (roles that can admin other roles or resources)
+$privRoles = Get-MgRoleManagementDirectoryRoleDefinition -All |
+  Where-Object { $_.IsPrivileged -eq $true }
+
+$assignments = foreach ($role in $privRoles) {
+  # Active (permanent) assignments
+  $active = Get-MgRoleManagementDirectoryRoleAssignment \`
+              -Filter "roleDefinitionId eq '$($role.Id)'" -All \`
+              -ExpandProperty "principal"
+
+  foreach ($a in $active) {
+    [PSCustomObject]@{
+      RoleName        = $role.DisplayName
+      AssignmentType  = "Permanent"
+      PrincipalName   = $a.Principal?.AdditionalProperties["displayName"]
+      PrincipalType   = $a.Principal?.AdditionalProperties["@odata.type"]
+      AssignedOn      = $a.CreatedDateTime
+    }
+  }
+}
+
+$assignments | Sort-Object RoleName, PrincipalName |
+  Export-Csv -Path "C:\Audits\PrivRoles_$(Get-Date -Format 'yyyyMMdd').csv" -NoTypeInformation
+Write-Host "$($assignments.Count) privileged role assignments found"`}</PowerShellBlock>
+
+### Recipe 5: Audit Conditional Access policies — coverage and gaps
+
+You cannot audit what you cannot see. This recipe surfaces every CA policy, its state, and which apps are in scope or explicitly excluded.
+
+<PowerShellBlock title="Conditional Access policy inventory">{`$policies = Get-MgIdentityConditionalAccessPolicy -All
+
+$policies | ForEach-Object {
+  [PSCustomObject]@{
+    PolicyName       = $_.DisplayName
+    State            = $_.State   # enabled / disabled / enabledForReportingButNotEnforced
+    IncludedApps     = ($_.Conditions.Applications.IncludeApplications) -join ", "
+    ExcludedApps     = ($_.Conditions.Applications.ExcludeApplications) -join ", "
+    IncludedUsers    = ($_.Conditions.Users.IncludeUsers) -join ", "
+    ExcludedUsers    = ($_.Conditions.Users.ExcludeUsers) -join ", "
+    GrantControls    = ($_.GrantControls.BuiltInControls) -join ", "
+    MFARequired      = ($_.GrantControls.BuiltInControls -contains "mfa")
+    SessionControls  = ($_.SessionControls | ConvertTo-Json -Depth 2 -Compress)
+  }
+} | Export-Csv -Path "C:\Audits\CAPolicies_$(Get-Date -Format 'yyyyMMdd').csv" -NoTypeInformation
+
+# Flag any enabled policies with no grant controls (allow-all policies)
+$policies | Where-Object {
+  $_.State -eq "enabled" -and
+  ($_.GrantControls.BuiltInControls.Count -eq 0) -and
+  ($_.GrantControls.AuthenticationStrength -eq $null)
+} | ForEach-Object { Write-Warning "No grant controls: $($_.DisplayName)" }`}</PowerShellBlock>
+
+The final block — flagging policies with no grant controls — surfaces the CA policies that are technically "enabled" but grant access to anyone who matches the conditions. In every environment I have audited, at least one of these exists.
+
+### Recipe 6: Find service principals with credentials expiring in 90 days
+
+Expired app credentials cause outages, not security alerts. But they also create a window where a team is under pressure to renew quickly and cuts corners on secret hygiene. Catch them before they expire.
+
+<PowerShellBlock title="Expiring service principal credentials">{`$cutoff = (Get-Date).AddDays(90)
+
+$expiring = Get-MgServicePrincipal -All -Property "DisplayName,AppId,KeyCredentials,PasswordCredentials" |
+  ForEach-Object {
+    $sp = $_
+
+    # Certificate credentials
+    $sp.KeyCredentials | Where-Object { $_.EndDateTime -lt $cutoff -and $_.EndDateTime -gt (Get-Date) } |
+      ForEach-Object {
+        [PSCustomObject]@{
+          AppName      = $sp.DisplayName
+          AppId        = $sp.AppId
+          CredType     = "Certificate"
+          ExpiresOn    = $_.EndDateTime
+          DaysLeft     = [int](($_.EndDateTime - (Get-Date)).TotalDays)
+          KeyId        = $_.KeyId
+        }
+      }
+
+    # Client secret credentials
+    $sp.PasswordCredentials | Where-Object { $_.EndDateTime -lt $cutoff -and $_.EndDateTime -gt (Get-Date) } |
+      ForEach-Object {
+        [PSCustomObject]@{
+          AppName      = $sp.DisplayName
+          AppId        = $sp.AppId
+          CredType     = "ClientSecret"
+          ExpiresOn    = $_.EndDateTime
+          DaysLeft     = [int](($_.EndDateTime - (Get-Date)).TotalDays)
+          KeyId        = $_.KeyId
+        }
+      }
+  }
+
+$expiring | Sort-Object DaysLeft |
+  Export-Csv -Path "C:\Audits\ExpiringCreds_$(Get-Date -Format 'yyyyMMdd').csv" -NoTypeInformation
+Write-Host "$($expiring.Count) credentials expiring within 90 days"`}</PowerShellBlock>
+
+### Recipe 7: Bulk-update user attributes from an HR feed CSV
+
+HR systems and Entra ID are never in sync. This pattern reconciles them — update Department, JobTitle, and Manager without touching authentication attributes.
+
+<PowerShellBlock title="Bulk attribute update from HR feed">{`$hrFeed  = Import-Csv -Path "C:\HR\AttributeFeed.csv"
+# Expected columns: UPN, Department, JobTitle, ManagerUPN
+$results = @()
+
+foreach ($row in $hrFeed) {
+  try {
+    $user = Get-MgUser -UserId $row.UPN -ErrorAction Stop
+
+    $updateBody = @{
+      Department = $row.Department
+      JobTitle   = $row.JobTitle
+    }
+
+    # Resolve manager UPN to Object ID before setting
+    if ($row.ManagerUPN) {
+      $manager = Get-MgUser -UserId $row.ManagerUPN -ErrorAction Stop
+      Set-MgUserManagerByRef -UserId $user.Id \`
+        -BodyParameter @{ "@odata.id" = "https://graph.microsoft.com/v1.0/users/$($manager.Id)" }
+    }
+
+    Update-MgUser -UserId $user.Id @updateBody
+
+    $results += [PSCustomObject]@{ UPN = $row.UPN; Status = "Updated" }
+  } catch {
+    $results += [PSCustomObject]@{ UPN = $row.UPN; Status = "FAILED: $($_.Exception.Message)" }
+  }
+}
+
+$results | Export-Csv -Path "C:\Audits\AttributeUpdate_$(Get-Date -Format 'yyyyMMdd-HHmm').csv" \`
+                      -NoTypeInformation
+Write-Host "Done. $($results.Where({$_.Status -eq 'Updated'}).Count) updated, $($results.Where({$_.Status -like 'FAILED*'}).Count) failed."`}</PowerShellBlock>
+
+### Recipe 8: Generate the "who has admin to what" report for a SOX audit
+
+This is the one you will run every quarter. It produces a single flat file mapping every directory role to every user or group that holds it — the document your external auditors need before they will sign the SOX management letter.
+
+<PowerShellBlock title="SOX admin access report">{`# Requires Directory.Read.All, RoleManagement.Read.Directory
+$roles       = Get-MgRoleManagementDirectoryRoleDefinition -All
+$assignments = Get-MgRoleManagementDirectoryRoleAssignment -All \`
+                 -ExpandProperty "principal,roleDefinition"
+
+$report = $assignments | ForEach-Object {
+  [PSCustomObject]@{
+    RoleName         = $_.RoleDefinition.DisplayName
+    RoleId           = $_.RoleDefinitionId
+    PrincipalName    = $_.Principal?.AdditionalProperties["displayName"]
+    PrincipalUPN     = $_.Principal?.AdditionalProperties["userPrincipalName"]
+    PrincipalType    = $_.Principal?.AdditionalProperties["@odata.type"] -replace "#microsoft.graph.",""
+    DirectoryScopeId = $_.DirectoryScopeId   # "/" = tenant-wide; AU or resource scope otherwise
+    AssignedOn       = $_.CreatedDateTime
+  }
+}
+
+$outputPath = "C:\Audits\SOX_AdminReport_$(Get-Date -Format 'yyyyMMdd').csv"
+$report | Sort-Object RoleName, PrincipalName |
+  Export-Csv -Path $outputPath -NoTypeInformation
+
+$hash = Get-FileHash $outputPath -Algorithm SHA256
+Write-Host "Report: $outputPath"
+Write-Host "SHA256: $($hash.Hash)"   # Attach this hash to your audit ticket`}</PowerShellBlock>
+
+<CommandReference category="iam" />
+
+## Pitfalls
+
+<ProTip>
+**`ConvertTo-SecureString -AsPlainText -Force` is not secure.** The cmdlet name has the word "Secure" in it, which creates a false sense of safety. What it actually does is wrap a plaintext string in a SecureString object — it does not encrypt anything, and the original plaintext lives in memory in a recoverable form. In a provisioning script that hardcodes a default password, this pattern means every account created by that script starts with the same credential, and that credential exists in plaintext in the script file, in any log that captures parameter values, and in the memory of every machine the script runs on. Use `New-SecureRandomPassword` (as in Recipe 1) or `Get-Credential` for interactive flows, and `Microsoft.PowerShell.SecretManagement` or Azure Key Vault for automated flows.
+</ProTip>
+
+<ProTip>
+**The krbtgt rotation safety dance.** If you are rotating the krbtgt account password in on-premises Active Directory (to flush forged Kerberos tickets after a golden ticket compromise or a periodic rotation policy), the procedure is: rotate once, wait 12 hours (or the replication latency of your slowest DC, whichever is longer), rotate again. The reason: Kerberos accepts tickets encrypted with either the current or previous krbtgt password to handle in-flight tickets during normal operations. A single rotation leaves all existing forged tickets valid until they expire. The second rotation (after replication completes) invalidates the window. If you rotate twice in rapid succession before replication completes, you break Kerberos authentication domain-wide. Twelve hours is not a suggestion.
+</ProTip>
+
+<WarStory title="Welcome2024! — a password that outlived its welcome">
+A mid-size bank onboards 200 employees at the start of a fiscal year. The provisioning team — under deadline pressure, new to the Microsoft.Graph SDK — writes a bulk-create script. The secure-password-generation function is left as a TODO. The script ships with `ConvertTo-SecureString "Welcome2024!" -AsPlainText -Force` as the temp password for every account. `ForceChangePasswordNextSignIn` is set to true. Sounds fine.
+
+Except six users never complete their first-day onboarding. Their accounts are active, their passwords are the same static string that appears in a script file that has been emailed to three people, stored in a shared drive, and committed to a private (not very) GitHub repo. One of those six users is a Domain Admin candidate — they were being onboarded ahead of a role transition. Quarterly access review three months later flags six accounts with no MFA registered and no sign-in activity. The password audit follows. All six are still on Welcome2024!. The GitHub search takes five minutes.
+
+The fix is Recipe 1 of this cookbook. The lesson is that your provisioning script is production software — it needs code review, it needs secure secret generation, and it needs a test run against a non-production tenant before it touches 200 live accounts.
+</WarStory>
+
+## Drill
+
+<Quiz question={{
+  id: "06-powershell/02-cookbook/q1",
+  prompt: "You need to rotate the krbtgt account password after a suspected golden ticket compromise. You rotate the password once. When is it safe to rotate a second time, and why is the second rotation required?",
+  options: [
+    "Rotate again immediately after the first rotation; two rapid rotations invalidate all existing tickets at once.",
+    "Wait 12 hours (or the replication latency of your slowest DC), then rotate again — the second rotation closes the Kerberos grace window that still accepts tickets encrypted with the previous password.",
+    "A single rotation is sufficient; Kerberos does not accept tickets from previous keys.",
+    "Wait 24 hours, then rotate twice more for a total of three rotations."
+  ],
+  correctIndex: 1,
+  explanation: "Kerberos accepts tickets encrypted with the current or previous krbtgt password (to handle in-flight tickets). A single rotation still leaves forged tickets valid until expiry. The second rotation — after full AD replication completes, typically 12 hours — eliminates the previous-key grace window. Two rapid rotations before replication completes will break Kerberos authentication domain-wide."
+}} />
+
+<Quiz question={{
+  id: "06-powershell/02-cookbook/q2",
+  prompt: "A junior analyst writes a provisioning script that includes: `$pw = ConvertTo-SecureString 'Welcome1!' -AsPlainText -Force`. What is the primary security risk?",
+  options: [
+    "ConvertTo-SecureString requires administrator privileges and will fail in a scheduled task context.",
+    "The static plaintext password is embedded in the script, recoverable from memory, and shared across every account the script creates — violating uniqueness and exposing credentials wherever the script is stored.",
+    "The -Force flag disables account lockout for accounts created with this password.",
+    "This syntax is only valid in Windows PowerShell 5.1, not PowerShell 7."
+  ],
+  correctIndex: 1,
+  explanation: "ConvertTo-SecureString -AsPlainText -Force wraps a plaintext string in a SecureString object but does not encrypt it. The original value is recoverable and is present in any script file, log, or repository where the script lives. Using a static default password means every provisioned account shares the same credential until each user individually changes it — which, as the war story demonstrates, does not always happen."
+}} />
