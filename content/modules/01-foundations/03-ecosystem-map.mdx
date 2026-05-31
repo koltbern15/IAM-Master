@@ -99,6 +99,14 @@ Month twenty-two — four months late — the migration closed. The $380K annual
 In a SaaS-native startup this story never happens — they started cloud-native with Okta, no AD DS, and Okta Lifecycle Management instead of SailPoint. No migration needed. In a defense contractor context the Entra ID consolidation hits a hard wall at FedRAMP High: Entra's commercial boundary is narrower than assumed, and systems processing CUI need an on-prem or FedRAMP-authorized IdP. In healthcare the blocker is HIPAA BAA coverage — every IAM vendor in the new stack needs a signed BAA, and mid-consolidation the team discovers one new module has none. Both scenarios add scope the spreadsheet never modeled.
 </WarStory>
 
+## Recall drill
+
+<Flashcard front="What does an Identity Provider (IdP) do, and name three example vendors?" back="The IdP performs authentication and issues tokens (OIDC, SAML, Kerberos), acting as the source of identity truth for downstream apps. Examples: Microsoft Entra ID, Okta, Ping Identity, and Auth0 (Okta CIC) for the CIAM-first variant." />
+<Flashcard front="What problem does Identity Governance and Administration (IGA) solve that an IdP does not?" back="IGA drives the identity lifecycle — joiner/mover/leaver provisioning, access reviews, certification campaigns, and Separation of Duties enforcement — the workflow and recertification machinery IdPs lack. Examples: SailPoint IdentityNow, Saviynt, Microsoft Entra ID Governance." />
+<Flashcard front="What three capabilities define the Privileged Access Management (PAM) category, and who are the leaders?" back="Vaulting (encrypted credential storage with checkout), session brokering (privileged sessions proxied through a recording jump server), and just-in-time elevation (zero standing privilege). Leaders: CyberArk, BeyondTrust, and Delinea; HashiCorp Vault covers secrets management at the edges." />
+<Flashcard front="How does CIAM differ from workforce IAM, and what are the main platforms?" back="CIAM serves millions of external consumers rather than thousands of known employees — favoring social login, self-service registration, CCPA and GDPR consent, and burst-load SLAs. Main platforms: Auth0 / Okta CIC, Azure AD B2C (succeeded by Entra External ID), and PingOne for Customers." />
+<Flashcard front="Why is a directory service not the same thing as an IdP?" back="The directory (AD DS, OpenLDAP, FreeIPA) is the canonical user, group, and attribute store — the data source the IdP reads when building tokens. The IdP authenticates and issues tokens. When a claim is missing from a token, the fault is often the directory attribute, not the IdP configuration." />
+
 ## Check your understanding
 
 <Quiz question={{
