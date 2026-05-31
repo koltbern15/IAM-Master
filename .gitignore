@@ -50,3 +50,10 @@ verify-*.png
 # Tutor / personal artifacts
 *.local.json
 backups/
+
+# Playwright/debug screenshots
+.playwright-mcp/
+*-current.png
+home-deck*.png
+tutor-open.png
+section-current.png
