@@ -1,7 +1,7 @@
 {/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
 
 <HoloPanel label="COVERS">
-- **SC-300** Objective 1.1 — Plan and implement an identity management solution (PowerShell tooling implicit throughout) [VERIFY]
+- Aligns with **SC-300: Implement an identity management solution** — secure scripting and script hygiene underpin the implement/manage tasks in this domain
 - **Security+ SY0-701** Objective 4.7 — Automate and orchestrate security using scripting (secure coding and script hygiene subset)
 - **CISSP** Domain 8.1 — Understand and integrate security in the SDLC (script-as-code discipline)
 </HoloPanel>
@@ -178,10 +178,10 @@ The certificate pattern (Pattern 4) is preferred over client secrets for service
 
 ## PowerShell 7 vs 5.1 gotchas
 
-<PowerShellBlock title="Version-specific gotchas">{`# JSON depth default: 5.1 = depth 2, 7+ = depth 100
-# This silently truncates nested objects in 5.1:
-$policy | ConvertTo-Json                          # 5.1: depth 2 — nested arrays get "..."
-$policy | ConvertTo-Json -Depth 10               # explicitly set depth in either version
+<PowerShellBlock title="Version-specific gotchas">{`# JSON depth default: Windows PowerShell 5.1 defaults to depth 2; PowerShell 7+ defaults higher.
+# Either way, do not rely on the default — pass -Depth explicitly for nested Graph objects:
+$policy | ConvertTo-Json                          # 5.1: depth 2 — anything deeper gets truncated
+$policy | ConvertTo-Json -Depth 10               # explicit depth — the only safe pattern across versions
 
 # Parallel processing: ForEach-Object -Parallel only exists in 7+
 # 5.1 equivalent: runspaces (much more complex; avoid unless you need it)
@@ -197,7 +197,7 @@ $users | ForEach-Object -Parallel {
 $user?.DisplayName      # returns $null if $user is $null, not an error (7+ only)
 $array?.Count           # same pattern`}</PowerShellBlock>
 
-The `ConvertTo-Json` depth gotcha has burned people doing Conditional Access policy exports — the nested grant controls and session controls serialize to `"..."` in 5.1 with the default depth, and nobody notices until the auditor tries to parse the export.
+The `ConvertTo-Json` depth gotcha has burned people doing Conditional Access policy exports — in Windows PowerShell 5.1 the default depth is 2, so the nested grant controls and session controls get truncated, and nobody notices until the auditor tries to parse the export. PowerShell 7+ defaults to a deeper value, but the depths differ across versions, so do not depend on either default: pass `-Depth` explicitly whenever you serialize nested Graph objects.
 
 ## Debugging tricks
 

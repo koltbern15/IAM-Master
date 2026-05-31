@@ -1,10 +1,10 @@
 {/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
 
 <HoloPanel label="COVERS">
-- **SC-300** Objective 2.2 — Implement hybrid identity [VERIFY]
-- **SC-900** Study Area 2 — Microsoft Entra ID capabilities (hybrid scenarios) [VERIFY]
+- **SC-300** Implement an identity management solution — hybrid identity (Entra Connect / Cloud Sync, PHS, PTA, federation)
+- **SC-900** Describe the capabilities of Microsoft Entra ID — hybrid identity scenarios
 - **Security+ SY0-701** Objective 4.6 — Hybrid identity
-- **CISSP** Domain 5.5 — Implement authentication systems — federated identity subset [VERIFY]
+- **CISSP** Domain 5 (Identity and Access Management) — federated identity and credential synchronization
 </HoloPanel>
 
 # Hybrid Identity
@@ -39,7 +39,7 @@ The "hybrid" designation is often temporary in aspiration even when permanent in
 
 PHS is the method Microsoft recommends for most organizations, and it is the correct default choice unless you have a specific documented requirement for something else.
 
-The mechanism: Entra Connect extracts the `unicodePwd` attribute (the NT hash of the user's password) from AD DS, applies an additional PBKDF2-HMAC-SHA256 derivation with 1,000 iterations and a random salt, and ships the resulting value to Entra ID every approximately 2 minutes. The original NT hash never leaves your network. What Entra ID receives is a double-hashed, salted derivative — it can be used to validate the same password, but it cannot be reversed to obtain the original hash or the plaintext password.
+The mechanism is a chain of derivations, and getting the chain right is what separates a correct mental model from a hand-wave. AD DS does not store your plaintext password — it stores the **MD4 hash** of it (the NTLM hash, held in the `unicodePwd` attribute). Entra Connect never sees the plaintext. What it does is take that 16-byte MD4 hash and run a second, deliberately expensive derivation over it: it converts the MD4 hash to a 32-character hexadecimal string, adds a per-user random salt, and feeds salt + hash through **PBKDF2 with HMAC-SHA256 and 1,000 iterations**. The output of that PBKDF2 pass is the value shipped to Entra ID — roughly every 2 minutes. So the synced credential is *SHA256-based PBKDF2 over the MD4 hash*, two hashing layers deep, never the plaintext and never the bare MD4 hash on its own. The original MD4 hash never leaves your network, and the synced derivative cannot be reversed to recover the MD4 hash or the plaintext password — but it can still be used to validate the same password, because the same plaintext run through the same chain produces the same result.
 
 The consequential characteristic of PHS: **authentication happens in Entra ID**. The user's credentials are validated against the synced hash in the cloud. This means AD DS does not need to be reachable for authentication to succeed. If your VPN goes down, if your DC has a storage failure, if half your data center loses power — users can still authenticate to Microsoft 365 and Entra-integrated SaaS apps. This outage resilience is the dominant reason PHS wins most PHS-vs-PTA decisions in practice.
 

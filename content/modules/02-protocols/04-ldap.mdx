@@ -1,7 +1,7 @@
 {/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
 
 <HoloPanel label="COVERS">
-- **SC-300** Objective 2.2 — Implement hybrid identity (LDAP-based source-of-truth context) [VERIFY]
+- **SC-300** — Implement and manage hybrid identity: the on-prem Active Directory / LDAP directory as the authoritative source synchronized into Microsoft Entra
 - **Security+ SY0-701** Objective 4.5 — LDAP authentication
 - **CISSP** Domain 5.4 — Implement and manage authorization mechanisms (LDAP-based stores)
 </HoloPanel>
@@ -12,11 +12,12 @@ The Lightweight Directory Access Protocol was designed in 1993 as a lighter alte
 
 ## What it is
 
-LDAP is a <Definition term="directory service protocol">A client-server protocol for accessing and maintaining distributed directory information services. Directories are specialized databases optimized for read-heavy workloads and tree-structured data — they are not relational databases. LDAP defines the wire protocol (RFC 4511), the data model (RFC 4512), and the authentication mechanisms (RFC 4513).</Definition> The three RFCs that define modern LDAP are:
+LDAP is a <Definition term="directory service protocol">A client-server protocol for accessing and maintaining distributed directory information services. Directories are specialized databases optimized for read-heavy workloads and tree-structured data — they are not relational databases. LDAP defines the wire protocol (RFC 4511), the data model (RFC 4512), and the authentication mechanisms (RFC 4513).</Definition> The core RFCs that define modern LDAP are:
 
 - **RFC 4511** — the wire protocol: how messages are encoded (BER/DER), the operation types (Bind, Search, Modify, Add, Delete, ModifyDN, Compare, Extended), and the result codes.
 - **RFC 4512** — the data model: the Directory Information Tree (DIT), the schema (objectClass, attributeType, matching rules), and the entry model.
 - **RFC 4513** — authentication: simple bind (plaintext credentials), SASL bind mechanisms, TLS requirements, and anonymous bind semantics.
+- **RFC 4515** — the string representation of search filters: the parenthesized prefix-notation filter syntax (`(&...)`, `(|...)`, `(cn=j*)`) and the metacharacter escaping rules that LDAP injection defenses depend on.
 
 The core data unit is the <Definition term="entry">An LDAP entry is a collection of attributes identified by a Distinguished Name (DN). The DN is the entry's unique identifier in the DIT — a comma-separated sequence of Relative Distinguished Names (RDNs) tracing the path from the entry to the root. Example: cn=jdoe,ou=users,dc=corp,dc=local. Each entry must have an objectClass attribute that defines which attributes are required and which are permitted. objectClass is the schema enforcement mechanism.</Definition>
 

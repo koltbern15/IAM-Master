@@ -1,8 +1,8 @@
 {/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
 
 <HoloPanel label="COVERS">
-- **SC-300** Objective 3.1 — Plan and implement workload identities (service principal and app credential management) [VERIFY]
-- **SC-300** Objective 4.1 — Plan and implement identity protection (bulk user management, privileged role audit) [VERIFY]
+- Aligns with **SC-300: Plan and implement workload identities** — service principal inventory and app credential management
+- Aligns with **SC-300: Plan, implement, and manage access for applications and privileged identities** — admin-consent auditing and privileged role review
 - **Security+ SY0-701** Objective 4.7 — Automate and orchestrate security using scripting
 - **CISSP** Domain 7.7 — Operate and maintain detective and preventative measures (audit-script context)
 </HoloPanel>
@@ -124,6 +124,8 @@ $results = foreach ($sp in $servicePrincipals) {
 $results | Export-Csv -Path "C:\Audits\AppConsent_$(Get-Date -Format 'yyyyMMdd').csv" \`
                       -NoTypeInformation
 Write-Host "$($results.Count) apps with consent grants found"`}</PowerShellBlock>
+
+One caveat on the output: `PublisherName` is reliably populated only for verified-publisher and gallery applications — for many custom or non-gallery service principals it comes back null, so treat a blank value as "unknown," not "no publisher."
 
 ### Recipe 4: Find all users with a Privileged Role via PIM
 
@@ -298,7 +300,7 @@ Write-Host "SHA256: $($hash.Hash)"   # Attach this hash to your audit ticket`}</
 </ProTip>
 
 <ProTip>
-**The krbtgt rotation safety dance.** If you are rotating the krbtgt account password in on-premises Active Directory (to flush forged Kerberos tickets after a golden ticket compromise or a periodic rotation policy), the procedure is: rotate once, wait 12 hours (or the replication latency of your slowest DC, whichever is longer), rotate again. The reason: Kerberos accepts tickets encrypted with either the current or previous krbtgt password to handle in-flight tickets during normal operations. A single rotation leaves all existing forged tickets valid until they expire. The second rotation (after replication completes) invalidates the window. If you rotate twice in rapid succession before replication completes, you break Kerberos authentication domain-wide. Twelve hours is not a suggestion.
+**The krbtgt rotation safety dance.** If you are rotating the krbtgt account password in on-premises Active Directory (to flush forged Kerberos tickets after a golden ticket compromise or a periodic rotation policy), you reset it **twice** — but the gap between the two resets is the whole game. The reason: Kerberos accepts tickets encrypted with either the current or previous krbtgt password to handle in-flight tickets during normal operations. A single rotation leaves all existing forged tickets valid until they expire. Only the second rotation retires the previous key and closes the window. The wait between the two resets must exceed two things added together: the **maximum TGT lifetime** (the "Maximum lifetime for user ticket" Kerberos policy, default **10 hours**) so that every legitimately issued ticket has had time to expire, **plus** the time for the first password change to **replicate and converge across every DC** in the domain. "Wait 12 hours" is the conservative practical figure that covers a default 10-hour TGT lifetime with replication headroom on top — it is not a magic constant. In a large or geographically distributed forest with slow replication, or with a longer TGT lifetime policy, the real wait is longer; size it to *your* TGT lifetime plus *your* slowest replication path. If you reset twice before that combined window elapses, you break Kerberos authentication domain-wide.
 </ProTip>
 
 <WarStory title="Welcome2024! — a password that outlived its welcome">
@@ -316,12 +318,12 @@ The fix is Recipe 1 of this cookbook. The lesson is that your provisioning scrip
   prompt: "You need to rotate the krbtgt account password after a suspected golden ticket compromise. You rotate the password once. When is it safe to rotate a second time, and why is the second rotation required?",
   options: [
     "Rotate again immediately after the first rotation; two rapid rotations invalidate all existing tickets at once.",
-    "Wait 12 hours (or the replication latency of your slowest DC), then rotate again — the second rotation closes the Kerberos grace window that still accepts tickets encrypted with the previous password.",
+    "Wait until the maximum TGT lifetime (default 10 hours) has elapsed AND the first reset has replicated to every DC — roughly 12 hours as a conservative practical figure — then rotate again; the second rotation retires the previous key and closes the Kerberos grace window that still accepts tickets encrypted with it.",
     "A single rotation is sufficient; Kerberos does not accept tickets from previous keys.",
     "Wait 24 hours, then rotate twice more for a total of three rotations."
   ],
   correctIndex: 1,
-  explanation: "Kerberos accepts tickets encrypted with the current or previous krbtgt password (to handle in-flight tickets). A single rotation still leaves forged tickets valid until expiry. The second rotation — after full AD replication completes, typically 12 hours — eliminates the previous-key grace window. Two rapid rotations before replication completes will break Kerberos authentication domain-wide."
+  explanation: "Kerberos accepts tickets encrypted with the current or previous krbtgt password (to handle in-flight tickets). A single rotation still leaves forged tickets valid until expiry. The second rotation retires the previous key and closes that grace window — but only if you wait long enough first. 'Long enough' is the maximum TGT lifetime (the Kerberos policy 'Maximum lifetime for user ticket,' default 10 hours, so every issued ticket expires) PLUS the time for the first reset to replicate and converge across all DCs. Twelve hours is the conservative practical number that covers the 10-hour default plus replication headroom — not a fixed law; size it to your own TGT lifetime and slowest replication path. Rotating twice before that combined window elapses breaks Kerberos authentication domain-wide."
 }} />
 
 <Quiz question={{

@@ -1,7 +1,7 @@
 {/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
 
 <HoloPanel label="COVERS">
-- **SC-300** Objective 1.1 — Plan and implement an identity management solution (PowerShell tooling is assumed throughout) [VERIFY specific sub-objective label]
+- Aligns with **SC-300: Implement an identity management solution** — PowerShell tooling underpins the plan/implement tasks across this domain
 - **Security+ SY0-701** Objective 4.7 — Automate and orchestrate security using scripting (PowerShell as the canonical example)
 - **CISSP** Domain 7.7 — Operate and maintain detective and preventative measures (script-based audit context)
 </HoloPanel>
@@ -31,7 +31,7 @@ The **Azure CLI** (`az login`, `az ad user list`) is the right choice in cross-p
 Before any Graph cmdlet runs, you authenticate. The scope list is not cosmetic — Graph enforces it at the API layer, and requesting too little scope returns a 403, not a helpful error message.
 
 <PowerShellBlock title="Connect to Microsoft Graph">{`# Interactive sign-in (device code flow — works from any machine including headless)
-Connect-MgGraph -Scopes "User.Read.All", "Group.Read.All", "Directory.Read.All" -UseDeviceAuthentication
+Connect-MgGraph -Scopes "User.Read.All", "Group.Read.All", "Directory.Read.All" -UseDeviceCode
 
 # Verify what you connected as and what scopes are active
 Get-MgContext | Select-Object -Property Account, Scopes, TenantId
