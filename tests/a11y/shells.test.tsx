@@ -8,7 +8,8 @@ import { Quiz } from '@/components/content/Quiz'
 import { CommandPalette } from '@/components/jarvis/CommandPalette'
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), back: vi.fn(), forward: vi.fn(), refresh: vi.fn() })
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), back: vi.fn(), forward: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => '/'
 }))
 
 // jsdom doesn't implement ResizeObserver; cmdk needs it

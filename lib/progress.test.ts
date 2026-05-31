@@ -12,6 +12,7 @@ import {
   CURRENT_VERSION,
   type FlashcardProgress
 } from './progress'
+import { getActivitySeries } from './home-telemetry'
 
 beforeEach(() => {
   window.localStorage.clear()
@@ -125,5 +126,20 @@ describe('lib/progress', () => {
     expect(reverted.completedAt).toBeUndefined()
     // visit history is preserved.
     expect(reverted.visitedAt).toBe(completed.visitedAt)
+  })
+
+  it('a single markSectionVisited increments today\'s activity count to 1', () => {
+    markSectionVisited('02-protocols/01-kerberos')
+    const today = new Date().toISOString().slice(0, 10)
+    const activity = loadState().activity ?? {}
+    expect(activity[today]).toBe(1)
+  })
+
+  it('getActivitySeries returns length 14 whose last element reflects today\'s count', () => {
+    markSectionVisited('02-protocols/01-kerberos')
+    const series = getActivitySeries(loadState())
+    expect(series).toHaveLength(14)
+    // Last element is today (the series runs oldest → newest).
+    expect(series[series.length - 1]).toBe(1)
   })
 })

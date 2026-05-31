@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { TutorPanel } from './TutorPanel'
 
 interface AskProfessorRailProps {
@@ -10,6 +10,17 @@ interface AskProfessorRailProps {
 
 export function AskProfessorRail({ sectionId, sectionContent }: AskProfessorRailProps) {
   const [open, setOpen] = useState(false)
+
+  // Bridge: the global command palette (Cmd+K) dispatches this window event
+  // when the user picks "Ask the Professor about this section".
+  useEffect(() => {
+    function onOpenTutor() {
+      setOpen(true)
+    }
+    window.addEventListener('iam-mastery:open-tutor', onOpenTutor)
+    return () => window.removeEventListener('iam-mastery:open-tutor', onOpenTutor)
+  }, [])
+
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} aria-label="Ask Professor"

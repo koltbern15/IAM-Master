@@ -35,6 +35,8 @@ export interface StoredState {
     longestDays: number
   }
   session: { startedAt: string }
+  /** Per-day count of study touches, keyed by YYYY-MM-DD (UTC). Optional for back-compat. */
+  activity?: Record<string, number>
   settings: {
     soundEnabled: boolean
     anthropicApiKey?: string
@@ -56,6 +58,7 @@ function defaultState(): StoredState {
     flashcards: {},
     streak: { currentDays: 0, lastStudyDate: '', longestDays: 0 },
     session: { startedAt: new Date().toISOString() },
+    activity: {},
     settings: {
       soundEnabled: false,
       tutorModel: 'claude-sonnet-4-6',
@@ -85,6 +88,7 @@ export function loadState(): StoredState {
       },
       streak: { ...base.streak, ...parsed.streak },
       session: { ...base.session, ...parsed.session },
+      activity: parsed.activity ?? base.activity,
       settings: { ...base.settings, ...parsed.settings },
       quizzes: parsed.quizzes ?? base.quizzes,
       flashcards: parsed.flashcards ?? base.flashcards,
@@ -108,11 +112,25 @@ export function resetState(): void {
 }
 
 /**
- * Advances the study streak in place for a single day of activity.
- * Same calendar day → no change; consecutive day → +1; any gap → reset to 1.
- * Mutates `s.streak`; the caller persists.
+ * Increments today's per-day activity counter in place. Keyed by the current
+ * UTC date (YYYY-MM-DD). Mutates `s.activity`; the caller persists.
+ */
+function bumpActivity(s: StoredState): void {
+  s.activity = s.activity ?? {}
+  const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD (UTC)
+  s.activity[today] = (s.activity[today] ?? 0) + 1
+}
+
+/**
+ * Advances the study streak in place for a single day of activity, and counts
+ * the touch toward the daily activity series.
+ * Same calendar day → streak unchanged; consecutive day → +1; any gap → reset to 1.
+ * Mutates `s.streak`/`s.activity`; the caller persists.
  */
 function applyStudyActivity(s: StoredState, nowIso: string): void {
+  // Count EVERY study touch toward the activity series, before the same-day
+  // early-return below (the streak only advances once per day, activity does not).
+  bumpActivity(s)
   const today = nowIso.slice(0, 10) // YYYY-MM-DD
   const last = s.streak.lastStudyDate
   if (last === today) return
@@ -188,6 +206,7 @@ export function recordQuizAttempt(quizId: string, attempt: QuizAttempt): void {
   existing.attempts.push(attempt)
   existing.bestScore = Math.max(existing.bestScore, attempt.score)
   s.quizzes[quizId] = existing
+  applyStudyActivity(s, new Date().toISOString())
   saveState(s)
 }
 

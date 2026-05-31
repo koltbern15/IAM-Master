@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { Command } from 'cmdk'
 import { getAllModules } from '@/lib/content'
 import { useFocusTrap } from '@/hooks/use-focus-trap'
@@ -14,10 +14,31 @@ interface CommandPaletteProps {
 
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const router = useRouter()
+  const pathname = usePathname()
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // A section page is /modules/<moduleId>/<sectionId>: exactly 3 non-empty
+  // path segments where the first is 'modules'.
+  const isSection = useMemo(() => {
+    const segments = (pathname ?? '').split('/').filter(Boolean)
+    return segments.length === 3 && segments[0] === 'modules'
+  }, [pathname])
+
   const actions = useMemo<CommandAction[]>(() => {
-    return [...buildSectionActions(getAllModules()), ...buildSystemActions()]
-  }, [])
+    const base = [...buildSectionActions(getAllModules()), ...buildSystemActions()]
+    if (isSection) {
+      const askProfessor: CommandAction = {
+        id: 'ask-professor',
+        label: 'Ask the Professor about this section',
+        hint: 'TUTOR',
+        run: () => {
+          window.dispatchEvent(new CustomEvent('iam-mastery:open-tutor'))
+        }
+      }
+      return [askProfessor, ...base]
+    }
+    return base
+  }, [isSection])
 
   useFocusTrap(open, containerRef)
 
