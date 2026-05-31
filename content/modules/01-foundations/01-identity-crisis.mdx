@@ -63,6 +63,15 @@ The post-incident question from the CFO was the right one: *if you knew that one
 In a SaaS-first context the same incident plays out without the VPN at all — the attacker compromises a Salesforce admin's session token directly via a phished OAuth consent grant. The defense looks identical: device compliance + step-up MFA + risk-based CA in front of the SaaS app. In a defense-contractor context the architecture is rougher because air-gapped networks add real constraints — the answer is more aggressive segmentation and on-prem PDPs (Microsoft Defender for Cloud Apps in shielded mode, BeyondTrust PRA), but the principle is unchanged. In healthcare the wrinkle is the medical-device fleet: most are unmanageable, so the PEP moves to the network segment in front of them and the PDP evaluates the *application* identity reaching the device rather than the device's own identity.
 </WarStory>
 
+## Recall drill
+
+<Flashcard front="In NIST 800-207, what is a Policy Enforcement Point (PEP) and where does it sit?" back="The component in the data path that enforces the PDP's decision on every request — examples are reverse proxies, app-layer gateways, and service-mesh sidecars. No request reaches a protected resource without passing through a PEP." />
+<Flashcard front="What single-sentence shift does the identity crisis describe?" back="The network perimeter is dead and identity is the new perimeter. Trust decisions move from network location to authenticating, authorizing, and continuously verifying every request by user, device, and context." />
+<Flashcard front="What was BeyondCorp and what event prompted Google to build it?" back="BeyondCorp was the first production Zero Trust architecture, built by Google after the 2009 Operation Aurora intrusion. Its thesis: stop trusting the corporate network and make the user and device — not network location — the basis of every access decision." />
+<Flashcard front="In Entra ID, which feature implements continuous evaluation, and what does it change about token lifetime?" back="Continuous Access Evaluation (CAE). It drops effective token lifetime from about 1 hour to roughly 5 minutes and revokes a session within seconds of a critical event such as password change, risk detection, or location change — rather than waiting for the next token refresh." />
+<Flashcard front="Under Zero Trust, is a request from inside the corporate LAN trusted more than one from a coffee shop?" back="No. Both get the same dynamic policy evaluation. Network location can be evidence that adjusts a risk score, but it is never trust by itself." />
+<Flashcard front="Per NIST 800-207, how is access granted with respect to sessions and policy?" back="Access is granted per-session and determined by dynamic policy, with authentication and authorization strictly enforced before access. These tenets (3, 4, and 6) are where Zero Trust stops resembling perimeter security." />
+
 ## Check your understanding
 
 <Quiz question={{
