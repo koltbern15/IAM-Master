@@ -7,6 +7,7 @@ import { RadialSegmentRing } from '@/components/jarvis/RadialSegmentRing'
 import { TelemetryValue } from '@/components/jarvis/TelemetryValue'
 import { getAllModules } from '@/lib/content'
 import { loadState } from '@/lib/progress'
+import { computeMastery } from '@/lib/mastery'
 import { usePanelGlitch } from '@/hooks/use-panel-glitch'
 
 const TICKER = [
@@ -42,9 +43,7 @@ export default function ProgressPage() {
     }
   })
 
-  const totalCompleted = Object.values(state.progress.sections).filter((s) => s.completedAt).length
-  const totalSections = modules.reduce((sum, m) => sum + m.sections.length, 0)
-  const totalPercent = totalSections > 0 ? Math.round((totalCompleted / totalSections) * 100) : 0
+  const totalPercent = computeMastery(state).totalPercent
 
   return (
     <HudShell events={TICKER}>

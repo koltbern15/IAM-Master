@@ -2,24 +2,28 @@
 
 import { useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { IAM_RECIPES, type CommandRecipe } from '@/lib/recipes'
 
-export interface CommandRecipe {
-  id: string
-  category: string
-  title: string
-  command: string
-  description?: string
-}
+export type { CommandRecipe }
 
 interface CommandReferenceProps {
-  recipes: CommandRecipe[]
+  /** Recipe rows to render. Defaults to the bundled IAM recipe set. */
+  recipes?: CommandRecipe[]
+  /** Optional initial category filter (ignored if it matches no recipe). */
+  category?: string
 }
 
-export function CommandReference({ recipes }: CommandReferenceProps) {
+export function CommandReference({
+  recipes = IAM_RECIPES,
+  category: initialCategory,
+}: CommandReferenceProps) {
   const [query, setQuery] = useState('')
-  const [category, setCategory] = useState<string | null>(null)
-
   const categories = useMemo(() => Array.from(new Set(recipes.map((r) => r.category))), [recipes])
+  // Honor an author-supplied category only if it matches a real recipe category;
+  // otherwise start on "All" so an unknown tag (e.g. "iam") never blanks the table.
+  const [category, setCategory] = useState<string | null>(() =>
+    initialCategory && categories.includes(initialCategory) ? initialCategory : null
+  )
 
   const filtered = useMemo(() => {
     let r = recipes

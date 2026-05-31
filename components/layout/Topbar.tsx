@@ -1,21 +1,33 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import { Settings } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { useSessionTimer, formatSessionTime } from '@/hooks/use-session-timer'
+import { loadState } from '@/lib/progress'
+import { computeMastery } from '@/lib/mastery'
 
 export function Topbar() {
   const seconds = useSessionTimer()
+  const [mastery, setMastery] = useState(() => computeMastery(loadState()))
+
+  useEffect(() => {
+    const onChange = () => setMastery(computeMastery(loadState()))
+    onChange()
+    window.addEventListener('iam-mastery:state-change', onChange)
+    return () => window.removeEventListener('iam-mastery:state-change', onChange)
+  }, [])
+
   return (
     <header className="sticky top-0 z-30 flex h-12 items-center justify-between gap-4 border-b border-panel-border bg-void/85 px-5 backdrop-blur-md">
       <div className="flex items-center gap-3">
         <div
-          aria-label="Overall mastery"
+          aria-label={`Overall mastery: ${mastery.totalPercent}%`}
           className="flex h-7 items-center gap-2 rounded-full border border-cyan/40 bg-cyan/8 px-3 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan/80 shadow-[0_0_8px_rgb(0_240_255/0.2)]"
         >
           <span className="size-1.5 rounded-full bg-nominal shadow-[0_0_6px_#00ff88] animate-pulse" />
-          0% MASTERED
+          {mastery.totalPercent}% MASTERED
         </div>
       </div>
 

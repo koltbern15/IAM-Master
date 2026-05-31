@@ -32,7 +32,11 @@ export default function HomePage() {
   return (
     <HudShell events={SAMPLE_TICKER}>
       <div className="flex flex-col items-center">
-        <ModuleConstellationSVG totalMasteryPercent={mastery.totalPercent} />
+        <ModuleConstellationSVG
+          totalMasteryPercent={mastery.totalPercent}
+          phaseCompleted={mastery.phaseCompleted}
+          phaseTotals={mastery.phaseTotals}
+        />
         <HudMiniPanels />
       </div>
     </HudShell>
