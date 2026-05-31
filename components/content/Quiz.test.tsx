@@ -24,10 +24,16 @@ describe('Quiz', () => {
     expect(screen.getByText(/Kerberos issues TGTs/)).toBeInTheDocument()
   })
 
-  it('marks selected correct answer with positive intent class', () => {
+  it('announces a correct answer via the status region and reveals the explanation', () => {
     render(<Quiz question={QUESTION} />)
     fireEvent.click(screen.getByText('Kerberos'))
+    // Behavioral/semantic outcomes rather than brittle CSS class fragments:
+    // the a11y live region announces exactly "Correct" (not "Incorrect")...
+    expect(screen.getByRole('status')).toHaveTextContent(/^Correct$/)
+    // ...the per-option sr-only state text marks the chosen option as the correct answer...
     const correctButton = screen.getByText('Kerberos').closest('button')!
-    expect(correctButton.className).toMatch(/cyan|nominal/)
+    expect(correctButton).toHaveTextContent(/correct answer/i)
+    // ...and the explanation becomes visible.
+    expect(screen.getByText(/Kerberos issues TGTs/)).toBeInTheDocument()
   })
 })

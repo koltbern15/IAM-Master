@@ -4,10 +4,13 @@ import {
   saveState,
   markSectionVisited,
   markSectionCompleted,
+  markSectionIncomplete,
+  setFlashcardProgress,
   recordQuizAttempt,
   resetState,
   STORAGE_KEY,
-  CURRENT_VERSION
+  CURRENT_VERSION,
+  type FlashcardProgress
 } from './progress'
 
 beforeEach(() => {
@@ -76,5 +79,51 @@ describe('lib/progress', () => {
     const s = loadState()
     expect(s.version).toBe(CURRENT_VERSION)
     expect(s.progress.sections).toEqual({})
+  })
+
+  it('study streak: first visit sets currentDays=1 and lastStudyDate; same-day repeat keeps 1', () => {
+    expect(loadState().streak.currentDays).toBe(0)
+
+    markSectionVisited('02-protocols/01-kerberos')
+    const after = loadState()
+    expect(after.streak.currentDays).toBe(1)
+    const today = new Date().toISOString().slice(0, 10)
+    expect(after.streak.lastStudyDate).toBe(today)
+    expect(after.streak.longestDays).toBe(1)
+
+    // Visiting again the same calendar day must NOT advance the streak.
+    markSectionVisited('02-protocols/02-saml')
+    const again = loadState()
+    expect(again.streak.currentDays).toBe(1)
+    expect(again.streak.lastStudyDate).toBe(today)
+  })
+
+  it('setFlashcardProgress persists leitnerBox/nextDue and is reloadable', () => {
+    const progress: FlashcardProgress = {
+      leitnerBox: 3,
+      lastReviewed: '2026-05-31T12:00:00.000Z',
+      nextDue: '2026-06-04T12:00:00.000Z',
+      correctStreak: 2
+    }
+    setFlashcardProgress('card-abc', progress)
+
+    const reloaded = loadState()
+    expect(reloaded.flashcards['card-abc']).toEqual(progress)
+    expect(reloaded.flashcards['card-abc'].leitnerBox).toBe(3)
+    expect(reloaded.flashcards['card-abc'].nextDue).toBe('2026-06-04T12:00:00.000Z')
+  })
+
+  it('markSectionIncomplete clears completedAt but keeps visitedAt', () => {
+    const key = '03-microsoft-identity/02-entra-id'
+    markSectionCompleted(key)
+    const completed = loadState().progress.sections[key]
+    expect(completed.completedAt).toBeTruthy()
+    expect(completed.visitedAt).toBeTruthy()
+
+    markSectionIncomplete(key)
+    const reverted = loadState().progress.sections[key]
+    expect(reverted.completedAt).toBeUndefined()
+    // visit history is preserved.
+    expect(reverted.visitedAt).toBe(completed.visitedAt)
   })
 })

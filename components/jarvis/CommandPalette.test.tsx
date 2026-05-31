@@ -1,9 +1,11 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { CommandPalette } from './CommandPalette'
 
+// Shared push spy hoisted out of the mock factory so navigation can be asserted.
+const push = vi.fn()
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), back: vi.fn(), forward: vi.fn(), refresh: vi.fn() })
+  useRouter: () => ({ push, replace: vi.fn(), prefetch: vi.fn(), back: vi.fn(), forward: vi.fn(), refresh: vi.fn() })
 }))
 
 // jsdom doesn't implement ResizeObserver; cmdk needs it
@@ -20,6 +22,10 @@ if (!Element.prototype.scrollIntoView) {
 }
 
 describe('CommandPalette', () => {
+  beforeEach(() => {
+    push.mockClear()
+  })
+
   it('does not render the dialog when closed', () => {
     render(<CommandPalette open={false} onOpenChange={() => {}} />)
     expect(screen.queryByPlaceholderText(/type a command/i)).not.toBeInTheDocument()
@@ -43,5 +49,14 @@ describe('CommandPalette', () => {
     fireEvent.change(input, { target: { value: 'powershell' } })
     expect(screen.getAllByText(/PowerShell for IAM/i).length).toBeGreaterThan(0)
     expect(screen.queryByText(/Microsoft Identity Platform/i)).not.toBeInTheDocument()
+  })
+
+  it('navigates to a section href when its action is selected', () => {
+    render(<CommandPalette open onOpenChange={() => {}} />)
+    // The first seeded module action renders as "01 IAM Foundations" → /modules/01-foundations
+    const item = screen.getByText('01 IAM Foundations').closest('[cmdk-item]') as HTMLElement
+    expect(item).not.toBeNull()
+    fireEvent.click(item)
+    expect(push).toHaveBeenCalledWith('/modules/01-foundations')
   })
 })
