@@ -8,6 +8,10 @@ import { TelemetryValue } from './TelemetryValue'
 interface ModuleConstellationProps {
   /** 0–100 — overall curriculum mastery */
   totalMasteryPercent: number
+  /** Completed section counts per phase (defaults to zeros). */
+  phaseCompleted?: Record<1 | 2 | 3, number>
+  /** Total section counts per phase (defaults to zeros). */
+  phaseTotals?: Record<1 | 2 | 3, number>
   /** SVG size in px (default 520) */
   size?: number
 }
@@ -58,19 +62,13 @@ const SHORT_LABEL: Record<ModuleId, string> = {
 
 export function ModuleConstellationSVG({
   totalMasteryPercent,
+  phaseCompleted = { 1: 0, 2: 0, 3: 0 },
+  phaseTotals = { 1: 0, 2: 0, 3: 0 },
   size = 520
 }: ModuleConstellationProps) {
   const modules = getAllModules()
   const radius = size * 0.42
   const coreRadius = size * 0.18 // half of RadialRing size (size * 0.36)
-
-  const phaseCounts = modules.reduce(
-    (acc, m) => {
-      acc[m.phase as 1 | 2 | 3] += 1
-      return acc
-    },
-    { 1: 0, 2: 0, 3: 0 } as Record<1 | 2 | 3, number>
-  )
 
   return (
     <div className="relative" style={{ width: size, height: size }}>
@@ -145,7 +143,8 @@ export function ModuleConstellationSVG({
                 CURRICULUM MASTERY
               </div>
               <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.18em] text-cyan/40 tabular-nums">
-                P1 0/{phaseCounts[1]} · P2 0/{phaseCounts[2]} · P3 0/{phaseCounts[3]}
+                P1 {phaseCompleted[1]}/{phaseTotals[1]} · P2 {phaseCompleted[2]}/{phaseTotals[2]} · P3{' '}
+                {phaseCompleted[3]}/{phaseTotals[3]}
               </div>
             </div>
           }

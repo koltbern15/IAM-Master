@@ -1,8 +1,8 @@
 {/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
 
 <HoloPanel label="COVERS">
-- **SC-900** Study Area 1 — Describe security, compliance, and identity concepts (Zero Trust subset) [VERIFY exact sub-objective label]
-- **SC-300** Objective 1.1 — Plan and implement an identity management solution (foundational framing) [VERIFY]
+- **SC-900** — Describe security, compliance, and identity concepts (Zero Trust subset)
+- **SC-300** — Plan and implement an identity management solution (foundational framing)
 - **Security+ SY0-701** Objective 1.2 — Summarize fundamental security concepts (Zero Trust)
 - **CISSP** Domain 5.1 — Control physical and logical access to assets (foundational principle)
 </HoloPanel>
@@ -23,7 +23,7 @@ This is not a vendor framing or a marketing campaign. It is the architectural co
 
 The perimeter model came from the 1990s, when "the network" meant your office LAN and a T1 line to the WAN. Firewalls were a real boundary because data and identity both lived inside them. The model started cracking when the first laptop went home with an employee, and it shattered when SaaS adoption made the office network functionally irrelevant to where work happened.
 
-Google saw this earliest and most publicly. After the **Operation Aurora** breach in 2009 — Chinese state actors compromised internal Google systems via a single phished employee — Google built **BeyondCorp**, the first production Zero Trust architecture. The thesis: stop trusting the corporate network, period; treat every connection as if it came from the open internet; make the user and device — not the network location — the basis of every access decision. BeyondCorp papers (2014–2017) became the template the entire industry copied.
+Google saw this earliest and most publicly. After the **Operation Aurora** intrusion in 2009 — a sophisticated nation-state APT that used targeted spear-phishing links to deliver an Internet Explorer zero-day (CVE-2010-0249), then pivoted from the compromised endpoint into internal systems including source-code repositories — Google built **BeyondCorp**, the first production Zero Trust architecture. The thesis: stop trusting the corporate network, period; treat every connection as if it came from the open internet; make the user and device — not the network location — the basis of every access decision. BeyondCorp papers (2014–2017) became the template the entire industry copied.
 
 The threat landscape independently forced the same conclusion. By the mid-2010s the dominant attack pattern was no longer perimeter penetration; it was credential compromise — phishing, password spray, MFA fatigue, OAuth consent grants. **Verizon's annual Data Breach Investigations Report** has flagged stolen credentials as the single most common breach vector for years running. If the attacker is logging in with valid credentials from outside, your firewall is not just unhelpful — it is the enemy of detection, because every alert about the legitimate-looking traffic is a false-positive candidate.
 

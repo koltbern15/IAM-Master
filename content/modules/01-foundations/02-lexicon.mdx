@@ -1,8 +1,8 @@
 {/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
 
 <HoloPanel label="COVERS">
-- **SC-900** Study Area 1 — Describe security, compliance, and identity concepts (identity vocabulary subset) [VERIFY exact sub-objective label]
-- **SC-300** Objective 1.1 — Plan and implement an identity management solution (foundational vocabulary) [VERIFY]
+- **SC-900** — Describe security, compliance, and identity concepts (identity vocabulary subset)
+- **SC-300** — Plan and implement an identity management solution (foundational vocabulary)
 - **Security+ SY0-701** Objective 4.6 — Implement and maintain identity and access management (AAA model)
 - **CISSP** Domain 5.2 — Manage identification and authentication of people, devices, and services
 </HoloPanel>
@@ -25,7 +25,7 @@ A 2019 post-incident review at a financial-services firm documented that the roo
 
 The same vocabulary problem hits protocol boundaries hard. SAML, OIDC, WS-Federation, and Kerberos all express the same trust handshake but with completely different terminology. Engineers without the translation table internalized build integrations that *almost* work and produce misrouted tokens that *almost* validate.
 
-NIST SP 800-63B codifies the **Authentication Assurance Level (AAL)** model because terminology matters for compliance: AAL1 is single-factor, AAL2 is MFA with a phishing-resistant element, AAL3 is a hardware-bound authenticator. Regulators who write controls in terms of AAL do not accept "we have MFA" — they require a stated level with evidence. That requires owning the vocabulary.
+NIST SP 800-63B codifies the **Authentication Assurance Level (AAL)** model because terminology matters for compliance: AAL1 is single-factor, AAL2 requires two distinct authentication factors (MFA) but does not mandate phishing resistance, AAL3 additionally requires a hardware-based authenticator that is phishing-resistant (verifier-impersonation-resistant). Regulators who write controls in terms of AAL do not accept "we have MFA" — they require a stated level with evidence. That requires owning the vocabulary.
 
 <ProTip>
 When you join a new team or a new engagement, spend 30 minutes mapping their vocabulary to canonical terms before touching anything architectural. Ask: "When you say 'role,' do you mean a directory group, an application permission bundle, or an RBAC assignment?" The answer tells you where the abstraction debt lives. An engineer who can translate between vendor vocabularies fluently is worth three who can only operate inside one vendor's ecosystem.
@@ -37,7 +37,7 @@ When you join a new team or a new engagement, spend 30 minutes mapping their voc
 
 The canonical frame for access control is **Authentication, Authorization, and Accounting** — abbreviated AAA and pronounced "triple-A." Every access decision in IAM decomposes into these three phases.
 
-**Authentication (AuthN)** answers *who are you?* It is the act of verifying that a claimed identity is genuine. Authentication never grants access; it only establishes a verified identity that the next phase can operate on. NIST SP 800-63B defines three assurance levels: AAL1 (single-factor, password is fine), AAL2 (multi-factor with a phishing-resistant element like TOTP or push notification), AAL3 (hardware-bound authenticator, FIDO2 passkey or PIV card). A login form that accepts a username and password is AAL1. Entra ID with Microsoft Authenticator and number matching is AAL2. A PIV smart card on a DoD workstation is AAL3.
+**Authentication (AuthN)** answers *who are you?* It is the act of verifying that a claimed identity is genuine. Authentication never grants access; it only establishes a verified identity that the next phase can operate on. NIST SP 800-63B defines three assurance levels: AAL1 (single-factor, password is fine), AAL2 (two distinct authentication factors — TOTP or push notification both qualify, neither of which is phishing-resistant), AAL3 (a hardware-based authenticator that is phishing-resistant, such as a FIDO2/WebAuthn security key or a PIV/CAC smart card). A login form that accepts a username and password is AAL1. Entra ID with Microsoft Authenticator and number matching is AAL2. A PIV smart card on a DoD workstation is AAL3.
 
 **Authorization (AuthZ)** answers *what can you do?* It evaluates a verified identity against policy to determine what operations are permitted on which resources. The four major frameworks:
 
@@ -115,7 +115,7 @@ In a SaaS context the same gap surfaces with machine identities: API keys and OA
     "The credential layer — the old password hash is cached and the rotation has not propagated."
   ],
   correctIndex: 2,
-  explanation: "An OAuth access token is a session artifact — it was issued at authentication time and has its own expiry independent of the credential that produced it. Rotating the password updates the credential layer; it does not revoke the already-issued token. To terminate the attacker's access you must revoke the active tokens and sessions directly — in Entra ID, that means revoking refresh tokens via Revoke-AzureADUserAllRefreshToken or the equivalent Graph API call."
+  explanation: "An OAuth access token is a session artifact — it was issued at authentication time and has its own expiry independent of the credential that produced it. Rotating the password updates the credential layer; it does not revoke the already-issued token. To terminate the attacker's access you must revoke the active tokens and sessions directly — in Entra ID, that means invalidating the refresh tokens via the Microsoft Graph PowerShell cmdlet Revoke-MgUserSignInSession (which calls the invalidateAllRefreshTokens Graph API)."
 }} />
 
 <Quiz question={{

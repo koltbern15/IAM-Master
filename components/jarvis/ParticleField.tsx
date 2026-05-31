@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { prefersReducedMotion } from '@/lib/media-query'
 
 interface Particle {
   x: number
@@ -14,11 +15,6 @@ interface ParticleFieldProps {
   count?: number
   connectionDistance?: number
   className?: string
-}
-
-function prefersReducedMotion() {
-  if (typeof window === 'undefined' || !window.matchMedia) return false
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 export function ParticleField({

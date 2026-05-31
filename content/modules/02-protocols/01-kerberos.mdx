@@ -1,7 +1,7 @@
 {/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
 
 <HoloPanel label="COVERS">
-- **SC-300** Objective 2.1 — Plan, implement and manage Microsoft Entra user authentication (Kerberos in hybrid context) [VERIFY]
+- **SC-300** — Implement authentication and access management solutions (Kerberos in the hybrid identity context — on-prem AD authentication underpinning Entra hybrid join and pass-through scenarios)
 - **Security+ SY0-701** Objective 4.5 — Identity and access management (Kerberos protocol)
 - **CISSP** Domain 5.5 — Implement authentication systems (Kerberos as canonical SSO ticket protocol)
 </HoloPanel>
@@ -44,7 +44,7 @@ The diagram below shows the five-message exchange — click each step to inspect
 
 <Flashcard front="What is a Golden Ticket attack, and what secret does it require?" back="A Golden Ticket is a forged Kerberos TGT, signed with the krbtgt account's long-term key. It allows the attacker to impersonate any principal for any service for up to 10 years (the forged ticket lifetime) without touching the KDC again. It requires exfiltrating the krbtgt NTLM hash via DCSync or LSASS dump." />
 
-<Flashcard front="Why does Kerberoasting work, and what is the mitigation?" back="Kerberoasting works because any authenticated domain user can request a service ticket for any SPN, and the ticket is encrypted with that service account's long-term key. If the account uses RC4 encryption, the ticket can be cracked offline. Mitigations: enforce AES-only encryption (msDS-SupportedEncryptionTypes), use Group Managed Service Accounts (gMSAs, with 240-bit auto-rotated passwords), and alert on offline cracking attempts." />
+<Flashcard front="Why does Kerberoasting work, and what is the mitigation?" back="Kerberoasting works because any authenticated domain user can request a service ticket for any SPN, and the ticket is encrypted with that service account's long-term key. If the account uses RC4 encryption, the ticket can be cracked offline. Mitigations: enforce AES-only encryption (msDS-SupportedEncryptionTypes), use Group Managed Service Accounts (gMSAs, with 240-byte auto-rotated passwords), and alert on offline cracking attempts." />
 
 ## War story
 
@@ -72,7 +72,7 @@ In a SaaS-first organization, this entire attack surface simply does not exist �
     "Silver Ticket; the attacker forged the ticket contents. Remediation: enable PAC validation on the service."
   ],
   correctIndex: 1,
-  explanation: "Kerberoasting harvests service tickets and cracks them offline to recover the service account password. The vulnerability is RC4 encryption — weak enough to crack. AES enforcement raises the cryptographic bar to infeasible for offline attack. Group Managed Service Accounts add 240-bit auto-rotated passwords, making a successful crack useless after rotation. This is not Pass-the-Hash (requires NTLM hash), not a Golden Ticket (requires krbtgt, not a service account), and not Silver Ticket (the attacker didn't forge anything — they legitimately requested the ticket as a domain user)."
+  explanation: "Kerberoasting harvests service tickets and cracks them offline to recover the service account password. The vulnerability is RC4 encryption — weak enough to crack. AES enforcement raises the cryptographic bar to infeasible for offline attack. Group Managed Service Accounts add 240-byte auto-rotated passwords, making a successful crack useless after rotation. This is not Pass-the-Hash (requires NTLM hash), not a Golden Ticket (requires krbtgt, not a service account), and not Silver Ticket (the attacker didn't forge anything — they legitimately requested the ticket as a domain user)."
 }} />
 
 <Quiz question={{

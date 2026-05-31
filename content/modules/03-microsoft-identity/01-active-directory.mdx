@@ -1,9 +1,9 @@
 {/* Objectives current as of 2026-05-27. Re-verify each before a cert sitting. */}
 
 <HoloPanel label="COVERS">
-- **SC-300** Objective 2.2 — Implement hybrid identity (AD DS as the on-prem source-of-truth) [VERIFY]
+- **SC-300** Implement an identity management solution — hybrid identity foundations (AD DS as the on-prem source-of-truth synced by Entra Connect)
 - **Security+ SY0-701** Objective 4.6 — Directory services
-- **CISSP** Domain 5.4 — Implement and manage authorization mechanisms (AD DS as canonical enterprise example) [VERIFY]
+- **CISSP** Domain 5 (Identity and Access Management) — implement and manage authorization mechanisms (AD DS as the canonical enterprise example)
 </HoloPanel>
 
 # Active Directory Domain Services
@@ -49,6 +49,16 @@ The practical implication: the PDC Emulator is your highest-availability FSMO re
 **The protocol triad.** AD DS exposes three protocols everything else depends on: LDAP (directory queries and object management), Kerberos (authentication ticket exchange), and DNS (DC and service location). Remove any one of them and AD DS stops functioning. This also means that anyone with network access to your domain controllers has three distinct protocol attack surfaces pointed at them — which is why DC placement behind tight firewall rules and the Tier 0 isolation model are non-negotiable in hardened environments.
 
 **Group Policy as Configuration-as-Code.** A Group Policy Object (GPO) is a collection of settings — registry values, script execution, software installation, security policy, audit configuration — linked to a site, domain, or OU and applied to every computer and user object in scope at next refresh. GPOs process in LSDOU order: Local, Site, Domain, OU (innermost OU wins for conflicts). This inheritance model is powerful and merciless. A single misconfigured GPO linked to the domain root affects every machine in the domain.
+
+**Group scoping — the AGDLP model.** AD DS gives you three group scopes — Global, Domain Local, and Universal — and the scope is not cosmetic. It dictates which objects a group can contain and where the group can be granted permissions. Microsoft's prescriptive way to wire those scopes together is **AGDLP**: **A**ccounts go into **G**lobal groups, Global groups nest into **D**omain **L**ocal groups, and the Domain Local group is the one you grant **P**ermissions on the resource. You put *who* (users, by role or department) into Global groups, you put *what they can do* (the permission on a share, an OU, a printer) onto Domain Local groups, and you connect the two by nesting. The payoff is that membership changes (a new hire, a transfer) happen once, in the Global group, and access flows through automatically — you never touch the resource ACL again.
+
+<Definition term="AGDLP">Accounts → Global → Domain Local → Permissions. Microsoft's canonical role-based access pattern in a single-domain AD DS environment. Accounts are placed in Global groups (which represent roles or org units and only contain objects from their own domain). Global groups nest into Domain Local groups (which can pull members from any trusted domain but only grant access on resources in their own domain). The Domain Local group is what appears on the resource's ACL. This indirection is the on-prem ancestor of every RBAC model you will meet later in this curriculum.</Definition>
+
+In a multi-domain forest, the chain grows one link to **AGUDLP**: **A**ccounts → **G**lobal → **U**niversal → **D**omain **L**ocal → **P**ermissions. Universal groups (whose membership replicates to the global catalog, so it is visible forest-wide) sit between the per-domain Global groups and the per-domain Domain Local groups, letting you collect role groups from several domains into one forest-wide bucket before granting access.
+
+<ProTip>
+Why not just dump user accounts straight onto resource ACLs, or grant permissions directly to Global groups? Because it does not scale and it does not survive multi-domain growth. Direct ACLs mean every access change is a resource-by-resource ticket, and Global groups cannot be granted permissions on resources in *other* domains. AGDLP/AGUDLP is the discipline that keeps "who has access" (Global/Universal) cleanly separated from "what access exists" (Domain Local) — and on the exam, when you see a question about which group scope holds members versus which one goes on the ACL, the answer almost always traces back to this model. Watch the trap: Universal group membership replicates to the global catalog, so churning a Universal group's members triggers forest-wide GC replication — which is exactly why you nest *Global* groups into Universal groups rather than individual users.
+</ProTip>
 
 **The attack surface.** BloodHound is an open-source graph analysis tool that ingests data from an AD DS environment and maps every privilege escalation path from an arbitrary user account to Domain Admin. It was released in 2016 and has been in continuous production use by red teams and attackers ever since. The existence of BloodHound is the most honest indictment of AD DS's security model available: the attack paths it finds are not exotic bugs — they are the logical consequence of permission inheritance, nested group membership, delegation rights, and Kerberoastable service accounts accumulated over years of normal operations.
 

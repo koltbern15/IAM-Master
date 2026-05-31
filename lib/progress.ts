@@ -73,7 +73,23 @@ export function loadState(): StoredState {
   try {
     const parsed = JSON.parse(raw) as Partial<StoredState>
     if (parsed.version !== CURRENT_VERSION) return defaultState()
-    return { ...defaultState(), ...(parsed as StoredState) }
+    const base = defaultState()
+    // Deep-merge nested objects so a partial/older payload can never drop
+    // required fields (esp. settings, which the UI reads field-by-field).
+    return {
+      ...base,
+      ...parsed,
+      progress: {
+        sections: parsed.progress?.sections ?? base.progress.sections,
+        modules: parsed.progress?.modules ?? base.progress.modules
+      },
+      streak: { ...base.streak, ...parsed.streak },
+      session: { ...base.session, ...parsed.session },
+      settings: { ...base.settings, ...parsed.settings },
+      quizzes: parsed.quizzes ?? base.quizzes,
+      flashcards: parsed.flashcards ?? base.flashcards,
+      tutorHistory: parsed.tutorHistory ?? base.tutorHistory
+    }
   } catch {
     return defaultState()
   }
@@ -91,6 +107,30 @@ export function resetState(): void {
   window.dispatchEvent(new CustomEvent('iam-mastery:state-change'))
 }
 
+/**
+ * Advances the study streak in place for a single day of activity.
+ * Same calendar day → no change; consecutive day → +1; any gap → reset to 1.
+ * Mutates `s.streak`; the caller persists.
+ */
+function applyStudyActivity(s: StoredState, nowIso: string): void {
+  const today = nowIso.slice(0, 10) // YYYY-MM-DD
+  const last = s.streak.lastStudyDate
+  if (last === today) return
+  const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000)
+    .toISOString()
+    .slice(0, 10)
+  s.streak.currentDays = last === yesterday ? s.streak.currentDays + 1 : 1
+  s.streak.lastStudyDate = today
+  s.streak.longestDays = Math.max(s.streak.longestDays, s.streak.currentDays)
+}
+
+/** Records a day of study activity (used by section visits/completions). */
+export function recordStudyActivity(): void {
+  const s = loadState()
+  applyStudyActivity(s, new Date().toISOString())
+  saveState(s)
+}
+
 export function markSectionVisited(sectionKey: string): void {
   const s = loadState()
   const existing = s.progress.sections[sectionKey]
@@ -100,6 +140,7 @@ export function markSectionVisited(sectionKey: string): void {
     completedAt: existing?.completedAt,
     status: existing?.status
   }
+  applyStudyActivity(s, new Date().toISOString())
   saveState(s)
 }
 
@@ -112,6 +153,32 @@ export function markSectionCompleted(sectionKey: string): void {
     completedAt: new Date().toISOString(),
     status: existing?.status
   }
+  applyStudyActivity(s, new Date().toISOString())
+  saveState(s)
+}
+
+/** Clears a section's completion (toggle off "mastered"), preserving visit history. */
+export function markSectionIncomplete(sectionKey: string): void {
+  const s = loadState()
+  const existing = s.progress.sections[sectionKey]
+  if (!existing) return
+  s.progress.sections[sectionKey] = {
+    visitedAt: existing.visitedAt,
+    timeSpentSeconds: existing.timeSpentSeconds,
+    completedAt: undefined,
+    status: existing.status
+  }
+  saveState(s)
+}
+
+/**
+ * Persists the post-review Leitner state for a flashcard and counts the review
+ * as study activity (so spaced-repetition practice also advances the streak).
+ */
+export function setFlashcardProgress(cardId: string, progress: FlashcardProgress): void {
+  const s = loadState()
+  s.flashcards[cardId] = progress
+  applyStudyActivity(s, new Date().toISOString())
   saveState(s)
 }
 

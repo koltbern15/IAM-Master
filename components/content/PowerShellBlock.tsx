@@ -39,7 +39,8 @@ export function PowerShellBlock({ title, children }: PowerShellBlockProps) {
         <button
           type="button"
           onClick={handleCopy}
-          aria-label="Copy code"
+          aria-label={copied ? 'Copied to clipboard' : 'Copy code'}
+          aria-live="polite"
           className="rounded-[2px] border border-cyan/30 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.15em] text-cyan/70 hover:bg-cyan/10 hover:text-cyan"
         >
           {copied ? '✓ Copied' : 'Copy'}

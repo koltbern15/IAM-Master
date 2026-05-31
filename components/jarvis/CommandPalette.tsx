@@ -1,9 +1,10 @@
 'use client'
 
-import { useMemo, useEffect } from 'react'
+import { useMemo, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Command } from 'cmdk'
 import { getAllModules } from '@/lib/content'
+import { useFocusTrap } from '@/hooks/use-focus-trap'
 import { buildSectionActions, buildSystemActions, type CommandAction } from '@/lib/command-actions'
 
 interface CommandPaletteProps {
@@ -13,9 +14,12 @@ interface CommandPaletteProps {
 
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const router = useRouter()
+  const containerRef = useRef<HTMLDivElement>(null)
   const actions = useMemo<CommandAction[]>(() => {
     return [...buildSectionActions(getAllModules()), ...buildSystemActions()]
   }, [])
+
+  useFocusTrap(open, containerRef)
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -39,6 +43,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       onClick={() => onOpenChange(false)}
     >
       <Command
+        ref={containerRef}
         label="Command palette"
         className="w-full max-w-xl rounded-[3px] border border-cyan/40 bg-void-elevated/90 shadow-[0_0_24px_rgb(0_240_255/0.35)] backdrop-blur-md"
         onClick={(e) => e.stopPropagation()}

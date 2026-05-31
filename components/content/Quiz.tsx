@@ -38,6 +38,9 @@ export function Quiz({ question }: QuizProps) {
     })
   }
 
+  const answered = selected !== null
+  const answeredCorrectly = answered && selected === question.correctIndex
+
   return (
     <HoloPanel label="QUIZ" className="my-6">
       <p className="mb-4 text-foreground">{question.prompt}</p>
@@ -61,15 +64,26 @@ export function Quiz({ question }: QuizProps) {
                 selected !== null && !isSelected && !isCorrect && 'opacity-50'
               )}
             >
-              <span className="mr-3 text-cyan/60">{String.fromCharCode(65 + i)}.</span>
+              <span className="mr-3 text-cyan/60" aria-hidden="true">
+                {String.fromCharCode(65 + i)}.
+              </span>
               {opt}
+              {showAsRight && <span className="sr-only"> (correct answer)</span>}
+              {showAsWrong && <span className="sr-only"> (your answer — incorrect)</span>}
+              {answered && isSelected && isCorrect && (
+                <span className="sr-only"> (your answer)</span>
+              )}
             </button>
           )
         })}
       </div>
+      <div role="status" aria-live="polite" className="sr-only">
+        {answered ? (answeredCorrectly ? 'Correct' : 'Incorrect') : ''}
+      </div>
       {selected !== null && question.explanation && (
         <div className="mt-4 border-l-2 border-cyan/50 bg-cyan/5 px-4 py-3 font-mono text-xs text-text-muted">
-          ▸ {question.explanation}
+          <span aria-hidden="true">▸ </span>
+          {question.explanation}
         </div>
       )}
     </HoloPanel>

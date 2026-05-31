@@ -1,5 +1,6 @@
 import type { StoredState } from './progress'
 import type { ModuleMeta } from './types'
+import { getSectionTitle } from './sections'
 
 export interface HomeTelemetry {
   streakDays: number
@@ -19,7 +20,7 @@ function firstSectionFallback(modules: ModuleMeta[]): HomeTelemetry['resume'] {
   const sectionId = seeded.sections[0]
   return {
     href: `/modules/${seeded.id}/${sectionId}`,
-    title: `START ${sectionId.toUpperCase()}`,
+    title: `START ${getSectionTitle(seeded.id, sectionId)}`,
     crumb: seeded.id
   }
 }
@@ -35,7 +36,7 @@ function resolveResumeTarget(
   if (!mod.sections.includes(sectionId)) return null
   return {
     href: `/modules/${moduleId}/${sectionId}`,
-    title: sectionId.toUpperCase(),
+    title: getSectionTitle(moduleId, sectionId),
     crumb: moduleId
   }
 }
