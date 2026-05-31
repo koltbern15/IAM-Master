@@ -4,8 +4,11 @@ import { CommandPalette } from './CommandPalette'
 
 // Shared push spy hoisted out of the mock factory so navigation can be asserted.
 const push = vi.fn()
+// Module-level mutable pathname the usePathname mock reads; tests set it.
+const navState = vi.hoisted(() => ({ pathname: '/' }))
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push, replace: vi.fn(), prefetch: vi.fn(), back: vi.fn(), forward: vi.fn(), refresh: vi.fn() })
+  useRouter: () => ({ push, replace: vi.fn(), prefetch: vi.fn(), back: vi.fn(), forward: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => navState.pathname
 }))
 
 // jsdom doesn't implement ResizeObserver; cmdk needs it
@@ -24,6 +27,7 @@ if (!Element.prototype.scrollIntoView) {
 describe('CommandPalette', () => {
   beforeEach(() => {
     push.mockClear()
+    navState.pathname = '/'
   })
 
   it('does not render the dialog when closed', () => {
@@ -58,5 +62,34 @@ describe('CommandPalette', () => {
     expect(item).not.toBeNull()
     fireEvent.click(item)
     expect(push).toHaveBeenCalledWith('/modules/01-foundations')
+  })
+
+  it('shows "Ask the Professor" on a section page and opens the tutor when selected', () => {
+    navState.pathname = '/modules/02-protocols/01-kerberos'
+    const onOpenChange = vi.fn()
+    const onOpenTutor = vi.fn()
+    window.addEventListener('iam-mastery:open-tutor', onOpenTutor)
+
+    render(<CommandPalette open onOpenChange={onOpenChange} />)
+
+    const item = screen
+      .getByText('Ask the Professor about this section')
+      .closest('[cmdk-item]') as HTMLElement
+    expect(item).not.toBeNull()
+
+    fireEvent.click(item)
+
+    expect(onOpenTutor).toHaveBeenCalledTimes(1)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+
+    window.removeEventListener('iam-mastery:open-tutor', onOpenTutor)
+  })
+
+  it('does not show "Ask the Professor" on a non-section page', () => {
+    navState.pathname = '/progress'
+    render(<CommandPalette open onOpenChange={() => {}} />)
+    expect(
+      screen.queryByText('Ask the Professor about this section')
+    ).not.toBeInTheDocument()
   })
 })

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ChangeEvent } from 'react'
 import { ReadShell } from '@/components/layout/ReadShell'
 import { HoloPanel } from '@/components/jarvis/HoloPanel'
 import { loadState, saveState, resetState, type StoredState } from '@/lib/progress'
@@ -13,7 +13,6 @@ const MODEL_OPTIONS: Array<{ value: string; label: string }> = [
 
 export default function SettingsPage() {
   const [state, setState] = useState(() => loadState())
-  const [exportData, setExportData] = useState<string>('')
   const [importError, setImportError] = useState<string | null>(null)
   const [importSuccess, setImportSuccess] = useState(false)
   const [resetConfirm, setResetConfirm] = useState(false)
@@ -30,7 +29,36 @@ export default function SettingsPage() {
     saveState(next)
   }
 
-  function handleExport() { setExportData(JSON.stringify(loadState(), null, 2)) }
+  function handleExport() {
+    const json = JSON.stringify(loadState(), null, 2)
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const date = new Date().toISOString().slice(0, 10)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `iam-mastery-backup-${date}.json`
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(url)
+  }
+
+  function handleImportFile(e: ChangeEvent<HTMLInputElement>) {
+    const input = e.target
+    const file = input.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const text = typeof reader.result === 'string' ? reader.result : ''
+      if (text) handleImport(text)
+    }
+    reader.onerror = () => {
+      setImportSuccess(false)
+      setImportError('Could not read the selected file.')
+    }
+    reader.readAsText(file)
+    input.value = ''
+  }
 
   function handleImport(text: string) {
     setImportError(null)
@@ -131,18 +159,15 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {exportData && (
-              <textarea readOnly rows={6} value={exportData}
-                className="w-full rounded-[2px] border border-panel-border bg-void-elevated px-3 py-2 font-mono text-[11px] text-cyan" />
-            )}
-
             <div>
               <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan/70">
-                ▸ IMPORT STATE (paste exported JSON, blur to apply)
+                ▸ IMPORT STATE (load an exported .json backup file)
               </div>
-              <textarea rows={4} placeholder='{"version":1,...}'
-                onBlur={(e) => e.target.value.trim() && handleImport(e.target.value)}
-                className="w-full rounded-[2px] border border-panel-border bg-void-elevated px-3 py-2 font-mono text-[11px] text-foreground focus:border-cyan focus:outline-none focus:ring-1 focus:ring-cyan" />
+              <label className="inline-flex cursor-pointer items-center rounded-[2px] border border-cyan/50 bg-cyan/10 px-3 py-1.5 font-mono text-xs uppercase tracking-[0.12em] text-cyan hover:bg-cyan/20">
+                ▸ IMPORT BACKUP
+                <input type="file" accept="application/json,.json" className="sr-only"
+                  onChange={handleImportFile} />
+              </label>
               {importError && (
                 <div className="mt-1 font-mono text-[11px] text-threat">▸ {importError}</div>
               )}

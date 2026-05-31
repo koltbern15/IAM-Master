@@ -41,6 +41,22 @@ function resolveResumeTarget(
   }
 }
 
+/**
+ * Returns per-day study-touch counts for the last `days` calendar days,
+ * oldest → newest. Missing days are 0. Day keys are derived from the current
+ * UTC date, walking back one day at a time.
+ */
+export function getActivitySeries(state: StoredState, days = 14): number[] {
+  const activity = state.activity ?? {}
+  const todayMs = Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`)
+  const series: number[] = []
+  for (let i = days - 1; i >= 0; i--) {
+    const key = new Date(todayMs - i * 86_400_000).toISOString().slice(0, 10)
+    series.push(activity[key] ?? 0)
+  }
+  return series
+}
+
 export function computeHomeTelemetry(state: StoredState, modules: ModuleMeta[]): HomeTelemetry {
   const streakDays = state.streak.currentDays
 
