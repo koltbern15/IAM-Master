@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { prefersReducedMotion } from '@/lib/media-query'
 
 interface TelemetryValueProps {
   value: number
@@ -10,18 +11,15 @@ interface TelemetryValueProps {
   className?: string
 }
 
-function prefersReducedMotion() {
-  if (typeof window === 'undefined' || !window.matchMedia) return false
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
 export function TelemetryValue({
   value,
   suffix,
   durationMs = 1500,
   className
 }: TelemetryValueProps) {
-  const [display, setDisplay] = useState(prefersReducedMotion() ? value : 0)
+  // SSR-safe deterministic default (server has no matchMedia); the reduced-motion
+  // read happens after mount in the animation effect below.
+  const [display, setDisplay] = useState(0)
   const startRef = useRef<number | null>(null)
   const rafRef = useRef<number | null>(null)
 

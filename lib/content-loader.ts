@@ -159,8 +159,11 @@ export async function loadSection(
         loadAuthoredComponent(moduleId, sectionId),
         getRawMdx(moduleId, sectionId),
       ])
-      if (Component && rawText) {
-        return { Component, plainText: stripMdx(rawText) }
+      // The component renders the section. The raw text only grounds the tutor,
+      // so a failed text read must NOT discard a successfully imported component
+      // — fall back to empty grounding instead.
+      if (Component) {
+        return { Component, plainText: rawText ? stripMdx(rawText) : '' }
       }
     } catch {
       // Fall through to null

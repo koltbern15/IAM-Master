@@ -1,5 +1,8 @@
 'use client'
 
+import { useRef } from 'react'
+import { useFocusTrap } from '@/hooks/use-focus-trap'
+
 interface KeyboardHelpOverlayProps {
   open: boolean
   onClose: () => void
@@ -7,8 +10,6 @@ interface KeyboardHelpOverlayProps {
 
 const SHORTCUTS: Array<{ keys: string; description: string }> = [
   { keys: 'Cmd+K', description: 'Open command palette' },
-  { keys: 'J', description: 'Next section' },
-  { keys: 'K', description: 'Previous section' },
   { keys: 'Space', description: 'Flip flashcard' },
   { keys: '1 / 2 / 3', description: 'Flashcard demote / repeat / promote' },
   { keys: 'Esc', description: 'Close any overlay' },
@@ -16,6 +17,9 @@ const SHORTCUTS: Array<{ keys: string; description: string }> = [
 ]
 
 export function KeyboardHelpOverlay({ open, onClose }: KeyboardHelpOverlayProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(open, containerRef)
+
   if (!open) return null
   return (
     <div
@@ -23,6 +27,7 @@ export function KeyboardHelpOverlay({ open, onClose }: KeyboardHelpOverlayProps)
       onClick={onClose}
     >
       <div
+        ref={containerRef}
         className="relative max-w-md rounded-[3px] border border-cyan/40 bg-void-elevated/90 p-6 shadow-[0_0_24px_rgb(0_240_255/0.35)]"
         onClick={(e) => e.stopPropagation()}
       >

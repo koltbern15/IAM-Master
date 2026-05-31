@@ -12,7 +12,13 @@ export function HudShell({ children, events }: HudShellProps) {
     <div className="relative flex min-h-screen flex-col">
       <ParticleField />
       <StatusStrip />
-      <main className="flex flex-1 items-center justify-center px-6 py-8">{children}</main>
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="flex flex-1 items-center justify-center px-6 py-8 focus:outline-none"
+      >
+        {children}
+      </main>
       <TickerStrip events={events} />
     </div>
   )

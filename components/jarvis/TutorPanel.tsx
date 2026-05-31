@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { HoloPanel } from './HoloPanel'
 import { useTutorChat } from '@/hooks/use-tutor-chat'
+import { useFocusTrap } from '@/hooks/use-focus-trap'
 import { loadState } from '@/lib/progress'
 
 interface TutorPanelProps {
@@ -23,8 +24,12 @@ export function TutorPanel({ open, onClose, sectionId, sectionContent }: TutorPa
   const [draft, setDraft] = useState('')
   const [hasKey, setHasKey] = useState(false)
   const [reduceMotion, setReduceMotion] = useState(false)
+  const [announced, setAnnounced] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const headingId = useId()
+
+  useFocusTrap(open, panelRef)
 
   useEffect(() => {
     setHasKey(!!loadState().settings.anthropicApiKey)
@@ -39,6 +44,18 @@ export function TutorPanel({ open, onClose, sectionId, sectionContent }: TutorPa
     const el = listRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [messages, open])
+
+  // Announce a completion cue to screen readers once the reply has settled
+  // (streaming finished) — a polite cue rather than echoing the full streamed
+  // answer into the DOM (which floods the live region and is verbose to hear).
+  // The settled reply itself lives in the navigable conversation list below.
+  useEffect(() => {
+    if (streaming) return
+    const last = messages[messages.length - 1]
+    if (last && last.role === 'assistant' && last.content.trim()) {
+      setAnnounced('Professor replied. The answer is in the conversation.')
+    }
+  }, [streaming, messages])
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -60,6 +77,7 @@ export function TutorPanel({ open, onClose, sectionId, sectionContent }: TutorPa
 
   return (
     <div
+      ref={panelRef}
       id="tutor-panel"
       role="dialog"
       aria-modal="true"
@@ -71,6 +89,7 @@ export function TutorPanel({ open, onClose, sectionId, sectionContent }: TutorPa
     >
       <HoloPanel ambientBorder cornersAll label="ASK PROFESSOR" className="flex h-full flex-col">
         <h2 id={headingId} className="sr-only">Tutor dialog for section {sectionId}</h2>
+        <div className="sr-only" aria-live="polite" aria-atomic="true">{announced}</div>
         <div className="mb-3 flex items-center justify-between">
           <div className="font-mono text-[10px] uppercase tracking-[0.15em] text-cyan/60">
             ▸ SECTION {sectionId}
@@ -94,7 +113,7 @@ export function TutorPanel({ open, onClose, sectionId, sectionContent }: TutorPa
               ▸ Ask anything about this section. The professor will use the current section as context.
             </div>
           )}
-          <ul className="space-y-3">
+          <ul aria-label="Conversation" className="space-y-3">
             {messages.map((m, i) => (
               <li key={i}
                 className={cn(

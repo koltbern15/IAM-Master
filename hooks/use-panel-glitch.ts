@@ -1,17 +1,13 @@
 'use client'
 
 import { useEffect } from 'react'
+import { prefersReducedMotion } from '@/lib/media-query'
 
 interface PanelGlitchOptions {
   minMs?: number
   maxMs?: number
   /** How long the data-jarvis-glitch attribute stays on the picked panel before clearing. */
   glitchDurationMs?: number
-}
-
-function prefersReducedMotion(): boolean {
-  if (typeof window === 'undefined' || !window.matchMedia) return false
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 export function usePanelGlitch({

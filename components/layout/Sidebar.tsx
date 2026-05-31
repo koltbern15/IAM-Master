@@ -18,8 +18,8 @@ export function Sidebar() {
         >
           IAM MASTERY
         </Link>
-        <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.18em] text-cyan/50">
-          ▸ CURRICULUM // 12 MODULES
+        <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.18em] text-cyan/70">
+          <span aria-hidden="true">▸ </span>CURRICULUM // 12 MODULES
         </div>
       </div>
 
@@ -35,8 +35,8 @@ export function Sidebar() {
                   m.phase === 1
                     ? 'text-text'
                     : m.phase === 2
-                    ? 'text-warn/70'
-                    : 'text-text-dim'
+                    ? 'text-warn/90'
+                    : 'text-text-muted'
                 )}
               >
                 <div className="flex min-w-0 flex-col">

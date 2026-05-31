@@ -2,15 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { prefersReducedMotion } from '@/lib/media-query'
 import { GlitchText } from './GlitchText'
 
 const BOOT_KEY = 'iam-mastery:boot-played'
 const BOOT_DURATION_MS = 3500
-
-function prefersReducedMotion() {
-  if (typeof window === 'undefined' || !window.matchMedia) return false
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
 
 interface BootSequenceProps {
   children: React.ReactNode
