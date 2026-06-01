@@ -6,7 +6,7 @@
 - **CISSP** Domain 5 (Identity and Access Management) — implement and manage authorization mechanisms (AD DS as the canonical enterprise example)
 </HoloPanel>
 
-# Active Directory Domain Services
+# Active Directory Domain Services <SC300Badge />
 
 Microsoft shipped Active Directory Domain Services in 1999 alongside Windows 2000 Server. Twenty-seven years later it still authenticates logins at the majority of enterprise organizations on earth. It is brittle, attack-surface-rich, 25-year-old software running mission-critical workloads — and you absolutely must understand it before anything else in this curriculum makes sense.
 
@@ -96,6 +96,14 @@ In a SaaS-first organization running Entra-only, there is no forest to compromis
 <Flashcard front="What are the two main AD DS trust directions, and what does a transitive trust mean?" back="A one-way trust lets users in the trusted domain access resources in the trusting domain but not vice versa; a two-way trust grants access in both directions. Transitive means trust flows through the chain — if A trusts B and B trusts C, then A trusts C automatically. Intra-forest trusts between parent and child domains are two-way and transitive by default." />
 <Flashcard front="What is a forest trust versus an external trust in AD DS?" back="A forest trust links two entire forests at the root and is transitive across all domains in both forests (every domain in forest A can trust every domain in forest B). An external trust links a single domain to a single domain in another forest and is non-transitive — it covers only those two specific domains, not the rest of either forest." />
 <Flashcard front="In the Microsoft tiering model, what belongs in Tier 1 and Tier 2, and why must admin accounts never span tiers?" back="Tier 1 is member servers and application or service workloads; Tier 2 is user workstations and devices. Tier 0 is the identity control plane (DCs, FSMO holders, AD admin accounts, PAWs). Admin accounts must not be reused across tiers because using a higher-tier credential on a lower-tier machine exposes it to memory theft (LSASS dump, pass-the-hash), letting a low-tier compromise escalate upward." />
+<Flashcard front="Are Organizational Units (OUs) a security boundary in AD DS?" back="No. OUs exist to delegate administration and to link Group Policy — they are containers, not security boundaries. The security boundary is the forest (and the domain is an administrative/replication boundary). Compromising rights over an OU is an admin-delegation problem, not a boundary crossing; do not treat OU placement as isolation." />
+<Flashcard front="In Group Policy, how do Block Inheritance and Enforced (No Override) change the normal LSDOU precedence?" back="Block Inheritance, set on an OU, stops GPOs linked higher up (site/domain) from applying to that OU. Enforced (No Override), set on a GPO link, forces that GPO to apply and win conflicts even past a Block Inheritance — Enforced always wins. So precedence is: Enforced links beat everything, then Block Inheritance, then the normal LSDOU order (innermost OU wins)." />
+<Flashcard front="What is the difference between a security group and a distribution group in AD DS?" back="A security group is a security principal — it has a SID and can be placed on an ACL to grant or deny permissions (and can also be mail-enabled). A distribution group is for email distribution only — it has no SID for authorization and cannot be used to assign resource permissions. If you need to grant access, you must use a security group." />
+<Flashcard front="What is a group Managed Service Account (gMSA) and which AD DS attack does it mitigate?" back="A gMSA is a service account whose password is generated and automatically rotated by AD DS (every 30 days by default) and retrieved only by authorized hosts — no human knows or sets it. Because the password is long and random and rotates, gMSAs largely defeat Kerberoasting: even if an attacker cracks a captured service ticket, the password has rotated and the cracked value is useless." />
+<Flashcard front="What is Active Directory Certificate Services (AD CS) and why is the ESC1 misconfiguration dangerous?" back="AD CS is the forest PKI that issues certificates (smart-card logon, server auth, etc.). ESC1 is a misconfigured certificate template that combines client-authentication EKU, requester-supplied Subject Alternative Name, and low enrollment rights with no manager approval — letting any permitted user request a certificate that impersonates any account, including Domain Admin. It is a certificate-based path to domain compromise (SpecterOps 'Certified Pre-Owned')." />
+<Flashcard front="What is a Read-Only Domain Controller (RODC) and where is it used?" back="An RODC holds a read-only, filtered replica of AD DS — no writable directory and, by default, no cached credentials except those allowed by its Password Replication Policy. It is deployed at branch or edge sites with weak physical security so that a stolen DC exposes few or no privileged credentials and cannot be used to write changes back into the directory." />
+<Flashcard front="On a forest trust, what does Selective Authentication do, and how does it differ from forest-wide authentication?" back="Forest-wide (default for some trusts) lets all users in the trusted forest authenticate to any resource. Selective Authentication denies access by default — an admin must explicitly grant the 'Allowed to authenticate' right on each specific resource a trusted-forest user may reach. It shrinks a trust's blast radius to only the resources you intend to share." />
+<Flashcard front="What is SID filtering on an AD DS trust and what attack does it block?" back="SID filtering (a.k.a. quarantine) makes the trusting domain drop any SIDs in an inbound token that do not belong to the trusted domain. It blocks SID-history injection, where an attacker stamps a privileged SID (e.g. a Domain Admins SID) from the trusting domain into a token from the trusted domain to escalate across the trust. It is enabled by default on most modern trusts." />
 
 ## Check your understanding
 
@@ -136,4 +144,30 @@ In a SaaS-first organization running Entra-only, there is no forest to compromis
   ],
   correctIndex: 1,
   explanation: "GenericAll on a computer object gives an attacker control over that computer's AD attributes, including the ability to configure Resource-Based Constrained Delegation (RBCD). RBCD lets you specify which accounts can impersonate other accounts to that resource. Combined with an existing machine account (or a new one created within the default MS-DS-MachineAccountQuota of 10), the attacker can impersonate Domain Admin to DomainController01 via S4U2Proxy, obtaining a service ticket that grants domain controller access — effectively Domain Admin. BloodHound finds these paths automatically. Every path BloodHound shows you is a real attack path, not a theoretical one."
+}} />
+
+<Quiz question={{
+  id: "03-microsoft-identity/01-active-directory/q4",
+  prompt: "A junior admin places a department's users directly into an Organizational Unit and tells you 'the OU isolates them as a security boundary.' Why is this statement wrong?",
+  options: [
+    "Because users must be placed in the domain root, never in an OU.",
+    "Because an OU is a delegation-of-administration and Group Policy container, not a security boundary — the forest is the AD DS security boundary and the domain is an administrative/replication boundary.",
+    "Because OUs cannot contain user objects, only computer objects.",
+    "Because an OU only becomes a security boundary once a GPO is linked to it."
+  ],
+  correctIndex: 1,
+  explanation: "OUs exist to delegate administrative control and to scope Group Policy — they are organizational containers, not isolation/security boundaries. In AD DS the forest is the true security boundary and the domain is an administrative and replication boundary. Treating an OU as isolation leads to delegation mistakes (the very pattern behind many BloodHound escalation paths)."
+}} />
+
+<Quiz question={{
+  id: "03-microsoft-identity/01-active-directory/q5",
+  prompt: "Your environment has dozens of service accounts with old, never-rotated passwords, and a recent assessment flagged Kerberoasting risk. Which AD DS feature most directly mitigates Kerberoasting for these service accounts?",
+  options: [
+    "Enabling Selective Authentication on all domain trusts.",
+    "Converting the service accounts to group Managed Service Accounts (gMSAs), whose long passwords are auto-generated and rotated by AD DS (every 30 days by default).",
+    "Moving the service accounts into a dedicated OU with Block Inheritance.",
+    "Promoting a Read-Only Domain Controller in the data center."
+  ],
+  correctIndex: 1,
+  explanation: "Kerberoasting works by requesting a service ticket for an SPN and cracking the service account's password hash offline. gMSAs defeat this because their passwords are long, random, machine-managed, and rotated automatically (default 30 days) — even a cracked ticket yields a password that has already changed. Selective Authentication (trusts), OUs/Block Inheritance (GPO scope), and RODCs (branch resilience) do not address the offline-cracking root cause."
 }} />

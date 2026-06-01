@@ -7,7 +7,7 @@
 - **CISSP** Domain 5 (Identity and Access Management) — federated identity and credential synchronization
 </HoloPanel>
 
-# Hybrid Identity
+# Hybrid Identity <SC300Badge />
 
 Most real enterprises live in the space between AD DS and Entra ID. They have 20 years of on-prem infrastructure, a forest full of users and devices, and a Microsoft 365 deployment that predates any serious identity governance conversation. The bridge between those two worlds — the plumbing that makes one user account work in both — is hybrid identity. Getting this architecture right is one of the most consequential infrastructure decisions a Microsoft-focused enterprise will make in this decade.
 
@@ -120,6 +120,13 @@ In a SaaS-first organization, federation is rarely the architecture — Entra-on
 <Flashcard front="As of 2026, which key Connect Sync features are still gaps in Cloud Sync that would block a migration?" back="Device writeback (required for Hybrid Entra Join and device-based Conditional Access), Exchange hybrid writeback (for on-prem Exchange mailbox attributes), and some complex custom attribute-flow scenarios that Connect Sync's rules editor supports. Organizations needing these must stay on Connect Sync until parity closes." />
 <Flashcard front="How does Seamless SSO work and what is its critical maintenance requirement?" back="Entra Connect creates a computer account named AZUREADSSOACC in AD DS. From a domain-joined PC, when the user hits a Microsoft 365 sign-in, the browser silently presents a Kerberos ticket for that account via Windows Integrated Authentication, and Entra ID issues tokens with no prompt. The critical requirement is rotating the AZUREADSSOACC Kerberos keys regularly (Microsoft recommends every 30 days) — an unrotated account is a permanent high-value target for silent SSO." />
 <Flashcard front="Which hybrid sign-in method enables Identity Protection leaked-credential detection, and which legitimate scenario still calls for PTA or Federation?" back="Only PHS enables leaked-credential detection, because Entra ID must hold a hash derivative to compare against breach databases — PTA and Federation hold no credential material in the cloud. PTA fits when compliance demands that no credential material ever leave the network and on-prem must own every validation; Federation fits a disconnected or air-gapped forest where syncing hashes off-network is not permitted, so on-prem ADFS is the only practical token source." />
+<Flashcard front="How does high availability differ between Entra Connect (Connect Sync) and Cloud Sync?" back="Connect Sync runs one active server; HA is an optional staging server kept read-only/standby that you promote manually during failover or maintenance — there is no automatic active-active. Cloud Sync supports multiple lightweight provisioning agents that provide automatic high availability with no metadirectory and no manual promotion. Cloud Sync's HA model is simpler and more resilient." />
+<Flashcard front="What is password writeback, and which sync methods and license support it?" back="Password writeback lets a cloud password change (via Self-Service Password Reset) flow back into on-prem AD DS so the two stay in sync. It works with both Connect Sync and Cloud Sync and requires Entra ID P1. It is what lets a user who resets their password in the cloud still log into on-prem domain resources with the new password." />
+<Flashcard front="Which hybrid sign-in methods does Seamless SSO support, and which one does it not?" back="Seamless SSO works with Password Hash Sync (PHS) and Pass-Through Authentication (PTA). It is not used with Federation, because ADFS already provides its own single sign-on through Windows Integrated Authentication. Seamless SSO exists precisely to give non-federated deployments the silent desktop SSO that federation otherwise provided." />
+<Flashcard front="What is Staged Rollout in a federation-to-cloud migration?" back="Staged Rollout moves selected pilot groups off Federation onto cloud authentication (PHS or PTA) for testing without converting the entire federated domain. It de-risks an ADFS migration by validating cloud auth for a controlled population first, then expanding, instead of a single all-or-nothing domain conversion that breaks everyone if something is missed." />
+<Flashcard front="What is the prescriptive Microsoft decision order for hybrid sign-in: PHS, PTA, or Federation?" back="Choose Password Hash Sync (PHS) by default — it gives cloud-side auth, outage resilience, and leaked-credential detection. Choose Pass-Through Authentication (PTA) only when policy requires on-prem to validate every credential and no hash may leave the network. Choose Federation only for an existing investment or a requirement Microsoft can't meet natively (e.g. third-party/smart-card auth at the IdP, or a disconnected forest)." />
+<Flashcard front="What is the Source Anchor (immutableID) in Entra Connect, and which attribute does modern Connect use?" back="The Source Anchor is the immutable value that links an on-prem object to its Entra ID object across every sync cycle. Modern Entra Connect uses ms-DS-ConsistencyGuid rather than objectGUID, so the anchor can be written and preserved even through a forest migration or domain change — keeping the cloud object tied to the right on-prem identity instead of creating a duplicate." />
+<Flashcard front="What is the difference between a soft match and a hard match in Entra Connect sync?" back="A soft match links a syncing on-prem object to an existing cloud object automatically by matching the primary SMTP address (always on) and, when enabled, UPN. A hard match links them by writing the on-prem immutableID (Source Anchor) to the cloud object. Both resolve the 'object already exists in the cloud' case so sync does not create a duplicate; hard match is the explicit, authoritative link." />
 
 ## Check your understanding
 
@@ -160,4 +167,17 @@ In a SaaS-first organization, federation is rarely the architecture — Entra-on
   ],
   correctIndex: 2,
   explanation: "Cloud Sync is the forward-looking architecture and Microsoft is investing new feature development there, but feature parity with Connect Sync is not complete as of 2026. The most commonly encountered blockers: device writeback (required for Hybrid Entra Join — needed when you want domain-joined Windows devices to register in Entra ID for device-based Conditional Access), Exchange hybrid writeback (required for Exchange on-prem coexistence scenarios), and complex custom synchronization rules. Organizations that rely on these capabilities must stay on Connect Sync until Microsoft closes the gaps. The migration path is: evaluate your Connect Sync configuration against the Cloud Sync feature matrix, identify blockers, and plan the migration when your blockers are resolved — not before."
+}} />
+
+<Quiz question={{
+  id: "03-microsoft-identity/03-hybrid-identity/q4",
+  prompt: "A bank still runs ADFS federation and wants to move to cloud authentication, but cannot risk converting the whole domain at once after a prior outage. Which Microsoft capability lets them migrate selected pilot groups to PHS or PTA first, without converting the federated domain?",
+  options: [
+    "Seamless SSO.",
+    "Staged Rollout, which moves selected groups to cloud authentication (PHS or PTA) for testing while the domain remains federated for everyone else.",
+    "Password writeback.",
+    "Selective Authentication."
+  ],
+  correctIndex: 1,
+  explanation: "Staged Rollout is purpose-built for de-risking a federation-to-cloud migration: you move pilot groups onto PHS or PTA and validate cloud authentication for that population while the rest of the domain stays federated, then expand. Seamless SSO is a desktop SSO add-on, password writeback syncs cloud password changes to on-prem, and Selective Authentication is a forest-trust access control — none provides a phased federation cutover."
 }} />

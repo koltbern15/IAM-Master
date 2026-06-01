@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { HoloPanel } from '@/components/jarvis/HoloPanel'
 import { useSound } from '@/hooks/use-sound'
@@ -38,6 +38,30 @@ export function Quiz({ question }: QuizProps) {
     })
   }
 
+  // Keyboard answers: 1-4 select options A-D (spec line 298). Single-shot,
+  // mirroring the mouse guard (`if (selected !== null) return`); ignored while
+  // typing in a form field and for indices past the option count.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (selected !== null) return
+      const t = e.target
+      if (
+        t instanceof HTMLElement &&
+        (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)
+      ) {
+        return
+      }
+      const n = Number(e.key)
+      if (Number.isInteger(n) && n >= 1 && n <= question.options.length) {
+        e.preventDefault()
+        handleSelect(n - 1)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // `selected` gates the single-shot guard; `question` keys the option count.
+  }, [selected, question])
+
   const answered = selected !== null
   const answeredCorrectly = answered && selected === question.correctIndex
 
@@ -68,6 +92,14 @@ export function Quiz({ question }: QuizProps) {
                 {String.fromCharCode(65 + i)}.
               </span>
               {opt}
+              {selected === null && i < 9 && (
+                <span
+                  className="ml-2 align-middle font-mono text-[9px] text-cyan/35"
+                  aria-hidden="true"
+                >
+                  [{i + 1}]
+                </span>
+              )}
               {showAsRight && <span className="sr-only"> (correct answer)</span>}
               {showAsWrong && <span className="sr-only"> (your answer — incorrect)</span>}
               {answered && isSelected && isCorrect && (

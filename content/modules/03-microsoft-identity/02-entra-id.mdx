@@ -10,7 +10,7 @@
 - **CISSP** Domain 5 (Identity and Access Management) — implement authentication systems (Entra ID as the canonical cloud IdP)
 </HoloPanel>
 
-# Entra ID
+# Entra ID <SC300Badge />
 
 If SC-300 had a center of gravity, this section is it. Microsoft Entra ID — rebranded from Azure Active Directory in 2023, abbreviated to Entra ID throughout — is Microsoft's cloud identity provider. It is the SaaS-era successor to AD DS, the PDP for every Conditional Access policy, the authentication layer for Microsoft 365, Azure, and thousands of federated applications, and the platform most Microsoft-centric enterprises will spend the rest of this decade building everything on top of.
 
@@ -36,7 +36,7 @@ Entra ID solves the problem by moving authentication to the cloud and building t
 
 ## How it works under the hood
 
-### Conditional Access — the policy engine
+### Conditional Access — the policy engine <SC300Badge />
 
 Conditional Access (CA) is Entra ID's Policy Decision Point. Every sign-in passes through it. CA evaluates a set of **signals** — attributes of the authentication request — and makes a policy decision: Allow, Block, or Allow With Controls (require MFA, require compliant device, restrict the session, etc.).
 
@@ -53,7 +53,7 @@ The output of CA is a grant control, a session control, or a block. Grant contro
 
 <Flashcard front="What is 'report-only mode' in Conditional Access and why is it non-negotiable before deploying any CA policy?" back="Report-only mode evaluates a CA policy against real sign-in traffic and logs what the policy *would* have done — without actually enforcing it. It surfaces unintended impacts (users who would be blocked, devices that would fail compliance checks) before the policy goes live. Deploying a CA policy directly to enforcement without a report-only phase risks blocking legitimate users at scale. Microsoft recommends all CA changes start in report-only and remain there until you've reviewed the What If tool results and live sign-in logs for your target population." />
 
-### MFA — the authenticator landscape
+### MFA — the authenticator landscape <SC300Badge />
 
 Multi-factor authentication in Entra ID supports a hierarchy of authenticator methods, ranked roughly by phishing resistance:
 
@@ -65,7 +65,7 @@ Multi-factor authentication in Entra ID supports a hierarchy of authenticator me
 
 <Flashcard front="Why is push notification MFA without number matching vulnerable to MFA fatigue attacks, and what Entra ID setting mitigates this?" back="MFA fatigue exploits the fact that a standard push notification (Approve / Deny) does not tie the push to a specific sign-in context. An attacker who has compromised credentials can trigger repeated push requests to the user's phone until the user approves one to stop the noise. Microsoft Authenticator's number matching feature requires the user to enter a 2-digit code displayed during the sign-in into the app, cryptographically binding the approval to the specific sign-in attempt. Enable number matching in Entra ID → Authentication methods → Microsoft Authenticator → Configure." />
 
-### Privileged Identity Management — just-in-time elevation
+### Privileged Identity Management — just-in-time elevation <SC300Badge />
 
 PIM is Entra ID's answer to the problem of permanent privileged role assignments. In a pre-PIM world, a Global Administrator account is permanently Global Administrator, 24/7, 365 days a year — providing a large, always-available attack surface. PIM replaces permanent assignment with **just-in-time** (JIT) activation:
 
@@ -76,7 +76,7 @@ PIM also generates the audit trail that compliance teams live on: every activati
 
 The practical governance model: no permanent Global Administrator. Every admin has an eligible assignment. Activations expire after 1-4 hours. Activations require MFA and a justification ticket number. This does not eliminate the risk of a compromised admin account — but it shrinks the window from "permanent" to "hours."
 
-### Identity Protection — risk-based signals
+### Identity Protection — risk-based signals <SC300Badge />
 
 Entra ID Identity Protection continuously evaluates sign-in behavior and user activity against a global threat intelligence corpus drawn from billions of authentications daily. It surfaces two risk signals:
 
@@ -86,7 +86,7 @@ Entra ID Identity Protection continuously evaluates sign-in behavior and user ac
 
 Identity Protection exposes these risk levels to Conditional Access via the risk signal integration. The canonical risk-based CA policy: when `sign-in risk = Medium or High`, require MFA. When `user risk = High`, require a secure password reset and block until complete. This creates a self-remediating loop: the attacker's anomalous sign-in triggers risk elevation, which triggers MFA they cannot satisfy (they don't have the user's phone), which blocks the session.
 
-### App registrations, enterprise apps, and the consent model
+### App registrations, enterprise apps, and the consent model <SC300Badge />
 
 An **app registration** is the developer-side identity of an application — created in the tenant that owns and develops the app. It defines what the app is, what OAuth scopes it requests, what redirect URIs it accepts, and holds the app's credentials (client secrets or certificates). One app registration can serve users across every tenant (multitenant apps).
 
@@ -135,6 +135,15 @@ The lesson is not that CA is dangerous. It is that CA is powerful and must be tr
 <Flashcard front="Which Entra ID license tier is required for the full Conditional Access engine, and which adds PIM and Identity Protection?" back="Entra ID P1 is required for the full Conditional Access engine (plus group-based app assignment and self-service password reset for hybrid users). Entra ID P2 adds PIM (just-in-time role activation), Identity Protection (risk-based signals and leaked credential detection), access reviews, and entitlement management. JIT activation implies P2; risk-based CA implies P2." />
 <Flashcard front="What is the illicit consent grant attack and what control prevents it?" back="An attacker registers or uses a malicious app that requests OAuth scopes like Mail.ReadWrite or Files.ReadWrite.All, then phishes users into clicking the consent screen — granting the app standing access to data without ever stealing a password. The control is restricting user consent and using an admin consent workflow, so users request access and an admin reviews and approves the requested permissions before they are granted." />
 <Flashcard front="What does admin consent do in Entra ID and why does it matter for security?" back="Admin consent lets a tenant administrator pre-approve an application's requested OAuth permissions on behalf of all users, so the per-user consent prompt does not appear. It matters because it centralizes the decision — high-privilege scopes are vetted once by an admin instead of relying on individual users to judge a consent screen, which is the weak point exploited by illicit consent grant attacks." />
+<Flashcard front="What is the difference between a Microsoft Entra (workforce) tenant and Microsoft Entra External ID?" back="A workforce tenant holds your employees and internal apps. External ID (the successor to Azure AD B2C for new projects) is for customer and partner identities — a separate user population with customizable self-service sign-up/sign-in and external identity providers. You keep employees and customers in distinct directories so consumer scale and branding never touch the workforce tenant." />
+<Flashcard front="What is an Administrative Unit (AU) in Entra ID?" back="An AU is a container that scopes a directory role to a subset of users, groups, or devices — for example, a Helpdesk Administrator who can reset passwords only for users in the Ohio AU. It is the cloud delegation primitive, analogous to delegating admin over an on-prem OU, and it enforces least privilege for distributed administration." />
+<Flashcard front="Why must break-glass (emergency access) accounts be excluded from Conditional Access policies?" back="Because a CA policy (require-MFA-for-admins, require-compliant-device, block-legacy-auth, or a federation dependency) can lock out every normal admin. The break-glass accounts are your recovery path, so they must be excluded from those policies — otherwise the very lockout you are recovering from also blocks the recovery accounts. Microsoft requires this exclusion for emergency access accounts." />
+<Flashcard front="What is the difference between Security Defaults and Conditional Access, and can you run both?" back="Security Defaults is a free, all-or-nothing baseline (enforces MFA registration, requires MFA for admins, blocks legacy auth) for tenants without premium licensing. Conditional Access (P1+) is the granular policy engine. You cannot run both at once — enabling Conditional Access requires disabling Security Defaults. Security Defaults is the floor; CA replaces it when you need granularity." />
+<Flashcard front="What is an access package in Entra ID entitlement management?" back="An access package bundles a set of resources (groups, apps, SharePoint sites) with an assignment policy that defines who can request it, who approves, and how long access lasts before expiry or review. It gives users self-service, time-bound, approved access — especially for guests and project teams — instead of standing membership an admin must remember to remove." />
+<Flashcard front="What do access reviews do in Entra ID, and what license do they require?" back="Access reviews are recurring attestation campaigns where a reviewer (the user, their manager, or a designated reviewer) confirms whether continued access — group membership, app assignment, or a privileged role — is still needed; unreviewed access can be auto-removed. They are an Entra ID P2 (Entra ID Governance) feature and are core SC-300 governance material." />
+<Flashcard front="What is Microsoft Entra ID Governance and what does it bundle?" back="Entra ID Governance is Microsoft's IGA offering (P2 / Entra Suite). It bundles entitlement management (access packages), access reviews, Privileged Identity Management (PIM), and lifecycle workflows into one governance layer answering 'who has access, should they, and for how long.' It is the SC-300 'plan and implement identity governance' domain." />
+<Flashcard front="What are Lifecycle Workflows in Entra ID?" back="Lifecycle Workflows automate joiner/mover/leaver tasks against user lifecycle events — for example, on a hire date add the user to groups and send onboarding; before a leave date, disable the account, remove group memberships, and revoke sessions. They are part of Entra ID Governance and remove the manual, error-prone steps that create orphaned access." />
+<Flashcard front="How does a workload get an Entra ID token using a managed identity, with no secret in code?" back="The code calls the Azure Instance Metadata Service (IMDS) endpoint at 169.254.169.254, which returns an Entra access token for the resource's managed identity. The credential is issued, stored, and rotated by the Azure platform — there is no client secret or certificate to embed, leak, or rotate. This is why managed identities are preferred over app registrations with stored secrets for Azure-hosted workloads." />
 
 ## Check your understanding
 
@@ -175,4 +184,43 @@ The lesson is not that CA is dangerous. It is that CA is powerful and must be tr
   ],
   correctIndex: 1,
   explanation: "The app registration / enterprise app (service principal) split is one of the most-tested Entra ID concepts on SC-300. The app registration lives in the *home* tenant (the developer/publisher's tenant) and defines the application's identity, credentials, redirect URIs, and requested scopes. When a user or admin adds the application to a *consuming* tenant (via admin consent or user sign-in), Entra ID creates a service principal in that tenant. The service principal is the local object you configure: who can use it, how claims are mapped, whether admin consent has been granted. One app registration → potentially thousands of service principals across thousands of tenants for a popular multitenant app."
+}} />
+
+<Quiz question={{
+  id: "03-microsoft-identity/02-entra-id/q4",
+  prompt: "A contractor needs access to a project's group, an app, and a SharePoint site for 90 days, with manager approval and automatic removal at the end. Which Entra ID feature is the right fit?",
+  options: [
+    "A Conditional Access policy scoped to the contractor.",
+    "An entitlement management access package with an assignment policy (approval + 90-day expiration).",
+    "A Privileged Identity Management eligible role assignment.",
+    "A static security group the admin remembers to delete in 90 days."
+  ],
+  correctIndex: 1,
+  explanation: "Entitlement management access packages bundle resources (group + app + SharePoint site) with a policy controlling who may request, approval workflow, and time-bound expiration/review — exactly the self-service, approved, auto-expiring access this scenario needs. Conditional Access governs how a sign-in is allowed, not what resources are granted; PIM is for privileged role activation; a manual static group reintroduces the orphaned-access problem access packages exist to solve."
+}} />
+
+<Quiz question={{
+  id: "03-microsoft-identity/02-entra-id/q5",
+  prompt: "You are enabling Conditional Access for the first time and notice Security Defaults is currently on. What must happen, and why?",
+  options: [
+    "Nothing — Security Defaults and Conditional Access run together and reinforce each other.",
+    "You must disable Security Defaults, because a tenant cannot have both Security Defaults and Conditional Access enabled at the same time; CA replaces the all-or-nothing baseline with granular policy.",
+    "You must upgrade to Entra ID P2, because Conditional Access requires P2.",
+    "You must enable Security Defaults on each user individually before CA will apply."
+  ],
+  correctIndex: 1,
+  explanation: "Security Defaults is a free, all-or-nothing baseline and is mutually exclusive with Conditional Access — enabling CA requires turning Security Defaults off. CA is a P1 feature (not P2; P2 adds PIM and Identity Protection). Security Defaults is not per-user, and it does not coexist with CA. The exam tests this either/or relationship directly."
+}} />
+
+<Quiz question={{
+  id: "03-microsoft-identity/02-entra-id/q6",
+  prompt: "An Azure App Service needs to read secrets from Azure Key Vault. A developer proposes storing a client secret in the app's configuration. What is the more secure Entra ID-native approach, and how does it obtain a token?",
+  options: [
+    "Keep the client secret but rotate it weekly via a script.",
+    "Assign the App Service a managed identity and grant it access to Key Vault; the app obtains an Entra token from the Azure Instance Metadata Service (IMDS) endpoint with no secret stored in code.",
+    "Federate the App Service to an on-prem ADFS server for token issuance.",
+    "Use a shared Global Administrator account credential in the app configuration."
+  ],
+  correctIndex: 1,
+  explanation: "A managed identity removes the stored secret entirely: the platform issues and rotates the credential, and the app retrieves an Entra access token from the IMDS endpoint (169.254.169.254). You then grant that identity access to Key Vault. Storing or rotating a client secret still leaves a leakable credential; ADFS federation and a shared Global Admin account are both wrong and far less secure."
 }} />
