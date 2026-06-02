@@ -1,0 +1,281 @@
+{/* Objectives current as of 2026-06-01. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **Microsoft Sentinel** — cloud-native SIEM/SOAR on Azure Log Analytics, queried with Kusto Query Language (KQL)
+- **The identity tables** — SigninLogs, AADNonInteractiveUserSignInLogs, AADServicePrincipalSignInLogs, AuditLogs, IdentityInfo, SecurityAlert
+- **Detection engineering** — turning each Module 8 attack technique into a KQL hunting query (password spray, impossible travel, MFA fatigue, illicit consent, CA tampering)
+- **SC-300** Monitor identity — SigninLogs and AuditLogs are the Entra logs the exam expects you to review for sign-in and directory-change monitoring
+- **Security+ SY0-701** Objective 4.3/4.4 — log aggregation, SIEM, and security monitoring concepts
+- **CISSP** Domain 7 (Security Operations) — logging, monitoring, and detection; threat hunting as a proactive discipline
+</HoloPanel>
+
+# KQL Identity Hunting
+
+Detection products tell you what they already know how to find. Microsoft Defender for Identity (section 02) and the ITDR tools (section 03) ship with a fixed catalog of named alerts — Suspected DCSync, Suspected Golden Ticket, and so on. That catalog is excellent, but it is finite. The moment an attacker does something your vendor did not pre-build a signature for, you are on your own. This is the gap that hunting fills: you, an analyst, forming a hypothesis ("an attacker is spraying passwords against our tenant") and writing a query to confirm or refute it against raw telemetry. In the Microsoft world, that query is written in KQL and runs against Microsoft Sentinel.
+
+This section is the most hands-on in Module 8. Every concept is taught by building a query. By the end you should be able to look at any technique from section 01 and reason about which table holds the evidence, which fields matter, and what aggregation surfaces the attack.
+
+## What KQL and Sentinel are
+
+<Definition term="Kusto Query Language (KQL)">A read-only, pipe-based query language for analytics over large, append-only datasets. You start with a table and pass rows through a sequence of operators separated by the pipe character, each operator transforming the rowset that flows into it. KQL is the query language behind Azure Log Analytics, Microsoft Sentinel, Azure Data Explorer, and the Defender XDR advanced-hunting experience. It reads data; it never modifies it.</Definition>
+
+The mental model matters. A KQL query is a left-to-right pipeline. You name a table, then you `| where` to filter, `| project` to choose columns, `| summarize` to aggregate, `| join` to enrich, `| sort` to order, and `| take` to cap the output. Data flows down the pipe and each stage works only on what the previous stage handed it. If that feels like PowerShell's pipeline or a Unix shell pipeline, that is exactly the right intuition — except KQL is purpose-built for time-series log analytics at billions-of-rows scale.
+
+<Definition term="Microsoft Sentinel">Microsoft's cloud-native SIEM (security information and event management) and SOAR (security orchestration, automation, and response) platform, built on top of an Azure Log Analytics workspace. Connectors ingest logs from Entra ID, Microsoft 365, Defender, Azure, and third-party sources into tables; analysts query those tables with KQL; analytics rules turn queries into automatic alerts and incidents; and playbooks (Azure Logic Apps) automate response. Sentinel is where identity telemetry from across the estate lands so it can be correlated in one place.</Definition>
+
+Sentinel is the consumer of everything we built earlier in the module. MDI alerts roll into Defender XDR and can be ingested here. Entra ID sign-in and audit events stream in through the Entra connector. Once all of it lands in the same workspace, KQL lets you correlate a Defender alert against the sign-in that preceded it against the directory change that followed it — a story no single product tells on its own.
+
+## The core identity tables
+
+You cannot hunt what you cannot see, so the first skill is knowing which table holds which evidence. These are the tables an identity hunter lives in. Confirm each one actually exists in your workspace before you rely on it — several require a specific data connector or that UEBA (User and Entity Behavior Analytics) be enabled, and a table with no connector behind it simply will not be there.
+
+- **`SigninLogs`** — interactive Entra ID sign-ins (a human completing an authentication flow). This is the workhorse table for credential-attack hunting. Key columns: `UserPrincipalName`, `IPAddress`, `ResultType` (the sign-in error/success code), `AppDisplayName`, `Location`, `RiskLevelDuringSignIn`, `AuthenticationDetails`, and `ConditionalAccessStatus`.
+- **`AADNonInteractiveUserSignInLogs`** — sign-ins where a user is not actively present (token refreshes, background app activity). High volume, but where token-replay and refresh-token abuse often show up.
+- **`AADServicePrincipalSignInLogs`** — sign-ins by service principals and workload identities (no user attached). A first-time service-principal sign-in or one from a new IP is a strong signal for app-credential abuse.
+- **`AuditLogs`** — directory changes: role assignments, application consents, Conditional Access policy edits, group membership changes. Key columns: `OperationName` (what changed), `InitiatedBy` (who did it), and `TargetResources` (the affected object and a nested record of modified properties).
+- **`IdentityInfo`** — UEBA-enriched user context (department, manager, account attributes, group memberships) you join against sign-in or audit events to add business context to a raw event. Requires UEBA to be enabled.
+- **`SecurityAlert`** — the alerts produced by MDI, Defender, Identity Protection, and Sentinel's own analytics rules. Joining your hunting results against `SecurityAlert` is how you enrich a raw event with what the products already flagged.
+
+<ProTip>
+A query that references a table the workspace does not have fails with a "could not resolve table" error, not a silent empty result — so a failed query is often a connector problem, not a logic problem. Before debugging your KQL, run the bare table name with `| take 10` to confirm the table exists and is populated. If `AADServicePrincipalSignInLogs` returns nothing, the workforce may simply have no recent service-principal sign-ins, or the connector is not configured. Know which.
+</ProTip>
+
+## KQL fundamentals, taught by building
+
+The fastest way to internalize the operators is to watch a query grow. Start with the simplest useful thing: the last seven days of failed sign-ins.
+
+<PowerShellBlock title="KQL — THE PIPELINE, ONE STAGE AT A TIME">
+// Stage 1: name the table, filter by time FIRST (always)
+SigninLogs
+| where TimeGenerated &gt; ago(7d)
+
+// Stage 2: keep only failures (ResultType 0 == success)
+SigninLogs
+| where TimeGenerated &gt; ago(7d)
+| where ResultType != 0
+
+// Stage 3: choose the columns you care about
+SigninLogs
+| where TimeGenerated &gt; ago(7d)
+| where ResultType != 0
+| project TimeGenerated, UserPrincipalName, IPAddress, ResultType, AppDisplayName
+
+// Stage 4: aggregate — how many failures per user?
+SigninLogs
+| where TimeGenerated &gt; ago(7d)
+| where ResultType != 0
+| summarize FailedAttempts = count() by UserPrincipalName
+| sort by FailedAttempts desc
+</PowerShellBlock>
+
+Four operators carry most of the load. `where` filters rows. `project` selects (and renames or computes) columns — its cousin `extend` adds a computed column without dropping the others. `summarize` collapses many rows into aggregates: `count()` for row counts, `dcount()` for distinct counts, `make-set()` to collect distinct values into an array, `arg_max()` to return the whole row that has the maximum of some expression per group. The `by` clause names the grouping keys, and `bin(TimeGenerated, 1h)` is the special grouping key that buckets rows into fixed time windows so you can see bursts over time.
+
+The single most important habit is the one shown in stage 1: **filter by time first.** Log Analytics partitions data by time, so a leading `where TimeGenerated > ago(7d)` lets the engine skip every partition outside the window before it reads a single other column. Put any other filter first and you force a far larger scan.
+
+<Definition term="UEBA (User and Entity Behavior Analytics)">A Sentinel capability that builds behavioral baselines for users and entities — typical sign-in locations, peer-group activity, normal working hours — and scores deviations from them. When enabled it populates tables such as `BehaviorAnalytics` and enriches `IdentityInfo`, letting a hunting query ask "is this anomalous for this user" rather than only "did this match a static rule." UEBA turns absolute thresholds into relative, per-entity baselines.</Definition>
+
+## Detection-engineering patterns
+
+Now the payoff: translating each section-01 technique into a query. The discipline is always the same — pick the table, pick the discriminating field, choose an aggregation that separates attacker behavior from noise.
+
+### Password spray
+
+Password spray is the inverse of brute force. Instead of many passwords against one account (which trips lockout), the attacker tries one common password against many accounts. The fingerprint is therefore **one source, many distinct target users, all failing** in a short window. The discriminating field is `ResultType` 50126 — the Entra sign-in code for an invalid username or password — which I confirmed against Microsoft's error-code reference; the Azure-Sentinel community spray rules also fold in adjacent codes such as 50053 (account locked) and 50055/50056 (expired or invalid password) to catch the surrounding lockout noise.
+
+<PowerShellBlock title="KQL — PASSWORD SPRAY">
+SigninLogs
+| where TimeGenerated &gt; ago(1d)
+| where ResultType == 50126            // invalid username or password
+| summarize
+    FailedUsers = dcount(UserPrincipalName),
+    Attempts = count(),
+    TargetedUsers = make_set(UserPrincipalName, 50)
+    by IPAddress, bin(TimeGenerated, 1h)
+| where FailedUsers &gt;= 10              // many distinct victims from one IP, one hour
+| sort by FailedUsers desc
+</PowerShellBlock>
+
+The `dcount(UserPrincipalName)` is the heart of it: a normal fat-fingered user fails against one UPN, so their `FailedUsers` is 1; a spray tool fails against dozens, so it lights up. The `make_set` carries a sample of who was targeted so the analyst has something to triage. Tune the threshold to the environment — `>= 10` is a starting point, not a law.
+
+### Impossible travel (atypical location)
+
+Two successful sign-ins for one user from locations too far apart to travel between in the elapsed time. Entra ID Identity Protection already ships an "atypical travel" detection, so in practice you let the product do the geodistance math and consume its risk signal rather than reinventing it — but building the logic yourself teaches the shape, and the same pattern (lag one row behind per user and compare) generalizes to many sequence detections. <SC300Badge /> Identity Protection's sign-in risk feeding risk-based Conditional Access is the SC-300 "implement access management" angle here; the raw `SigninLogs` review is the SC-300 "monitor identity" angle.
+
+<PowerShellBlock title="KQL — IMPOSSIBLE TRAVEL (LOGIC SKETCH)">
+SigninLogs
+| where TimeGenerated &gt; ago(7d)
+| where ResultType == 0                                  // successful sign-ins only
+| project TimeGenerated, UserPrincipalName, IPAddress, Country = tostring(LocationDetails.countryOrRegion)
+| sort by UserPrincipalName asc, TimeGenerated asc
+| serialize
+| extend PrevCountry = prev(Country), PrevUser = prev(UserPrincipalName), PrevTime = prev(TimeGenerated)
+| where UserPrincipalName == PrevUser and Country != PrevCountry
+| extend MinutesApart = datetime_diff('minute', TimeGenerated, PrevTime)
+| where MinutesApart &lt; 60                                // two countries inside an hour
+| project UserPrincipalName, PrevCountry, Country, PrevTime, TimeGenerated, MinutesApart
+</PowerShellBlock>
+
+`serialize` freezes the row order so `prev()` can look at the previous row reliably; without it, `prev()` is not meaningful. This is a teaching sketch — production impossible-travel detection should lean on Identity Protection's enriched risk rather than a naive country-change-in-an-hour heuristic, which fires on VPNs and roaming corporate egress.
+
+### MFA fatigue
+
+MFA fatigue (also called MFA bombing) is the attacker who has the password but not the second factor, so they trigger push after push hoping the victim taps Approve to make the noise stop. The signal is repeated MFA-required or MFA-denied sign-in events for one user in a tight window. The exact field that records the per-attempt MFA outcome lives in the nested `AuthenticationDetails` column; treat the specific sub-field as environment-dependent and confirm it against your own data before hard-coding a value.
+
+<PowerShellBlock title="KQL — MFA FATIGUE (REPEATED PROMPTS)">
+SigninLogs
+| where TimeGenerated &gt; ago(1d)
+| mv-expand AuthDetail = todynamic(AuthenticationDetails)
+| extend AuthMethod = tostring(AuthDetail.authenticationMethod),
+         AuthResult = tostring(AuthDetail.authenticationStepResultDetail)
+| where AuthMethod has &quot;Authenticator&quot; or AuthMethod has &quot;phone&quot;
+| summarize
+    Prompts = count(),
+    Outcomes = make_set(AuthResult, 20)
+    by UserPrincipalName, bin(TimeGenerated, 15m)
+| where Prompts &gt;= 5                    // a storm of prompts in 15 minutes
+| sort by Prompts desc
+</PowerShellBlock>
+
+`mv-expand` flattens the array of authentication steps into one row each so you can count prompts. The lesson under the query: MFA fatigue exists because plain Approve/Deny push has no binding to a sign-in context — which is exactly why number matching (covered in the Entra ID section) defeats it. The hunt finds the attack; the control prevents it.
+
+### Illicit consent grant
+
+From section 01: an attacker phishes a user into consenting to a malicious app requesting scopes like `Mail.ReadWrite` and `offline_access`, and walks away with a refresh token that survives a password reset. Consent is a directory change, so it lands in `AuditLogs`, and the operation string — confirmed against the Azure-Sentinel hunting-query repo — is `Consent to application`.
+
+<PowerShellBlock title="KQL — ILLICIT CONSENT GRANT">
+AuditLogs
+| where TimeGenerated &gt; ago(14d)
+| where OperationName == &quot;Consent to application&quot;
+| extend Actor = tostring(parse_json(tostring(InitiatedBy.user)).userPrincipalName)
+| extend AppName = tostring(TargetResources[0].displayName)
+| project TimeGenerated, Actor, AppName, Result, CorrelationId
+| sort by TimeGenerated desc
+</PowerShellBlock>
+
+The granted permissions themselves are buried in a `modifiedProperties` array inside `TargetResources`, so a real investigation drills further into that nested record to read the scopes; the query above surfaces the consent event and who triggered it, which is the lead. A high-value refinement is to correlate this against sign-in risk — if the consenting user's session showed phishing-risk signals shortly before they consented, that is a near-certain illicit-consent case.
+
+### Conditional Access tampering
+
+An attacker who reaches a privileged role often weakens defenses before doing damage — disabling or loosening a Conditional Access policy so their later actions sail through. Those edits are `AuditLogs` operations whose names describe adding, updating, or deleting a Conditional Access policy. Because vendor wording can shift, match on the substring rather than an exact full string.
+
+<PowerShellBlock title="KQL — CONDITIONAL ACCESS POLICY CHANGES">
+AuditLogs
+| where TimeGenerated &gt; ago(30d)
+| where OperationName has &quot;conditional access policy&quot;   // add / update / delete
+| extend Actor = tostring(parse_json(tostring(InitiatedBy.user)).userPrincipalName)
+| extend PolicyName = tostring(TargetResources[0].displayName)
+| project TimeGenerated, OperationName, Actor, PolicyName, Result
+| sort by TimeGenerated desc
+</PowerShellBlock>
+
+Every line here should be explainable by a change ticket. A CA policy disabled at 2am by an account that has never touched CA before is the kind of finding that ends incidents early.
+
+### Dormant account or service principal going active
+
+Baselining is the most powerful hunting move and the hardest to fake your way around. `arg_max()` returns the whole row at the latest timestamp per user, giving you a last-seen table; a service principal whose first-ever sign-in is today, or a user account dormant for months that suddenly authenticates from a new country, is exactly the anomaly an attacker creates.
+
+<PowerShellBlock title="KQL — FIRST-SEEN SERVICE PRINCIPAL SIGN-IN">
+let lookback = 30d;
+let baseline =
+    AADServicePrincipalSignInLogs
+    | where TimeGenerated between (ago(lookback) .. ago(1d))
+    | summarize by ServicePrincipalName;
+AADServicePrincipalSignInLogs
+| where TimeGenerated &gt; ago(1d)
+| where ResultType == 0
+| summarize FirstSeenToday = arg_max(TimeGenerated, IPAddress) by ServicePrincipalName
+| join kind=leftanti baseline on ServicePrincipalName   // not seen in the prior 30 days
+| project ServicePrincipalName, FirstSeenToday, IPAddress
+</PowerShellBlock>
+
+`let` defines a reusable subquery (the 30-day baseline of known service principals). `join kind=leftanti` keeps only today's rows that have no match in that baseline — the new-to-the-environment identities. This same first-seen pattern, swapped onto `SigninLogs`, finds dormant user accounts waking up.
+
+## Analytics rules vs. hunting queries
+
+A query you run once at the keyboard is a hunt. A query Sentinel runs on a schedule and turns into an alert is an analytics rule. Knowing the difference keeps your workflow sane.
+
+<Definition term="Sentinel analytics rule">A KQL query that Sentinel runs automatically on a recurring schedule; when it returns results that cross a configured threshold, Sentinel raises an alert and groups related alerts into an incident for triage. Analytics rules are how a validated hunting query graduates into continuous, hands-off detection. They carry severity, MITRE ATT&CK mapping, entity mappings, and optional automated-response playbooks.</Definition>
+
+<Definition term="hunting bookmark">A saved row (or set of rows) of interest captured during an interactive hunt in Sentinel's Hunting blade, preserving the query, the results, and analyst notes so the finding survives beyond the session and can be promoted into an investigation or incident. Bookmarks are how ad-hoc hunting feeds back into formal case work.</Definition>
+
+The practical loop: you hypothesize and hunt interactively in the Hunting blade; when a query reliably separates signal from noise, you bookmark the interesting hits and then promote the query to a scheduled analytics rule so it watches for you going forward. You do not have to invent every query from scratch — Microsoft and the community publish a large, vetted library of identity detections and hunting queries in the public Azure-Sentinel GitHub repository (github.com/Azure/Azure-Sentinel), which is where the password-spray and consent-grant queries above are modeled from. Read those repos like a cookbook, then adapt to your tables.
+
+<WarStory title="The Spray That Hid in the Noise Until One dcount Found It">
+A regional financial institution had Sentinel ingesting Entra sign-in logs but no dedicated spray detection — the assumption was that account lockout and the existing risk policies would catch any password attack. During a routine threat-hunt afternoon, an analyst ran the password-spray shape against the prior seven days, summarizing distinct failed UPNs per source IP per hour.
+
+One row stood out. A single IP, geolocated to a hosting provider in another country, had failed against 240 distinct user accounts over a three-hour window two weeks earlier — every attempt `ResultType` 50126, every one just below the lockout threshold per account. None of the individual accounts had tripped lockout because the tool was patient: a few attempts per account, spread wide. To the per-account view it was invisible. To `dcount(UserPrincipalName) by IPAddress` it was a flare.
+
+The hunt then pivoted: of those 240 targets, the analyst filtered for any `ResultType == 0` from the same IP in the following days. Two accounts had succeeded. One of those two had, six days later, an `AuditLogs` "Consent to application" event for an app requesting `Mail.Read` and `offline_access` — the classic post-foothold consent grant to establish password-reset-proof persistence. The hunt had walked the kill chain from spray to foothold to persistence using three tables and three queries.
+
+Containment used the section-05 playbook: revoke sessions on both accounts, force password reset, revoke the malicious app's consent and delete the enterprise app, and add the source IP and the spray query as a new scheduled analytics rule so the next attempt would page the SOC in near real time instead of waiting for a quarterly hunt. The lesson the team wrote into its runbook: a finite set of vendor alerts is a floor, not a ceiling — the spray was real, ongoing telemetry, and only a hypothesis-driven hunt with the right aggregation turned latent data into a detection.
+</WarStory>
+
+## Operational notes and detection-as-code
+
+A few habits separate a query that works in a demo from one that survives production:
+
+- **Time-filter first, always.** It is the single biggest performance and cost lever in Log Analytics, because the workspace is time-partitioned and ingestion-billed — scanning less data is faster and cheaper.
+- **Parse nested JSON deliberately.** Entra's richest evidence (`AuditLogs.TargetResources`, `SigninLogs.AuthenticationDetails`, `LocationDetails`) is dynamic JSON. Use `todynamic()`, `parse_json()`, dot-indexing, and `mv-expand` to reach into it, and `project` the flattened fields out so your results are readable.
+- **Use watchlists for known-good.** Maintain a watchlist of sanctioned egress IPs, break-glass accounts, and approved automation identities so your detections can exclude them with a `join` instead of a brittle hard-coded list inside the query.
+- **Treat detections as code.** The maturity bar is not "I have good queries in my head." It is version-controlling your KQL analytics rules in git, reviewing changes like any other code, and deploying them through infrastructure-as-code — ARM or Bicep templates, or the Sentinel `Microsoft.SecurityInsights` API — so detections are tested, reproducible, and auditable rather than hand-edited in the portal and lost when an engineer leaves.
+
+<ProTip>
+Two reflexes will make you dangerous fast: lead every query with a `TimeGenerated` filter, and learn the `ResultType` codes for the auth outcomes you care about (0 = success, 50126 = bad username/password, plus the lockout/expired-credential codes around it). Most identity hunts are some combination of "filter by a meaningful ResultType, group by an entity, count distinct something over a time bin" — once that shape is muscle memory, the rest is choosing the right table.
+</ProTip>
+
+## Recall drill
+
+<Flashcard front="What is KQL and where does Microsoft Sentinel run it?" back="Kusto Query Language is a read-only, pipe-based analytics language; Microsoft Sentinel is a cloud-native SIEM/SOAR built on Azure Log Analytics, where KQL queries the ingested identity and security tables. Data flows left to right through piped operators, each transforming the rowset from the previous stage." />
+<Flashcard front="Which Sentinel table holds Entra interactive sign-ins, and which hold non-interactive and service-principal sign-ins?" back="SigninLogs holds interactive user sign-ins. Non-interactive user sign-ins are in AADNonInteractiveUserSignInLogs and service-principal/workload-identity sign-ins are in AADServicePrincipalSignInLogs. Confirm each exists in the workspace, since some require a connector or UEBA." />
+<Flashcard front="Which table records Entra directory changes such as role assignments and app consents, and which fields identify the change and the actor?" back="AuditLogs. OperationName identifies the change, InitiatedBy identifies who performed it, and TargetResources holds the affected object plus a nested modifiedProperties record of what changed." />
+<Flashcard front="Write the KQL shape that detects a password spray against Entra ID." back="SigninLogs | where TimeGenerated &gt; ago(1d) | where ResultType == 50126 | summarize FailedUsers = dcount(UserPrincipalName) by IPAddress, bin(TimeGenerated, 1h) | where FailedUsers &gt;= threshold. ResultType 50126 means invalid username or password; counting distinct failed UPNs per source IP per hour reveals one source hitting many accounts." />
+<Flashcard front="What does summarize ... by bin(TimeGenerated, 1h) accomplish?" back="It aggregates rows into one-hour time buckets, computing aggregates such as count() or dcount() per bucket. This is how you spot bursts over time, like a spray or an MFA-fatigue storm concentrated in a short window." />
+<Flashcard front="What is the difference between a Sentinel analytics rule and a hunting query?" back="An analytics rule runs automatically on a schedule and raises alerts/incidents when results cross a threshold. A hunting query is run ad hoc (or saved as a bookmark) to proactively test a hypothesis without raising an incident. A validated hunting query is promoted into an analytics rule." />
+<Flashcard front="How would you hunt illicit consent grants in KQL, and which table and operation do you start from?" back="Start in AuditLogs and filter where OperationName == &#39;Consent to application&#39;, then inspect the granted scopes inside the TargetResources modifiedProperties array for high-risk permissions like Mail.ReadWrite or offline_access. Correlate with sign-in risk on the consenting user for higher fidelity." />
+<Flashcard front="What is the IdentityInfo table used for in hunting?" back="It provides UEBA-enriched user context (department, manager, account attributes, group memberships) that you join against sign-in or audit events to add business context to a raw event. It requires UEBA to be enabled in the workspace." />
+<Flashcard front="Which KQL operator joins two tables, and what should you watch for when using it?" back="The join operator (e.g., kind=inner, kind=leftanti). Watch the join kind, the join order, and the size of each side; filter both sides by time before joining so the engine works on the smallest possible datasets." />
+<Flashcard front="Why should you filter by TimeGenerated first in a KQL query?" back="Log Analytics is time-partitioned and ingestion-billed, so a leading TimeGenerated filter (for example where TimeGenerated &gt; ago(7d)) lets the engine skip partitions outside the window before reading other columns, sharply reducing scanned data, improving speed, and lowering cost." />
+<Flashcard front="What does arg_max() accomplish in identity hunting?" back="It returns the entire row that has the maximum value of an expression per group, for example the latest sign-in per user. That gives you a last-seen baseline, which is how you surface dormant accounts suddenly going active or a service principal signing in for the first time." />
+<Flashcard front="What is detection-as-code for Microsoft Sentinel?" back="Version-controlling KQL analytics rules in git and deploying them via infrastructure-as-code (ARM/Bicep templates) or the SecurityInsights API, so detections are reviewed, tested, reproducible, and auditable rather than hand-edited in the portal and lost over time." />
+<Flashcard front="What is a hunting bookmark in Sentinel?" back="A saved row or set of rows of interest captured during an interactive hunt, preserving the query, the results, and analyst notes so a finding survives the session and can be promoted into an investigation or incident." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "08-security-detection/04-kql-identity-hunting/q1",
+  prompt: "Which KQL query shape best identifies a password-spray attack against Entra ID?",
+  options: [
+    "SigninLogs | where ResultType == 0 | summarize count() by UserPrincipalName",
+    "SigninLogs | where ResultType == 50126 | summarize dcount(UserPrincipalName) by IPAddress, bin(TimeGenerated, 1h) | where dcount_UserPrincipalName > threshold",
+    "AuditLogs | where OperationName == 'Add user' | count",
+    "IdentityInfo | project AccountUPN, Department"
+  ],
+  correctIndex: 1,
+  explanation: "Password spray is one source attempting many distinct users with failed logons; counting distinct failed UPNs per source IP per time bucket (ResultType 50126 = invalid username or password) surfaces it. ResultType 0 is success, so that query counts only successful sign-ins; the AuditLogs and IdentityInfo queries are unrelated to spray."
+}} />
+
+<Quiz question={{
+  id: "08-security-detection/04-kql-identity-hunting/q2",
+  prompt: "You want to find newly granted application consents that might indicate consent phishing. Which table and field do you start with?",
+  options: [
+    "SigninLogs and the ResultType field.",
+    "AuditLogs and the OperationName field (a Consent to application operation), inspecting TargetResources for the granted scopes.",
+    "IdentityInfo and the Manager field.",
+    "SecurityAlert and the AlertName field only."
+  ],
+  correctIndex: 1,
+  explanation: "Directory changes including app consents are recorded in AuditLogs; OperationName identifies the consent event (Consent to application) and TargetResources carries the app and the granted permissions inside its modifiedProperties array. SigninLogs records authentications, IdentityInfo is user context, and SecurityAlert holds product alerts rather than the raw consent event."
+}} />
+
+<Quiz question={{
+  id: "08-security-detection/04-kql-identity-hunting/q3",
+  prompt: "Why should a hunting query begin with a time filter such as where TimeGenerated > ago(7d)?",
+  options: [
+    "It is required syntax for every KQL query to run.",
+    "Log Analytics is time-partitioned, so a leading time filter sharply reduces the data scanned, improving query speed and lowering ingestion-based cost.",
+    "It sorts the results chronologically.",
+    "It is what enables the join operator to function."
+  ],
+  correctIndex: 1,
+  explanation: "Time filtering first leverages Log Analytics' time partitioning to cut scanned volume, which is a performance and cost best practice. It is not required syntax, it does not sort the output, and it has nothing to do with enabling join."
+}} />

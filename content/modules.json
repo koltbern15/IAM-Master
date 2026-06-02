@@ -28,16 +28,16 @@
     "title": "Privileged Access Management",
     "phase": 2,
     "order": 4,
-    "summary": "Protecting the keys to the kingdom. (Phase 2 — Coming)",
-    "sections": []
+    "summary": "Protecting the keys to the kingdom.",
+    "sections": ["01-pam-fundamentals", "02-cyberark", "03-beyondtrust-delinea", "04-hashicorp-vault", "05-cloud-native-pam", "06-pam-program-design"]
   },
   {
     "id": "05-iga",
     "title": "Identity Governance & Administration",
     "phase": 2,
     "order": 5,
-    "summary": "Who has access to what, and should they? (Phase 2 — Coming)",
-    "sections": []
+    "summary": "Who has access to what, and should they?",
+    "sections": ["01-iga-fundamentals", "02-sailpoint", "03-okta", "04-saviynt-oneidentity-omada", "05-entra-id-governance", "06-sod-and-rbac-design"]
   },
   {
     "id": "06-powershell",
@@ -52,32 +52,32 @@
     "title": "Cloud IAM",
     "phase": 3,
     "order": 7,
-    "summary": "Identity across AWS, Azure, and GCP. (Phase 3 — Coming)",
-    "sections": []
+    "summary": "Identity across AWS, Azure, and GCP.",
+    "sections": ["01-aws-iam", "02-azure-rbac", "03-gcp-iam", "04-multi-cloud-strategy", "05-ciem"]
   },
   {
     "id": "08-security-detection",
     "title": "IAM Security & Threat Detection",
     "phase": 2,
     "order": 8,
-    "summary": "Thinking like the attacker. (Phase 2 — Coming)",
-    "sections": []
+    "summary": "Thinking like the attacker.",
+    "sections": ["01-identity-attack-techniques", "02-defender-for-identity", "03-crowdstrike-semperis", "04-kql-identity-hunting", "05-identity-incident-response"]
   },
   {
     "id": "09-compliance",
     "title": "Compliance & Audit",
     "phase": 3,
     "order": 9,
-    "summary": "Proving it to the auditors. (Phase 3 — Coming)",
-    "sections": []
+    "summary": "Proving it to the auditors.",
+    "sections": ["01-control-frameworks", "02-financial-and-payment", "03-privacy-and-federal", "04-iam-controls-matrix", "05-audit-prep-playbook"]
   },
   {
     "id": "10-program-leadership",
     "title": "IAM Program Leadership",
     "phase": 3,
     "order": 10,
-    "summary": "Running the program, not just the tools. (Phase 3 — Coming)",
-    "sections": []
+    "summary": "Running the program, not just the tools.",
+    "sections": ["01-maturity-and-roadmap", "02-stakeholders-and-budget", "03-metrics-and-rfp", "04-career-architecture"]
   },
   {
     "id": "11-cert-roadmap",
@@ -92,7 +92,7 @@
     "title": "Hands-On Labs",
     "phase": 2,
     "order": 12,
-    "summary": "Build it, break it, fix it. (Phase 2 — Coming)",
-    "sections": []
+    "summary": "Build it, break it, fix it.",
+    "sections": ["01-build-an-ad-lab", "02-entra-connect-setup", "03-conditional-access-lab", "04-saml-scim-integration", "05-laps-and-jml-automation", "06-pim-and-access-reviews", "07-cyberark-onboarding", "08-okta-sso-lifecycle", "09-sailpoint-cert-campaign", "10-kerberoasting-hunt", "11-stale-account-cleanup", "12-fido2-deployment", "13-powerbi-identity-dashboard"]
   }
 ]

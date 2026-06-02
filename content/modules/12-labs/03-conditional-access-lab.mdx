@@ -1,0 +1,237 @@
+{/* Lab procedures current as of 2026-06-01. Conditional Access requires Entra ID P1. Re-verify cmdlet bodies against MS Learn before running against any live tenant. */}
+
+<HoloPanel label="COVERS">
+- Aligns with **SC-300: Plan and implement Conditional Access** — policy design, report-only validation, and enforcement
+- Aligns with **SC-300: Plan and implement Microsoft Entra ID protection** — break-glass exclusions and legacy-authentication blocking
+- **Security+ SY0-701** Objective 4.6 — Implement and maintain identity and access management (conditional access controls)
+- **CISSP** Domain 5.4 — Implement and manage authorization mechanisms (policy-based access control)
+- **Builds on:** Lab 02 (Entra Connect — you need synced users to target) and Module 3 §02 Entra ID (the Conditional Access policy engine, named locations, and risk signals)
+</HoloPanel>
+
+# Build, Test, and Deploy Conditional Access Policies <SC300Badge />
+
+## Objective
+
+When you finish this lab you will have a working baseline Conditional Access (CA) policy set running in a dev Entra tenant: two break-glass emergency-access accounts that are excluded from every policy, a "require MFA for administrators" policy, and a "block legacy authentication" policy. You will have validated both policies in **report-only mode** against real sign-ins before flipping a single one to enforced — and you will not have locked yourself out doing it.
+
+This is the most operationally dangerous lab in the module, and that is exactly why it matters for a banking IAM role. Conditional Access is the Policy Decision Point that sits in front of every sign-in to Microsoft 365, Azure, and every federated app. A good CA policy set is the single highest-leverage control you can deploy in a Microsoft-centric environment. A careless one takes the whole tenant offline in one click. The discipline this lab teaches — break-glass first, report-only always, enforce last — is the difference between an administrator your CISO trusts with the tenant and one who has to explain an outage on a Monday morning.
+
+## Prerequisites
+
+- A **dev Entra tenant** with synced users from Lab 02. Do not do this against a production tenant. Use a Microsoft 365 Developer subscription or a pay-as-you-go dev tenant.
+- **Microsoft Entra ID P1** at minimum. Conditional Access is a P1 feature; the tenant must be licensed (P1, P2, or a bundle that includes it). If the tenant only has the free tier, CA is not available and you would use Security Defaults instead — and the two are mutually exclusive.
+- The **Microsoft.Graph** PowerShell module installed, and a sign-in with at least Conditional Access Administrator (or Global Administrator) rights. You will need the `Policy.ReadWrite.ConditionalAccess`, `Policy.Read.All`, and `AuditLog.Read.All` scopes.
+- A test admin account (a synced user you have assigned a directory role to) so you can observe the MFA prompt.
+
+<ProTip>
+**The lab safety rules from Lab 01 apply with extra force here.** Every destructive or tenant-wide change is shown with `-WhatIf` or in report-only first. Never set a CA policy to `enabled` until it has run in report-only mode against real sign-ins and you have read the results. And never — under any circumstances — author a CA policy before the break-glass accounts exist and are excluded. Report-only is not optional. It is the seatbelt.
+</ProTip>
+
+<Definition term="break-glass (emergency access) account">
+A cloud-only, highly privileged account (typically Global Administrator) that is deliberately **excluded from every Conditional Access policy** and from MFA enforcement that could depend on an unavailable service. Its purpose is to guarantee a way back into the tenant when a misconfigured policy, an expired MFA provider, or a federation outage locks everyone else out. Microsoft recommends maintaining at least two, with long random passwords stored offline, and alerting on every sign-in. It is the fire extinguisher you hope never to use.
+</Definition>
+
+## Lab steps
+
+### Step 1: Create and exclude two break-glass accounts (do this FIRST)
+
+Before you author a single policy, create the safety net. Two accounts, cloud-only (not synced), with long random passwords stored offline — split across two people or two safes so no single person can use both. These accounts get excluded from every CA policy you ever build.
+
+<PowerShellBlock title="Create two break-glass accounts">{`Connect-MgGraph -Scopes "User.ReadWrite.All","RoleManagement.ReadWrite.Directory"
+
+# Generate a long random password offline; do NOT email or store it in the script.
+# Here we read it interactively so it never lands in a transcript.
+1..2 | ForEach-Object {
+  $pw = Read-Host -Prompt "Password for break-glass account $($_)" -AsSecureString
+  $plain = [System.Net.NetworkCredential]::new('', $pw).Password
+
+  $profile = @{
+    Password                      = $plain
+    ForceChangePasswordNextSignIn = $false   # break-glass passwords are managed manually, not rotated on login
+  }
+
+  New-MgUser -DisplayName "Break Glass $($_)" \`
+             -UserPrincipalName "breakglass$($_)@yourtenant.onmicrosoft.com" \`
+             -MailNickname "breakglass$($_)" \`
+             -AccountEnabled \`
+             -PasswordProfile $profile
+}`}</PowerShellBlock>
+
+These accounts must be **cloud-only** so an on-prem AD or Entra Connect outage cannot affect them. Per Microsoft's emergency-access guidance, store the credentials offline, assign Global Administrator, monitor every sign-in, and review them on a schedule. You will reference them by object ID in every policy's exclusion list below.
+
+<WarStory title="The require-compliant-device policy that locked out an entire tenant">
+A mid-size firm's new Entra admin reads about Zero Trust and decides every user should be on a compliant, Intune-managed device before touching anything. Reasonable goal. He builds a single Conditional Access policy: target **All users**, target **All cloud apps**, grant control **require device to be marked as compliant**. He sets it straight to `enabled`. No exclusions. No report-only pass. No break-glass account.
+
+The problem: almost none of the devices in the tenant were Intune-enrolled yet — enrollment was the *next* project. The instant the policy went live, every sign-in evaluated against it, found a non-compliant device, and was blocked. Every administrator included. The admin who created the policy could not sign in to the portal to disable it, because signing in to the portal is itself a cloud-app sign-in that the policy now blocked. There was no excluded account that could get back in.
+
+The recovery required a Microsoft support case and hours of downtime. Two changes would have prevented all of it: a break-glass account excluded from the policy (Step 1), and a report-only validation pass (Step 4) that would have shown "this policy would block every sign-in in the tenant" before a single user was affected. He skipped both. Do not skip both.
+</WarStory>
+
+### Step 2: Build "Require MFA for administrators" <SC300Badge />
+
+The first real policy targets privileged directory roles, not individual users — role-based targeting means the policy automatically covers anyone who later gets the role. You can build this in the portal (Entra admin center → Protection → Conditional Access → New policy) and you should know the portal flow for the exam, but the Graph version below is the repeatable, reviewable, source-controllable way.
+
+Note the policy is created in **report-only** state (`enabledForReportingButNotEnforced`) — confirmed against MS Learn's `New-MgIdentityConditionalAccessPolicy` reference — and that the break-glass accounts are excluded.
+
+<PowerShellBlock title="Create the admin-MFA policy in report-only mode">{`Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess","Policy.Read.All"
+
+# Object IDs of the two break-glass accounts from Step 1
+$breakGlass = @(
+  (Get-MgUser -UserId "breakglass1@yourtenant.onmicrosoft.com").Id,
+  (Get-MgUser -UserId "breakglass2@yourtenant.onmicrosoft.com").Id
+)
+
+# Template ID for Global Administrator (well-known, stable across tenants).
+# Add the other privileged roles you want covered (User Admin, etc.).
+$adminRoleIds = @("62e90394-69f5-4237-9190-012177145e10")
+
+$policy = @{
+  DisplayName = "CA001 - Require MFA for administrators"
+  State       = "enabledForReportingButNotEnforced"   # report-only FIRST
+  Conditions  = @{
+    Users        = @{
+      IncludeRoles = $adminRoleIds
+      ExcludeUsers = $breakGlass
+    }
+    Applications = @{ IncludeApplications = @("All") }
+    ClientAppTypes = @("all")
+  }
+  GrantControls = @{
+    Operator        = "OR"
+    BuiltInControls = @("mfa")
+  }
+}
+
+New-MgIdentityConditionalAccessPolicy -BodyParameter $policy`}</PowerShellBlock>
+
+The hashtable shape mirrors the Graph JSON body: `conditions.users.includeRoles` scopes who is in, `conditions.users.excludeUsers` carves the break-glass accounts out, and `grantControls.builtInControls = ["mfa"]` with `operator = "OR"` is the requirement. Targeting `includeRoles` rather than a static group is the SC-300-preferred pattern because role membership is the thing you actually care about.
+
+### Step 3: Build "Block legacy authentication"
+
+Legacy authentication protocols — older mail clients, basic-auth POP/IMAP/SMTP, anything that cannot do modern interactive auth — cannot satisfy an MFA challenge. They are the path attackers use to bypass MFA entirely with password spray. Blocking them is one of the highest-value CA policies you can deploy, and Microsoft calls it out as a baseline.
+
+The condition that selects legacy clients is `clientAppTypes` set to the non-browser, non-modern values; the grant control is **block**. Again, created in report-only, break-glass excluded.
+
+<PowerShellBlock title="Create the block-legacy-auth policy in report-only mode">{`$legacyPolicy = @{
+  DisplayName = "CA002 - Block legacy authentication"
+  State       = "enabledForReportingButNotEnforced"   # report-only FIRST
+  Conditions  = @{
+    Users        = @{
+      IncludeUsers = @("All")
+      ExcludeUsers = $breakGlass
+    }
+    Applications = @{ IncludeApplications = @("All") }
+    # Legacy auth = the non-modern client app types
+    ClientAppTypes = @("exchangeActiveSync","other")
+  }
+  GrantControls = @{
+    Operator        = "OR"
+    BuiltInControls = @("block")
+  }
+}
+
+New-MgIdentityConditionalAccessPolicy -BodyParameter $legacyPolicy`}</PowerShellBlock>
+
+Setting `clientAppTypes` to `exchangeActiveSync` and `other` is what scopes the policy to legacy clients specifically — modern browser and mobile/desktop app sign-ins are not in that set, so they are not blocked. If you set `clientAppTypes` to `all` with a block control, you would block everyone, which is why the value matters.
+
+<ProTip>
+**Report-only is the seatbelt — wear it every time.** Both policies above were created with `State = "enabledForReportingButNotEnforced"`. That is not a typo or a placeholder you forgot to change. Report-only means Entra evaluates the policy against every real sign-in and records what *would* have happened, without actually enforcing it. You get a full picture of the blast radius before anyone is affected. The only correct lifecycle for a new CA policy is: create in report-only, watch the logs for days, then — and only then — flip to enabled. An admin who creates CA policies straight to `enabled` is one typo away from the war story above.
+</ProTip>
+
+### Step 4: Validate in report-only — What If and the sign-in logs <SC300Badge />
+
+You now have two policies running in report-only. Validate them two ways before enforcing.
+
+First, the **What If** tool (Entra admin center → Conditional Access → What If). You pick a user, an app, and conditions, and Entra tells you which policies would apply and what they would do. Run it for a test admin (expect: admin-MFA policy applies, MFA required) and for a break-glass account (expect: nothing applies — that is the whole point).
+
+Second, read the actual report-only results out of the sign-in logs. Each sign-in record carries an `appliedConditionalAccessPolicies` collection, and each entry has a `result` property. Report-only outcomes show up as `reportOnlySuccess`, `reportOnlyFailure`, `reportOnlyInterrupted`, or `reportOnlyNotApplied`. Per MS Learn, reading this collection requires a role that can read Conditional Access data, not just sign-in logs — if your account lacks it, the property is omitted entirely.
+
+<PowerShellBlock title="Inspect report-only results in the sign-in logs">{`Connect-MgGraph -Scopes "AuditLog.Read.All","Policy.Read.All"
+
+# Pull recent sign-ins and surface what each report-only policy would have done.
+$signIns = Get-MgAuditLogSignIn -Top 200
+
+$signIns | ForEach-Object {
+  $upn = $_.UserPrincipalName
+  foreach ($ca in $_.AppliedConditionalAccessPolicies) {
+    if ($ca.Result -like "reportOnly*") {
+      [PSCustomObject]@{
+        User       = $upn
+        PolicyName = $ca.DisplayName
+        Result     = $ca.Result   # reportOnlySuccess / reportOnlyFailure / reportOnlyNotApplied
+        SignInTime = $_.CreatedDateTime
+      }
+    }
+  }
+} | Sort-Object User, PolicyName | Format-Table -AutoSize`}</PowerShellBlock>
+
+What you are hunting for: any `reportOnlyFailure` that you did not intend. If your admin-MFA policy shows `reportOnlyFailure` for a service account that runs unattended and cannot do MFA, you have just discovered a thing you would have broken at enforcement time — and now you can fix the scope (exclude it, or move it to managed credentials) before it bites. A clean run shows `reportOnlySuccess` for legitimate admin sign-ins (they would have been prompted and passed) and `reportOnlyNotApplied` for everyone the policy was not meant to touch.
+
+### Step 5: Flip to enforced
+
+Once report-only shows no unintended blocks for a representative window of real sign-ins, change the state to `enabled`. Do one policy at a time and re-check after each.
+
+<PowerShellBlock title="Enable a validated policy">{`# Get the policy you validated and flip ONLY its state to enabled.
+$ca = Get-MgIdentityConditionalAccessPolicy -Filter "displayName eq 'CA001 - Require MFA for administrators'"
+
+Update-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId $ca.Id \`
+  -State "enabled"
+
+# Confirm the new state
+Get-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId $ca.Id |
+  Select-Object DisplayName, State`}</PowerShellBlock>
+
+Immediately after enabling, sign in as the test admin in a private browser window to confirm the MFA prompt fires — and confirm a break-glass account can still sign in unaffected. Keep that break-glass session in your back pocket until you are certain the enforced policy behaves.
+
+## Validation
+
+Prove the lab worked end to end:
+
+- **Test admin** signs in and is prompted for MFA (admin-MFA policy enforced).
+- **Break-glass account** signs in with no CA interference (it is excluded from every policy — verify via What If and a live sign-in).
+- **Legacy-auth client** (simulate by attempting a basic-auth IMAP/SMTP connection, or confirm via the report-only/enforced log result) is blocked.
+- `Get-MgIdentityConditionalAccessPolicy` shows your two policies with the expected `State`, `IncludeRoles`/`ClientAppTypes`, and the break-glass exclusion present on both.
+
+## Teardown
+
+Clean up so the lab is repeatable and so a half-built policy set cannot affect a shared dev tenant.
+
+<PowerShellBlock title="Tear down the lab policies">{`# Disable first (reversible), then delete the two lab policies.
+$names = @(
+  "CA001 - Require MFA for administrators",
+  "CA002 - Block legacy authentication"
+)
+
+foreach ($n in $names) {
+  $p = Get-MgIdentityConditionalAccessPolicy -Filter "displayName eq '$($n)'"
+  if ($p) {
+    Update-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId $p.Id -State "disabled"
+    Remove-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId $p.Id -WhatIf  # drop -WhatIf to actually delete
+  }
+}`}</PowerShellBlock>
+
+Delete the test policies but **keep the break-glass accounts and the practice of excluding them**. Break-glass is not a lab artifact — it is a permanent operational control you carry into every tenant you ever touch.
+
+## What this proves
+
+You can operate Entra's policy engine the way both the SC-300 exam and the job demand. You internalized the order that keeps you employed: break-glass accounts before any policy, report-only validation before any enforcement, one policy enabled and verified at a time. You can author a CA policy in the portal and reproduce it in Graph for review and version control. You know that role-scoped targeting beats static groups for admin MFA, that `clientAppTypes` is the lever that scopes legacy-auth blocking, and that `appliedConditionalAccessPolicies[].result` is where report-only tells you the future before it happens. That report-only-first, break-glass-always discipline is precisely what separates a Conditional Access deployment that hardens a bank from one that takes it offline.
+
+## Decision check
+
+<Quiz question={{
+  id: "12-labs/03-conditional-access-lab/q1",
+  prompt: "You are about to deploy a Conditional Access policy that requires a compliant device for all users on Microsoft Azure Management. What must already be true before you set the policy state to enabled, to avoid a tenant-wide admin lockout?",
+  options: [
+    "All user devices must be enrolled in Intune.",
+    "At least one excluded break-glass (emergency access) account exists, and the policy has been validated in report-only mode against real sign-ins.",
+    "The policy must target only guest users first.",
+    "Security defaults must be enabled alongside the policy."
+  ],
+  correctIndex: 1,
+  explanation: "Two safeguards prevent lockout: break-glass accounts excluded from all CA policies, and a report-only validation pass that shows who would be blocked before enforcement. Enrolling every device first is impractical and not the lockout safeguard; security defaults and CA are mutually exclusive."
+}} />
+
+## Recall drill
+
+<Flashcard front="What is the first thing you create before authoring ANY Conditional Access policy, and why?" back="Two break-glass (emergency access) cloud-only accounts excluded from all CA policies. They prevent a misconfigured policy from locking every admin out of the tenant. Microsoft requires this as a CA prerequisite." />
+<Flashcard front="What does the CA policy state 'enabledForReportingButNotEnforced' do?" back="Report-only mode: the policy is evaluated against real sign-ins and logged in appliedConditionalAccessPolicies, but not enforced. It surfaces who would be blocked before you flip the policy to 'enabled'." />

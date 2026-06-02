@@ -1,0 +1,168 @@
+{/* Product facts current as of 2026-06-01. Re-verify vendor-specific details against developer.hashicorp.com/vault before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **PAM concepts** Secrets management for dynamic, cloud-native, and DevOps environments — the secrets-as-code posture
+- **PAM concepts** Dynamic secrets and short-lived leases as the alternative to vaulting-and-rotating static credentials
+- **PAM concepts** Seal/unseal, the storage barrier, and the root-of-trust model for a software secrets platform
+- **Security+ SY0-701** Objective 4.1 — secrets management and key management as a service
+- **CISSP** Domain 3 (Security Architecture) — cryptographic key management; Domain 5 (IAM) — credential lifecycle and least privilege
+</HoloPanel>
+
+# HashiCorp Vault: Secrets as Code
+
+The PAM platforms in the previous three sections — CyberArk, BeyondTrust, Delinea — were built around a human at a keyboard. An administrator requests a credential, a session is brokered to a target, the session is recorded, the credential is rotated on check-in. That model is exactly right for the world it was designed for: a privileged human reaching a server. But it answers a different question than the one a modern application platform asks. When a Kubernetes pod spins up at 3am to run a batch job, there is no human, no PVWA login, no recorded RDP session. There is a workload that needs a database credential for ninety seconds and then disappears.
+
+HashiCorp Vault was built for that second question. It is a secrets-management and data-protection platform designed for dynamic, cloud-native, and DevOps environments — API-first, identity-brokered, and built so that secrets can be managed as code rather than provisioned by hand. If the dedicated PAM suites govern the privileged human, Vault governs the privileged machine. Understanding both, and where they overlap, is the difference between a PAM program that covers your data center and one that also covers your CI/CD pipeline.
+
+## What it is
+
+Vault is, at its simplest, an encrypted store and broker for secrets — but the word "secret" is doing a lot of work. A secret in Vault can be a static value you write and read back later (an API key, a connection string), a credential Vault generates on demand and then destroys, or a cryptographic operation Vault performs on your behalf without ever handing you a key. The platform is accessed almost entirely through a REST API and a thin CLI wrapper over that API. There is a web UI, but the design center is automation: Terraform writes policy, applications authenticate over the network, CI pipelines fetch credentials at build time.
+
+<Definition term="secrets engine">A pluggable backend mounted at a path inside Vault that stores or generates secrets. Different engines do fundamentally different jobs: the KV engine stores static key-value data, the database/AWS/PKI engines generate dynamic credentials on demand, and the Transit engine performs encryption as a service without storing anything. You can mount multiple engines, even multiple instances of the same engine type, each at its own path with its own configuration. The mounted path is part of the secret's address, so a database engine mounted at `database/` exposes credentials at `database/creds/<role>`.</Definition>
+
+The conceptual split that organizes everything in Vault is the difference between proving who you are and getting what you need. You authenticate through an **auth method**, which establishes your identity and issues you a token. You then use that token to read or generate secrets from a **secrets engine**. Identity goes in; access comes out. Hold that distinction — it is the single most important framing in the entire product, and it is the one most often confused.
+
+<Definition term="auth method">A pluggable mechanism by which a client proves its identity to Vault and, on success, receives a Vault token scoped by policy. Different auth methods suit different callers: AppRole for applications and CI systems, Kubernetes for pods using their service-account token, the AWS/Azure/GCP auth methods for workloads running in those clouds, and LDAP, OIDC, TLS certificates, or username-password for humans and edge cases. The auth method answers who; the token it issues, plus the policies attached to it, answers what.</Definition>
+
+Vault now sits inside IBM, which completed its acquisition of HashiCorp in early 2025 after announcing the deal in 2024. For the purposes of this section that ownership change is a footnote — the product concepts, the open-source Community edition, and the Enterprise tier all carry forward. When in doubt about a specific feature or licensing line, the authoritative source is the HashiCorp Vault documentation at developer.hashicorp.com/vault, which the acquisition has not displaced.
+
+## Why it exists
+
+The whole of Module 4 has been circling one idea: a long-lived privileged credential is an attack surface, and the job of PAM is to shrink that surface. The dedicated suites shrink it by vaulting the credential, rotating it on a schedule, and brokering its use so a human never sees it. That works, but the credential still exists. It sits in the vault between rotations. If rotation runs nightly, the credential lives for up to twenty-four hours. If a backup of the target system is exfiltrated, or the credential is captured in a memory dump, or rotation silently fails, the secret is valid for as long as it exists.
+
+Vault's founding insight is that the most secure credential is one that does not exist until the moment it is needed and ceases to exist shortly after. Instead of storing a database password and rotating it, Vault asks the database to mint a brand-new user the instant an application requests access, hands that application the freshly created credential, and then deletes the user when the lease expires. The credential's entire lifespan can be measured in minutes. There is no standing secret to steal because, most of the time, there is no secret at all.
+
+This is the secrets-as-code, dynamic-first posture, and it maps cleanly onto the way modern infrastructure is built. Servers are no longer pets you log into and configure by hand; they are cattle, provisioned by Terraform, scaled by Kubernetes, replaced on every deploy. A credential model built around a human requesting access through a portal does not fit a platform where ten thousand ephemeral workloads come and go every hour. Vault fits because it is itself an API that those workloads call, authenticating with an identity the platform already gave them, receiving a credential that lives no longer than they do.
+
+<ProTip title="Secrets vs sessions, one more time">
+Back in section 01 we drew the line between a vault (stores and rotates a secret) and a session broker (opens a connection so the operator never sees the secret). HashiCorp Vault adds a third category that beats both for machines: do not store the secret and do not broker a session — generate a fresh, short-lived credential per request and let it expire. For a human reaching a server, session brokering with credential injection is still the right control. For an application reaching a database, a dynamic secret with a sixty-minute lease is stronger than any rotation schedule, because the window of exposure is the lease, not the rotation interval.
+</ProTip>
+
+## How it works under the hood
+
+### Seal, unseal, and the barrier
+
+Everything Vault persists is encrypted. The component that does this is the **barrier**: a cryptographic boundary that sits between Vault's logic and its storage backend (Consul, an integrated Raft store, a cloud object store) so that nothing readable ever touches disk. The barrier is encrypted with an encryption key, and that key is itself encrypted with the master key. The master key is the thing that must be present in memory for Vault to function — and at startup, it is not.
+
+<Definition term="seal/unseal">When Vault starts, it is sealed: the storage barrier is encrypted and Vault holds no master key in memory, so it can read nothing and serve no requests. Unsealing is the process of reconstructing the master key so the barrier can be decrypted. By default this uses Shamir's Secret Sharing — the master key is split into several key shares, and a configured threshold of those shares (for example, three of five) must be supplied to reassemble it. Alternatively, auto-unseal delegates the unsealing to a cloud KMS or an HSM, so a trusted external service decrypts the master key automatically on startup.</Definition>
+
+Shamir's Secret Sharing is the part worth dwelling on, because it encodes a governance decision into cryptography. You initialize Vault and it hands you, say, five unseal key shares and a root token. No single share can unseal Vault; you need a threshold of them. So you distribute the shares to five different custodians, and unsealing requires at least three of them to act together. No one person can bring Vault online alone — that is dual control (really k-of-n control) built into the platform's bootstrap. In production, most operators move to auto-unseal so Vault can restart unattended, but the Shamir model is the conceptual default and the one cert exams test.
+
+The **root token** that initialization produces is the equivalent of root on a Unix box: unrestricted, bound by no policy. The standard practice is to use it once to configure an auth method and an admin policy, then revoke it. Leaving a live root token lying around is the Vault equivalent of leaving the default Administrator account enabled with a sticky note on the monitor.
+
+### Secrets engines: static, dynamic, and cryptographic
+
+Mounted secrets engines are where Vault does its work, and they fall into three meaningfully different categories.
+
+The first is **static storage**, served by the KV (key-value) engine. This is the engine that behaves most like a traditional vault: you write a value, you read it back later.
+
+<Definition term="KV v2">The second, versioned generation of Vault's key-value secrets engine. Where KV v1 is a simple unversioned store — a write overwrites the previous value with no history — KV v2 keeps a version history of every write, supports soft delete (a deleted version can be undeleted) and destroy (permanent removal), and stores custom metadata. KV v2 also changes the request path: the API addresses secret data at `secret/data/<path>` and metadata at `secret/metadata/<path>`, even though the CLI hides the `data/` segment so you still type `vault kv put secret/<path>`. That CLI-vs-API path difference is a classic gotcha when you write a Vault ACL policy by hand.</Definition>
+
+The second category, and the reason Vault exists, is **dynamic secrets**.
+
+<Definition term="dynamic secret">A credential that Vault generates on demand for a single requester rather than storing in advance. When an application asks the database secrets engine for credentials, Vault connects to the database, creates a brand-new user with the permissions defined by the requested role, and returns that unique credential bound to a lease. The credential did not exist a moment earlier and will be revoked — the database user deleted — when the lease expires. The same pattern drives the AWS engine (which mints temporary IAM credentials), the cloud engines for Azure and GCP, and the PKI engine (which issues short-lived X.509 certificates). The exposure window is the lease, not a rotation schedule, so it can be made arbitrarily small.</Definition>
+
+The third category is **cryptographic offload**, served by the Transit engine.
+
+<Definition term="Transit engine">Vault's encryption-as-a-service backend. Transit encrypts, decrypts, signs, verifies, and rotates keys for application data, but it never stores the data itself — the application sends plaintext and receives ciphertext, or vice versa, and keeps the ciphertext in its own database. The key material stays inside Vault and is never exposed to the application. This lets a developer add strong, centrally managed, rotatable encryption to an app without ever handling a raw key, and it keeps the keys subject to Vault's audit and access policy.</Definition>
+
+### Auth methods: how a client gets a token
+
+A secrets engine is useless to a caller who cannot first prove identity. That is the job of auth methods, and Vault ships many because the right one depends entirely on who is calling.
+
+<Definition term="AppRole">An auth method designed for applications and automated systems rather than humans. The application presents a `role_id` (which identifies the role, roughly a username) together with a `secret_id` (a credential, roughly a password) and receives a Vault token scoped by the policies attached to that role. AppRole is built so the two factors can be delivered through different channels — the `role_id` baked into config, the `secret_id` injected at runtime by a trusted orchestrator — so that neither alone is enough to authenticate. It is the workhorse for CI/CD pipelines and apps that cannot use a cloud-native identity.</Definition>
+
+The cloud and platform auth methods are even cleaner because they ride on an identity the platform already issued. The **Kubernetes** auth method lets a pod authenticate using its service-account JSON Web Token — Vault verifies the token against the cluster's API and issues a Vault token in return, with no secret to distribute. The **AWS, Azure, and GCP** auth methods do the analogous thing for workloads running in those clouds, trusting the cloud's own instance identity. For humans and legacy systems there are **LDAP, OIDC, TLS certificate, and username-password** methods. In every case the output is the same: a token, scoped by policy, with a lease.
+
+### Leases, renewal, and revocation
+
+The property that makes dynamic secrets safe is the lease.
+
+<Definition term="lease (TTL)">A time-bound contract Vault attaches to most tokens and to every dynamic secret. The lease carries a time-to-live (TTL) and a maximum TTL. While the lease is active the client can renew it to extend its life up to the maximum; when the lease expires, Vault automatically revokes the underlying secret — deleting the dynamic database user, invalidating the temporary IAM credential, and so on. An operator can also revoke a lease early, or revoke an entire prefix of leases at once, instantly killing every credential issued under that path. The lease is what turns a generated credential into a self-destructing one.</Definition>
+
+The revoke-by-prefix capability is worth internalizing because it is the incident-response superpower of the whole model. Suppose you discover that an application's host was compromised and every credential it fetched in the last hour may be in an attacker's hands. With static secrets you would be scrambling to rotate passwords across dozens of systems. With Vault you revoke the lease prefix — `vault lease revoke -prefix database/creds/app-role` — and every dynamic credential issued under that role dies at once, regardless of how many there were or how much TTL remained.
+
+<ProTip title="Revoke the prefix, not the credential">
+When a leak is suspected, do not hunt down individual credentials. Revoke the lease prefix for the affected role or mount in one command and Vault tears down every secret issued beneath it — every dynamic database user, every temporary IAM key, every issued certificate's backing lease — atomically. This is something a static-credential PAM model simply cannot do, because in that model the credentials are independent objects with no shared lease to pull.
+</ProTip>
+
+### Policies: least privilege as path capabilities
+
+A Vault token is only as powerful as the policies attached to it, and policies are where least privilege is expressed. A policy is an HCL (or JSON) document that grants capabilities on paths — `create`, `read`, `update`, `delete`, `list`, plus `sudo` for protected endpoints and `deny` to explicitly forbid. A policy that grants `read` on `secret/data/app/prod/db` and nothing else gives the bearer exactly one secret and no ability to discover, modify, or reach anything else.
+
+A representative policy and a couple of CLI calls make the model concrete:
+
+<PowerShellBlock>{`# Policy (HCL): read one app secret, generate dynamic DB creds, nothing else
+path "secret/data/app/prod/db" {
+  capabilities = ["read"]
+}
+path "database/creds/app-readonly" {
+  capabilities = ["read"]
+}
+
+# Write and read a static KV v2 secret (note: CLI hides the data/ path segment)
+vault kv put secret/app/prod/db username=svc_app password=initial-bootstrap
+vault kv get secret/app/prod/db
+
+# Request a dynamic database credential — Vault mints a fresh DB user, leased
+vault read database/creds/app-readonly
+# -> username: v-approle-app-readonly-3xKf...   (unique, short-lived)
+# -> password: A1a-randomly-generated...
+# -> lease_duration: 1h   (auto-revoked when it expires)`}</PowerShellBlock>
+
+Policies attach to tokens by way of the auth method: when you configure an AppRole or a Kubernetes role, you list the policies its tokens should carry. So the chain reads — auth method authenticates the caller, issues a token, the token carries policies, the policies grant path capabilities, the capabilities reach into secrets engines. Identity in, scoped access out, every step auditable.
+
+### Identity and namespaces
+
+Because a single human or workload may authenticate through more than one method over time, Vault's identity system unifies them. An **entity** represents a single logical identity, and **aliases** map that entity to its logins across different auth methods, so policy and metadata can attach to the person or workload rather than to one login. For larger deployments, Vault Enterprise adds **namespaces** — self-contained, isolated tenants within a single Vault cluster, each with its own policies, auth methods, and secrets engines, so different teams or business units can administer their own Vault without seeing each other's. Namespaces are an Enterprise capability; the Community edition is single-namespace.
+
+## War story
+
+<WarStory title="The static key in the repo vs the sixty-minute lease">
+A regional bank's digital-banking team shipped a microservice that pulled transaction data from a reporting database. Under deadline pressure, a developer did the fast thing: put the database service-account username and password directly into the application's configuration file, checked it into the internal Git repository, and moved on. The credential was a standing one — created once, no rotation, full read access to a database holding customer transaction history.
+
+Eighteen months later, during a routine secret-scanning sweep that security had finally rolled out across the source-control system, the scanner flagged the plaintext password sitting in the repo history. The credential had been valid that entire time. Worse, the repo had been cloned to a dozen developer laptops, copied into two CI runners, and forked into an archived project nobody owned anymore. The security team could not answer the only question that mattered to the examiners: had this credential ever been used by someone who should not have had it? The database's own logs only showed the service account connecting — which was expected — so there was no clean way to distinguish legitimate use from abuse. The remediation was a fire drill: rotate the password, hunt down every copy of the config, redeploy the service, and write an incident memo explaining an eighteen-month exposure window to the audit committee.
+
+The team's fix was to move the reporting service to Vault's database secrets engine. The application now authenticates to Vault with AppRole at startup, requests a credential from `database/creds/reporting-readonly`, and receives a uniquely named database user with a sixty-minute lease. Vault deletes that user when the lease expires; the application simply requests a new one. There is no password in the repo, no password in the config, no standing credential to leak. When the team later simulated a compromised host as a tabletop exercise, the response was a single `vault lease revoke -prefix database/creds/reporting-readonly`, which killed every outstanding credential in seconds — and because each credential was a distinct database user, the database logs now showed exactly which generated identity did what.
+
+The lesson generalizes past banking. In a defense or healthcare context the same static-secret-in-config pattern shows up in connection strings for clinical or logistics systems, and the same dynamic-secret remediation applies. The deeper point is the one this whole module turns on: a credential that exists for eighteen months is an eighteen-month liability, and a credential that exists for sixty minutes is a sixty-minute one. Vault does not make the credential more secret. It makes it shorter-lived, and time is the variable that matters most.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="What is a HashiCorp Vault dynamic secret?" back="A credential Vault generates on demand for a short lease rather than storing a pre-existing one — for example a unique database user minted per request — which auto-expires and is auto-revoked at lease end, shrinking the credential's exposure to near zero rather than to a rotation interval." />
+<Flashcard front="What is a secrets engine in HashiCorp Vault?" back="A pluggable backend mounted at a path that stores or generates secrets — KV (static key-value), database/AWS/PKI (dynamic credentials), and Transit (encryption-as-a-service) — each with its own API and behavior. The mount path is part of the secret's address." />
+<Flashcard front="What is a Vault lease and why does it matter?" back="Every dynamic secret and most tokens carry a lease with a TTL and a max TTL; clients renew before expiry and Vault auto-revokes at the end. An operator can also revoke a single lease or a whole prefix to instantly kill leaked credentials, which is the dynamic-secrets safety property." />
+<Flashcard front="In HashiCorp Vault, what is the difference between an auth method and a secrets engine?" back="An auth method (AppRole, Kubernetes, AWS/Azure/GCP IAM, LDAP, OIDC, TLS) proves WHO a client is and issues a scoped token; a secrets engine determines WHAT secret that token can read or generate. Auth equals identity in, engine equals access out." />
+<Flashcard front="What is the AppRole auth method used for in Vault?" back="Machine and automation authentication: an application presents a role_id plus a secret_id to obtain a scoped Vault token, with the two factors deliverable through separate channels so neither alone authenticates. It is the workhorse for CI/CD pipelines and apps that cannot use a cloud-native identity." />
+<Flashcard front="What is the seal/unseal process in HashiCorp Vault?" back="Vault starts sealed with its storage barrier encrypted and no master key in memory, so it serves nothing. Unsealing reconstructs the master key from a Shamir threshold of key shares (for example three of five) or via cloud-KMS/HSM auto-unseal, after which the barrier decrypts and Vault serves requests." />
+<Flashcard front="What is the difference between KV v1 and KV v2 in Vault?" back="KV v1 is a simple unversioned store where a write overwrites the prior value. KV v2 adds version history, soft delete and destroy, and custom metadata, and addresses data at secret/data/<path> and metadata at secret/metadata/<path> over the API even though the CLI hides the data/ segment." />
+<Flashcard front="What does the Vault Transit engine do?" back="Encryption as a service: Vault encrypts, decrypts, signs, verifies, and rotates keys for application data without ever storing the data itself. The app sends plaintext and keeps the returned ciphertext, while the key material stays inside Vault, so apps offload cryptography without holding key material." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "04-pam/04-hashicorp-vault/q1",
+  prompt: "An application needs database access for a 30-minute batch job. Using HashiCorp Vault's database secrets engine, what does the application receive, and what happens afterward?",
+  options: [
+    "A permanent shared DB account stored in the KV engine that it reuses every run.",
+    "A uniquely generated, short-lived DB credential tied to a lease that Vault auto-revokes when the lease expires.",
+    "The DBA's password injected over an SSH session brokered by Vault.",
+    "A static API key that Vault rotates on a nightly schedule."
+  ],
+  correctIndex: 1,
+  explanation: "The database secrets engine generates a unique, on-demand database user per request, bound to a lease and TTL. When the lease ends, Vault automatically revokes the credential by deleting that user, so it cannot be reused or leaked beyond its short window. That is the core benefit of dynamic secrets — the exposure window is the lease, not a rotation interval. Vault is not a session broker, so injecting a DBA password over SSH is the wrong model, and a nightly-rotated static key still leaves a standing credential."
+}} />
+
+<Quiz question={{
+  id: "04-pam/04-hashicorp-vault/q2",
+  prompt: "In HashiCorp Vault, what is the relationship between an auth method and a secrets engine?",
+  options: [
+    "They are two names for the same component.",
+    "The auth method proves the client's identity and issues a token; the secrets engine determines which secret that token can obtain.",
+    "The secrets engine authenticates users while the auth method stores the passwords.",
+    "Both are available only in Vault Enterprise and require a namespace."
+  ],
+  correctIndex: 1,
+  explanation: "Auth methods such as AppRole, Kubernetes, cloud IAM, LDAP, OIDC, and TLS establish who the client is and mint a scoped token. Secrets engines such as KV, database, AWS, PKI, and Transit determine what secret that token can read or generate. Identity in, access out. They are distinct components, the roles are not reversed, and both are core capabilities available in the Community edition — namespaces are the Enterprise feature, not auth methods or engines themselves."
+}} />

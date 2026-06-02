@@ -1,0 +1,169 @@
+{/* Objectives current as of 2026-06-01. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Plan and implement privileged access — Entra Privileged Identity Management (PIM): eligible vs active assignments, activation, approval, and access reviews
+- **SC-300** Plan and implement identity governance — just-in-time privileged role activation as audit evidence
+- The cloud reframing of PAM — role activation and ephemeral credentials instead of vaulted static passwords
+- AWS-native privileged session isolation — Systems Manager Session Manager, STS AssumeRole, and IAM Identity Center
+- GCP-native privileged access — OS Login, IAM Conditions, and Identity-Aware Proxy (IAP)
+- When native cloud PAM is enough, and when a dedicated PAM platform still wins
+</HoloPanel>
+
+# Cloud-Native PAM: PIM, Session Manager & OS Login
+
+The first four sections of this module taught PAM the way it grew up: a hardened vault, a session broker, a rotation engine, and an analytics layer, all sitting in your data center watching over your servers. That model still matters — most banks run it for their on-prem and core-banking estates. But the moment your privileged targets move into a public cloud, the shape of the problem changes. There is often no password to vault. There is a *role* to activate, and a short-lived credential that the platform mints, hands out, and revokes on its own clock. Each of the three major clouds ships its own native answer to privileged access, and you cannot design a real PAM program for a hybrid bank without knowing all three. This is also where Module 4 touches the SC-300 exam most directly: Microsoft's Privileged Identity Management is the cloud-native PAM control Microsoft expects you to plan and implement.
+
+## What it is
+
+Cloud-native PAM is the set of capabilities each cloud provider builds *into* its own identity and infrastructure plane to control privileged access — without a third-party product. Where a classic PAM suite vaults a standing password and brokers a recorded session, the cloud-native pattern usually does two different things: it grants privilege *just-in-time* by activating a role for a bounded window, and it issues *ephemeral* credentials that expire on their own. The credential frequently never pre-exists as a stored secret at all — which is exactly the property HashiCorp Vault's dynamic secrets chase, only here it is baked into the platform.
+
+Three pillars, one per cloud, anchor this section:
+
+- **Azure / Microsoft Entra — Privileged Identity Management (PIM).** Just-in-time activation of Entra directory roles and Azure resource roles, with MFA, justification, approval, time limits, and access reviews.
+- **AWS — Systems Manager Session Manager + STS.** Brokered, logged, keyless shell access to instances, plus short-lived credentials issued by the Security Token Service when a principal assumes a role.
+- **GCP — OS Login + IAP + IAM Conditions.** SSH access tied to IAM identities, brokered connectivity without public IPs, and conditional, time-bounded grants.
+
+<Definition term="cloud-native PAM">Privileged-access controls built directly into a cloud provider's identity and infrastructure plane — just-in-time role activation and ephemeral, auto-expiring credentials — rather than supplied by a dedicated third-party PAM product. The defining shift is from vaulting a standing secret to activating a role and minting a short-lived credential the platform revokes on its own.</Definition>
+
+The conceptual through-line from section 01 still holds: secrets-at-rest versus sessions. Cloud-native PAM mostly attacks the secrets-at-rest problem by making the secret not exist at rest — a temporary token with a tight time-to-live replaces a long-lived access key. The session-recording side (the PSM tier) is thinner natively; AWS Session Manager records, Azure and GCP lean on activity logs and broker layers. That gap is one of the main reasons dedicated PAM platforms still earn their keep in regulated shops, which is where this section lands at the end.
+
+## Why it exists
+
+The on-prem PAM model assumes the thing you are protecting is a password that lives somewhere and must be discovered, vaulted, and rotated. In a cloud account that assumption breaks in two ways.
+
+First, the highest-value privileged identities in the cloud are not service-account passwords — they are **roles**. An Entra Global Administrator, an AWS account with broad IAM permissions, a GCP Organization Administrator: these are identities whose power comes from a role assignment, not from holding a particular secret. Vaulting a password does nothing about a user who simply *is* a permanent Global Administrator 24 hours a day. The native answer is to stop making the assignment permanent — make it eligible, activate it on demand, expire it.
+
+Second, the long-lived credential that cloud workloads historically used — an AWS access key, a static service-account key file — became the single most leaked secret class on the internet. They get committed to public Git repos, baked into container images, and dropped in plaintext config. Once leaked, a standing key works until somebody notices and rotates it, which is often weeks. The native answer is to stop issuing long-lived keys at all: assume a role and receive a credential that dies in an hour. Shrink the window from "until rotation" to "until the lease expires."
+
+So cloud-native PAM exists because the cloud reframed privileged access around two new primitives — role activation and ephemeral credentials — that the vault-and-broker model was never designed to govern.
+
+## How it works under the hood
+
+### Azure / Entra — Privileged Identity Management (PIM) <SC300Badge />
+
+PIM is Microsoft's just-in-time privileged-access control, and it is the SC-300 anchor of this entire module. Module 3's Entra ID section introduced PIM as one tool among many; here we treat it as the cloud-native PAM control in its own right.
+
+The core distinction is **eligible** versus **active** assignment.
+
+<Definition term="eligible assignment (PIM)">An assignment that gives a user the right to activate a privileged role just-in-time, but grants no privilege until they do. To activate, the user requests the role through PIM, satisfies the configured requirements (MFA, business justification, and optionally approval by a second party), and then holds the role only for a bounded duration — commonly one to a few hours — before it automatically expires. Contrast with an active assignment, where the user holds the role right now.</Definition>
+
+An **active** assignment means the user holds the role at this moment. PIM can still manage an active assignment and time-bound it so there are no permanent active privileged roles — but the governance ideal is *eligible-only* for privileged roles. No human should be a permanent, always-on Global Administrator. Every admin gets an eligible assignment; they activate when they have work to do; the role evaporates afterward. That is just-in-time and least-standing-privilege expressed natively in Entra.
+
+PIM governs three scopes, and SC-300 expects you to know all three:
+
+- **Entra (directory) roles** — Global Administrator, Privileged Role Administrator, User Administrator, and the rest of the directory role catalog.
+- **Azure (ARM) resource roles** — Owner, Contributor, and custom roles scoped to subscriptions, resource groups, and individual resources.
+- **PIM for Groups** — eligibility and activation for membership or ownership of a role-assignable group, which lets you front a bundle of permissions behind a single activation.
+
+Around activation, PIM gives you the governance dials: activation duration limits, whether MFA is required at activation, whether a justification or ticket number is mandatory, whether a second approver must sign off, and alerting on suspicious activations. It also runs **access reviews** — recurring attestation campaigns where a reviewer confirms whether a user should still be eligible for a privileged role — which is the identity-governance side of the SC-300 objective.
+
+The payoff for a regulated bank is audit evidence. Every eligible-role activation, the justification entered, who approved it, and when it expired are all logged. For an FFIEC examiner or a SOX ITGC test, PIM activation history is first-class proof that privileged access was time-bound and controlled rather than standing and unaccountable. That is a different and stronger story than "we rotate the admin password quarterly."
+
+**Licensing.** PIM is a premium identity-governance capability — it is not in the free tier. It requires Microsoft Entra ID P2 (or the newer Entra ID Governance license that carries the same capabilities), consistent with what Module 3 teaches: PIM, Identity Protection, access reviews, and entitlement management all sit above the free and P1 tiers. On the exam, a scenario that mentions just-in-time role activation is signaling P2.
+
+<ProTip>
+On SC-300, the most common PIM trap is the user who is *eligible* for a role and complains they cannot do admin work. That is not a bug — eligible means they have to activate first. The right answer is almost always activate the role in PIM (with MFA and justification), not grant a permanent active assignment. Reach for an active assignment only for break-glass-style accounts, and even then time-bound it.
+</ProTip>
+
+### AWS — Systems Manager Session Manager and STS
+
+AWS does not ship a single product called PAM; it composes the function from identity and infrastructure services. Two of them carry the load.
+
+**Systems Manager Session Manager** is AWS-native privileged session isolation. An administrator opens an interactive shell, an RDP session, or a port-forward to an EC2 instance (or an on-prem server registered as a managed instance) *through* the AWS Systems Manager agent and the AWS API — not over an inbound network connection. The instance needs no open inbound SSH or RDP port, no public IP, no bastion host, and no SSH key distribution. Access is authorized by IAM policy, and the session can be logged to Amazon CloudWatch Logs and Amazon S3 for audit. That is the bastionless, keyless equivalent of a PSM jump host: the connection is brokered and recorded, and the attack surface of open management ports simply disappears.
+
+<ProTip>
+Session Manager kills the bastion. The classic finding in a cloud security review is a jump box sitting in a public subnet with port 22 open to the world and an SSH key everyone shares. Replace it with Session Manager and you delete the inbound port, the public IP, and the shared key in one move — and you gain a logged session for free. When a reviewer asks how admins reach instances without open ports, bastions, or SSH keys, Session Manager is the answer.
+</ProTip>
+
+The credential side is **STS — the Security Token Service.**
+
+<Definition term="AWS STS AssumeRole / temporary credentials">When an IAM principal assumes a role, the AWS Security Token Service issues short-lived, scoped credentials — an access key, a secret key, and a session token with a limited time-to-live — instead of a long-lived access key. This is the AWS-native just-in-time credential pattern: the credential exists only for the session and expires automatically, so a leaked key is useless once its short window closes.</Definition>
+
+AssumeRole is the cloud-native dynamic credential in spirit. Rather than minting a permanent access key for a user or application and praying it never leaks, you grant the ability to assume a role and let STS hand out a credential that dies in minutes to hours. **IAM Identity Center** (the SSO service, formerly AWS SSO) builds the human-facing version on top: permission sets give users time-bound, federated console and CLI access across multiple AWS accounts, with no standing keys to manage. The deeper AWS IAM and STS mechanics live in Module 7 — here the point is that AWS's privileged-access answer is brokered sessions plus ephemeral credentials, not a vault.
+
+### GCP — OS Login, IAP, and IAM Conditions
+
+Google Cloud follows the same philosophy — tie everything to IAM identities and avoid standing secrets — with its own primitives.
+
+<Definition term="OS Login">A Google Cloud feature that ties Linux SSH access on Compute Engine instances to Google IAM identities and roles instead of per-host authorized_keys files. Granting the roles/compute.osLogin role gives a user normal (non-sudo) login; roles/compute.osAdminLogin grants login with sudo (root) privileges. SSH key and access lifecycle is centralized in IAM, so deprovisioning a user in IAM removes their access everywhere at once rather than leaving stale keys scattered across hosts.</Definition>
+
+The pre-OS-Login world managed SSH access by pushing public keys into each instance's metadata and into per-user authorized_keys files — a scattering of keys nobody tracked, where an offboarded engineer's key could linger on a forgotten host for years. OS Login replaces that with IAM: access is evaluated against the user's IAM roles every time they connect, and removing the IAM binding removes the access. The two roles map cleanly to least privilege — roles/compute.osLogin for an operator who needs a shell, roles/compute.osAdminLogin for one who genuinely needs root.
+
+For brokered connectivity, GCP offers **Identity-Aware Proxy.**
+
+<Definition term="Identity-Aware Proxy (IAP)">A Google Cloud service that brokers TCP, SSH, and RDP access to instances without exposing them via public IP addresses or a VPN, with every connection authorized by IAM. IAP is the GCP-native equivalent of a bastion-less, identity-gated session path: the instance stays private, and IAP forwards the connection only for principals whose IAM policy permits it.</Definition>
+
+Alongside these, **IAM Conditions** let you attach conditions to a role grant — time windows, resource attributes, request context — so privilege can be made temporary and contextual rather than standing. Combined with short-lived service-account credentials (the GCP equivalent of STS-minted tokens), these are the GCP-native just-in-time and ephemeral-credential patterns. The deeper GCP IAM material lives in Module 7; here the takeaway is symmetry: IAM-tied SSH (OS Login), bastionless brokering (IAP), and conditional, short-lived grants.
+
+### Native vs dedicated PAM — when each wins
+
+The honest framing is *complementary*, not competitive. Native cloud PAM is strong, free with the platform, and deeply integrated — it is the right default for a single-cloud, infrastructure-as-code shop whose privileged targets all live in one provider. PIM governs the Entra and Azure control plane beautifully; Session Manager and STS cover AWS; OS Login and IAP cover GCP.
+
+But dedicated PAM platforms (CyberArk, BeyondTrust, Delinea) still win in three situations a bank routinely hits. First, **multi-cloud plus on-prem unification** — one consistent vault, one session-recording standard, and one audit story across AWS, Azure, GCP, and the data-center estate, instead of three native models plus a legacy vault that examiners must each be walked through separately. Second, **human privileged-session governance** across heterogeneous targets — consistent keystroke-and-video recording, live monitoring, and termination on network gear, databases, and legacy systems the native tools do not reach. Third, **uniform policy and evidence** — a single Master Policy and a single source of session recordings, rather than reconstructing who-did-what from three different cloud activity logs.
+
+The pattern in most regulated hybrids: use the native controls where they are strong (absolutely use PIM for the Entra control plane), and layer a dedicated PAM platform on top to unify recording, vaulting of the credentials that still must be vaulted, and cross-estate audit. Native and dedicated PAM are two layers of the same program, not an either-or. (For the AWS, Azure, and GCP IAM deep dives behind these primitives, see Module 7; for the Entra PIM foundations, see Module 3's Entra ID section.)
+
+## War story
+
+<WarStory title="The Access Key in the Public Repo vs the One-Hour Token">
+A regional bank stood up a new digital-lending platform in AWS, moving fast. To let the build pipeline deploy, an engineer generated a long-lived IAM access key with broad permissions and pasted it into a configuration file. The file went into a repository that — through a misconfigured fork — was briefly public. An automated scanner that crawls public Git for AWS keys found it in under five minutes. Within the hour, the key was being used from an unfamiliar region to spin up expensive compute for cryptomining and to enumerate S3 buckets.
+
+The bank caught it because billing anomaly alerts fired and a CloudTrail review showed API calls from an IP nobody recognized. The key was disabled, the repo locked down, and the compute torn down — but the incident review was ugly. The credential had standing, broad rights and no expiry, so from the moment it leaked it was fully live, and it stayed live until a human noticed. The window of exposure was "until we caught it," which on a quieter day could have been weeks.
+
+The remediation was a cloud-native PAM redesign, not a better password policy. The pipeline was moved to an IAM role assumed via the platform's OIDC trust, so it received STS credentials with a one-hour lifetime instead of a permanent key — a leaked token would have been dead long before a scanner could weaponize it. Human admin access to instances was moved entirely to Systems Manager Session Manager: the team deleted the bastion host, closed inbound port 22 across the fleet, and removed shared SSH keys, gaining logged sessions in the process. On the Microsoft side, the same review found three permanent active Global Administrators in the corporate tenant; those were converted to PIM eligible assignments requiring MFA, justification, and approval, so the standing administrative footprint dropped to zero between activations.
+
+The lesson the examiners wrote down: the failure was not that a secret leaked — secrets always eventually leak. The failure was that the secret was *standing and long-lived* when the cloud offered ephemeral, just-in-time alternatives for free. STS tokens, Session Manager, and PIM activation each shrink the blast radius from "until someone notices" to "until the lease expires." In a defense or healthcare context the same redesign applies — the standing credential is the vulnerability, and the cloud's native PAM primitives exist specifically to eliminate it.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="In Entra PIM, what is the difference between an eligible and an active role assignment?" back="Eligible means the user may activate the role just-in-time, with MFA, justification, and optional approval, and holds no privilege until they do. Active means the user holds the role right now. PIM can time-bound both, but the governance ideal is eligible-only for privileged roles so the role is held only for the short activation window." />
+<Flashcard front="Which Entra license tier is required for Privileged Identity Management?" back="Microsoft Entra ID P2 (or the newer Entra ID Governance license that carries the same capabilities). PIM, Identity Protection, access reviews, and entitlement management all sit above the free and P1 tiers, consistent with the Entra ID licensing covered in Module 3." />
+<Flashcard front="Which three scopes does Entra PIM govern?" back="Entra (directory) roles such as Global Administrator, Azure (ARM) resource roles such as Owner and Contributor scoped to subscriptions and resource groups, and PIM for Groups, which provides eligibility and activation for membership or ownership of a role-assignable group." />
+<Flashcard front="How does Entra PIM produce audit evidence for compliance?" back="Every eligible-role activation, the justification entered, the approver, and the expiration time are logged. For FFIEC or SOX ITGC testing, PIM activation history is first-class evidence that privileged access was time-bound and controlled rather than standing and unaccountable." />
+<Flashcard front="What does AWS Systems Manager Session Manager provide?" back="Brokered, fully logged shell, RDP, and port-forward access to EC2 and on-prem managed instances through the SSM agent and the AWS API, with no open inbound ports, no bastion host, and no SSH keys. Sessions can be logged to CloudWatch Logs and S3 — AWS-native privileged session isolation." />
+<Flashcard front="What is AWS STS AssumeRole and why is it the cloud just-in-time credential pattern?" back="When a principal assumes a role, the Security Token Service issues short-lived, scoped credentials (access key, secret key, session token) with a limited TTL instead of a long-lived access key. The credential expires automatically, so a leaked token is useless once its short window closes — the AWS-native way to grant temporary privileged access." />
+<Flashcard front="What does GCP OS Login do, and which two IAM roles control it?" back="OS Login binds Linux SSH access to Google IAM identities and roles instead of per-host authorized_keys files, centralizing key and access lifecycle in IAM. The roles/compute.osLogin role grants normal login without sudo; the roles/compute.osAdminLogin role grants login with sudo (root) privileges." />
+<Flashcard front="What is GCP Identity-Aware Proxy (IAP) used for in a PAM context?" back="IAP brokers TCP, SSH, and RDP access to instances without exposing them via public IPs or a VPN, with every connection authorized by IAM. It is the GCP-native equivalent of a bastion-less, identity-gated session path: the instance stays private and IAP forwards the connection only for permitted principals." />
+<Flashcard front="When do you choose native cloud PAM over a dedicated PAM platform, and when the reverse?" back="Native PAM (PIM, Session Manager, OS Login, IAP) fits single-cloud, infrastructure-as-code shops and is the right default for the cloud control plane. Dedicated PAM (CyberArk, BeyondTrust, Delinea) wins for multi-cloud plus on-prem unification, consistent session recording across heterogeneous targets, and one audit story. In regulated hybrids they are complementary layers, not an either-or." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "04-pam/05-cloud-native-pam/q1",
+  prompt: "A user is configured as eligible for the Global Administrator role in Entra Privileged Identity Management but reports she cannot perform admin tasks. What is the correct explanation?",
+  options: [
+    "Eligible assignments never grant access; she needs a permanent active assignment instead.",
+    "She must activate the role in PIM, completing MFA and justification, after which it is granted for the configured window.",
+    "PIM eligible roles only work during business hours.",
+    "Conditional Access is silently blocking PIM activation for her account."
+  ],
+  correctIndex: 1,
+  explanation: "An eligible assignment means the user may activate the role just-in-time — she holds no privilege until she activates it through PIM, completing any configured MFA, justification, or approval, after which the role is granted for a bounded duration. This is expected PIM behavior, not a fault. The fix is to activate the role, not to hand out a permanent active assignment."
+}} />
+
+<Quiz question={{
+  id: "04-pam/05-cloud-native-pam/q2",
+  prompt: "A bank wants administrators to reach EC2 instances for troubleshooting without opening inbound SSH or RDP ports, managing SSH keys, or running a bastion host, while keeping a full session log. Which AWS service fits?",
+  options: [
+    "AWS IAM long-lived access keys distributed to each administrator.",
+    "AWS Systems Manager Session Manager.",
+    "Amazon Cognito user pools.",
+    "AWS Directory Service."
+  ],
+  correctIndex: 1,
+  explanation: "Session Manager brokers shell, RDP, and port-forward access through the SSM agent and the AWS API with no open inbound ports, no bastion, and no SSH keys, and can log sessions to CloudWatch and S3. That is AWS-native privileged session isolation. Access keys, Cognito, and Directory Service do not provide bastionless, logged interactive access."
+}} />
+
+<Quiz question={{
+  id: "04-pam/05-cloud-native-pam/q3",
+  prompt: "Which GCP feature ties Linux SSH access to Google IAM identities instead of managing per-host authorized_keys files, and which role grants login with sudo?",
+  options: [
+    "Cloud KMS, with the roles/cloudkms.admin role for sudo access.",
+    "OS Login, with the roles/compute.osAdminLogin role granting login with sudo (root).",
+    "VPC Service Controls, with the roles/compute.osLogin role granting sudo.",
+    "Secret Manager, with the roles/secretmanager.admin role granting sudo."
+  ],
+  correctIndex: 1,
+  explanation: "OS Login associates SSH access with Google IAM users and roles, centralizing SSH key and access lifecycle in IAM rather than scattering authorized_keys across hosts. The roles/compute.osLogin role grants normal login without sudo, while roles/compute.osAdminLogin grants login with sudo (root) privileges. Cloud KMS, VPC Service Controls, and Secret Manager are unrelated to SSH login binding."
+}} />

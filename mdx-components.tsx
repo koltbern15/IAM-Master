@@ -13,6 +13,9 @@ import { SAMLFlowDiagram } from '@/components/diagrams/SAMLFlowDiagram'
 import { OAuthFlowDiagram } from '@/components/diagrams/OAuthFlowDiagram'
 import { HybridIdentityDiagram } from '@/components/diagrams/HybridIdentityDiagram'
 import { EcosystemMap } from '@/components/diagrams/EcosystemMap'
+import { CyberArkArchDiagram } from '@/components/diagrams/CyberArkArchDiagram'
+import { SailPointAggregationDiagram } from '@/components/diagrams/SailPointAggregationDiagram'
+import { AWSIAMEvalDiagram } from '@/components/diagrams/AWSIAMEvalDiagram'
 
 export function useMDXComponents(components: MDXComponents): MDXComponents {
   return {
@@ -30,6 +33,9 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     SAMLFlowDiagram,
     OAuthFlowDiagram,
     HybridIdentityDiagram,
-    EcosystemMap
+    EcosystemMap,
+    CyberArkArchDiagram,
+    SailPointAggregationDiagram,
+    AWSIAMEvalDiagram
   }
 }

@@ -1,0 +1,169 @@
+{/* Objectives current as of 2026-06-01. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **MITRE ATT&CK Enterprise** — TA0006 Credential Access, TA0008 Lateral Movement, TA0004 Privilege Escalation (the identity kill chain)
+- **MITRE ATT&CK techniques** — T1558 (Kerberos ticket theft/forgery) and sub-techniques, T1550 (alternate auth material), T1003 (credential dumping), T1528 (steal app access token)
+- **Security+ SY0-701** Objective 2.4 — credential-based and on-path attacks; Objective 4.1 — secure baselines that mitigate them
+- **CISSP** Domain 5 (Identity & Access Management) — credential management attacks and the trust material that underpins authentication
+- **SC-300 (indirect)** — the threat model that risk-based Conditional Access and Identity Protection exist to defend against
+</HoloPanel>
+
+# Identity Attack Techniques
+
+Every other section in this module — the detection products, the KQL hunts, the incident-response runbooks — exists to answer one question: how does an attacker turn a single foothold into total control of your identity plane, and where in that chain can you see them? This section is the threat model. It is the offense you have to understand before any of the defense makes sense.
+
+The protocol mechanics live in Module 2 (`02-protocols/01-kerberos.mdx` walks the AS-REQ / AS-REP / TGS-REQ / TGS-REP exchange and the role of the `krbtgt` account). We do not re-derive Kerberos here. We *attack* it. If a term like "TGT" or "service ticket" is fuzzy, go back to that section first — this one assumes you already know how the tickets are minted so we can talk about how they are stolen and forged.
+
+## What it is — the identity kill chain
+
+Adversaries do not think in products; they think in objectives. The MITRE ATT&CK Enterprise matrix organizes those objectives into tactics, and three of them carry almost every identity attack you will ever see:
+
+- **TA0006 Credential Access** — get usable credential material (hashes, tickets, tokens, plaintext).
+- **TA0008 Lateral Movement** — reuse that material to move from machine to machine and account to account.
+- **TA0004 Privilege Escalation** — climb from an ordinary user to Domain Admin or Global Administrator.
+
+The techniques below are the *moves* inside those tactics. They chain. A realistic intrusion runs phishing or credential theft, then dumps credentials from memory, then reuses a hash or ticket to move laterally, then replicates the directory to steal the `krbtgt` key, then forges a Golden Ticket to own the forest. Each step is a distinct ATT&CK technique with a distinct detection. Learn them as a sequence, not a list.
+
+<Definition term="MITRE ATT&CK technique ID">A stable identifier (e.g., T1558.003) for a specific adversary behavior in the MITRE ATT&CK knowledge base. The parent number (T1558) names the technique family; the suffix (.003) names a sub-technique. Citing the ID makes a detection unambiguous across vendors — Defender for Identity, CrowdStrike, and a Sentinel analytics rule can all reference the same T-number, so your alert tuning and your threat model speak the same language.</Definition>
+
+## How it works under the hood — the credential-access attacks
+
+### Kerberoasting (T1558.003)
+
+This is the most common Kerberos attack you will encounter, and it is brutally simple. Any *authenticated* domain user — no special privilege required — can ask the KDC for a service ticket (TGS) for any account that has a Service Principal Name (SPN) registered. The KDC hands one over and encrypts part of it with the **service account's long-term key**, which is derived directly from that account's password.
+
+<Definition term="Kerberoasting">An attack in which an authenticated domain user requests Kerberos service tickets (TGS) for accounts that have an SPN, exports the tickets, and cracks them offline to recover the service account password. Because the service-ticket blob is encrypted with the service account's password-derived key, a weak password — especially under legacy RC4 encryption, where the key is the NT hash of the password — can be recovered offline with a wordlist. MITRE ATT&CK T1558.003.</Definition>
+
+The attacker never has to interact with the KDC again after pulling the tickets. Cracking happens offline, on the attacker's own hardware, so there is no lockout, no failed-logon noise, nothing to rate-limit. Service accounts are the prize because they are frequently old, over-privileged, and protected by a password a human chose in 2014 and never rotated.
+
+The mitigations are structural, not detective: enforce AES on service accounts (set `msDS-SupportedEncryptionTypes` so the ticket is not encrypted under crackable RC4), use Group Managed Service Accounts (gMSAs) whose 120-character passwords are machine-generated and auto-rotated, and keep service accounts out of Tier 0.
+
+<ProTip>RC4 is the crack accelerant for almost every offline Kerberos attack. Under RC4, the encryption key for the ticket is literally the account's NT hash, so a recovered ticket plus a wordlist is a password. Under AES, the key derivation is salted and far more expensive to brute-force. When you read a Defender for Identity alert that mentions an &quot;encryption downgrade,&quot; this is what the attacker is forcing — a drop to RC4 so the offline crack is feasible. Cross-link the Kerberos encryption discussion in `02-protocols/01-kerberos.mdx`.</ProTip>
+
+### AS-REP Roasting (T1558.004)
+
+Kerberoasting needs you to be authenticated. AS-REP Roasting does not — it needs a target account with **Kerberos pre-authentication disabled**. Normally, in the AS-REQ step, the client proves it knows the password (it encrypts a timestamp with the password-derived key) before the KDC will issue anything. If an account has the `userAccountControl` flag `DONT_REQ_PREAUTH` (value `0x400000`) set, the KDC skips that check and returns an AS-REP whose encrypted portion is crackable offline — with no credential at all.
+
+The fix is to never disable pre-authentication, and to alert on any account where the `0x400000` bit is set in `userAccountControl`. This is one of the cheapest hunts in your environment: enumerate the flag, and every hit is either a misconfiguration or a planted backdoor. MITRE classes it under T1558.004.
+
+### OS Credential Dumping — LSASS memory (T1003.001)
+
+Before an attacker can pass a hash or a ticket, they have to *get* one, and the classic source is the Local Security Authority Subsystem Service (LSASS) process on a compromised host. LSASS caches credential material — NTLM hashes, Kerberos tickets, and sometimes more — for logged-on sessions. Dump LSASS memory (procdump, comsvcs.dll, a custom tool) and feed it to Mimikatz, and you walk away with hashes and tickets for everyone who has touched that box.
+
+This is the precursor technique. Pass-the-Hash, Pass-the-Ticket, Golden, and Silver tickets all assume the attacker already has the raw material, and T1003.001 is usually how they got it. Credential Guard (which isolates LSASS secrets in a virtualization-based container) and Tier-0 isolation are the structural answers.
+
+### DCSync (T1003.006)
+
+DCSync is credential dumping without ever touching a domain controller's disk or memory. Instead, the attacker *asks* a DC to replicate password data to them by speaking the **Directory Replication Service Remote Protocol (MS-DRSR)** — calling `DRSGetNCChanges`, the exact same API legitimate domain controllers use to sync with each other. The DC, seeing what looks like a peer replication request, hands over password hashes, including the all-important `krbtgt` hash.
+
+<Definition term="DCSync">An attack that abuses the Directory Replication Service Remote Protocol (MS-DRSR) by invoking DRSGetNCChanges to make a domain controller replicate password hashes — including krbtgt — to the attacker as if they were another DC. It requires the Replicating Directory Changes and Replicating Directory Changes All rights on the domain object (held by Domain Admins, Enterprise Admins, and DC computer accounts by default). MITRE ATT&CK T1003.006.</Definition>
+
+DCSync is the pivot point of the whole kill chain. Once an attacker can DCSync the `krbtgt` hash, they can forge Golden Tickets at will. The control is access auditing: enumerate exactly which principals hold `Replicating Directory Changes` and `Replicating Directory Changes All`, because anything outside Domain Admins / Enterprise Admins / DCs is suspect, and a non-DC source generating directory-replication traffic is a high-fidelity indicator.
+
+### The Kerberos forgery family — Golden, Silver, Diamond
+
+Once an attacker holds the right key, they stop *requesting* tickets and start *minting* them.
+
+A **Golden Ticket** (T1558.001) is a forged Ticket-Granting Ticket signed with the `krbtgt` account's long-term key. Because the `krbtgt` key is what the KDC uses to sign every legitimate TGT, a TGT forged with it is indistinguishable from a real one — the attacker can impersonate any principal, including a Domain Admin who may not even exist, and the ticket is valid until the `krbtgt` key changes. This is why the un-rotated `krbtgt` is the single most dangerous hygiene failure in Active Directory (the Module 2 war story about the 2008-vintage `krbtgt` that was never rotated is the canonical example; the remediation runbook lands in section 05).
+
+A **Silver Ticket** (T1558.002) is a forged *service* ticket signed with a single service account's key — not `krbtgt`. It is narrower (it only works against the one service whose key was stolen) but stealthier: because the attacker forges it locally and presents it straight to the target service, the KDC is never contacted, so there is no TGS request event on any domain controller. A Silver Ticket also survives a `krbtgt` reset, because it is not signed with `krbtgt` — a fact that matters enormously during incident response (section 05).
+
+A **Diamond Ticket** is a newer, stealthier variant: rather than forging a TGT from scratch, the attacker requests a *real* TGT from the KDC and then modifies its embedded PAC (the structure carrying group memberships and privileges) in memory. Because the TGT genuinely came from the KDC, it generates legitimate KDC events, making it harder to distinguish from normal activity than a Golden Ticket. There is no dedicated ATT&CK sub-technique ID for the Diamond Ticket; treat it as a variant under the T1558 family rather than citing an invented number.
+
+## How it works under the hood — reusing stolen material
+
+### Pass-the-Hash (T1550.002) and Pass-the-Ticket (T1550.003)
+
+These two are constantly confused, so anchor the distinction in the protocol.
+
+**Pass-the-Hash** reuses a captured NTLM hash directly. NTLM authentication never sends the plaintext password — it proves knowledge of the password by using the NT hash in a challenge/response exchange. That means the hash *is* the credential. An attacker who dumped a hash from LSASS can authenticate to any service that accepts NTLM without ever cracking it. MITRE T1550.002.
+
+**Pass-the-Ticket** does the same trick with Kerberos: inject a stolen or forged TGT or service ticket into a logon session and let the local Kerberos stack present it. MITRE T1550.003.
+
+<Definition term="Pass-the-Hash">A lateral-movement technique that reuses a captured NTLM password hash to authenticate over NTLM without ever recovering the plaintext password, because NTLM challenge/response uses the hash directly as the secret. MITRE ATT&CK T1550.002. Mitigations: LAPS (unique local admin passwords), Windows Credential Guard, strict Tier-0 administrative isolation, and disabling NTLM where feasible.</Definition>
+
+The shared insight: both attacks reuse *credential material* rather than a plaintext password, which is exactly why a password reset does not always stop them — you have to invalidate the material (rotate keys, revoke tickets) and the trust that mints it. Mitigations cluster around denying the material in the first place (Credential Guard, LAPS) and isolating Tier 0 so a workstation compromise cannot harvest a Domain Admin's hash.
+
+### Primary Refresh Token (PRT) abuse
+
+In the cloud-joined world, the on-prem equivalent of "the keys to SSO" is the Primary Refresh Token — a device-bound artifact Entra ID issues to a registered/joined device to enable seamless single sign-on. Research (notably by Dirk-jan Mollema) has shown that an attacker who can extract or forge a PRT can ride a user's SSO across cloud apps. The PRT is device-bound and protected by the device's TPM where one is present, which raises the bar, but it remains a live area of offensive research. There is no single clean ATT&CK sub-technique that maps to PRT theft; describe it as device-token / SSO-material abuse rather than asserting a specific T-number.
+
+## How it works under the hood — the cloud-native identity attacks
+
+The Kerberos family is on-prem. The next two are where the modern, MFA-bypassing attacks live — and they are the reason "we turned on MFA" is not the end of the story.
+
+### OAuth consent phishing / illicit consent grant (T1528)
+
+This attack steals nothing that looks like a password. The attacker registers (or compromises) an application that requests OAuth scopes like `Mail.ReadWrite` and `offline_access`, then phishes a user into clicking **Accept** on a perfectly normal-looking Microsoft consent screen. That consent issues the app its own access token and, because of `offline_access`, a **refresh token** — standing, password-independent access to the user's mailbox or files.
+
+<Definition term="illicit consent grant">A cloud identity attack in which an adversary tricks a user into consenting to a malicious OAuth application that requests sensitive scopes (e.g., Mail.ReadWrite, offline_access). The app receives its own access and refresh tokens, granting standing access to data with no knowledge of the user's password — so a password reset alone does not revoke it. MITRE ATT&CK T1528 (Steal Application Access Token). Remediation requires revoking the app's consent/tokens and removing the enterprise application.</Definition>
+
+The reason this attack matters so much for incident response: a password reset does not touch OAuth tokens. The attacker keeps reading mail after you reset the password, because the refresh token is an independent credential. You have to revoke the consent, delete the enterprise app, and revoke the refresh tokens. The preventive control is to restrict user consent and require an admin consent workflow so a human vets high-privilege scope requests once, centrally — exactly the control discussed in `03-microsoft-identity/02-entra-id.mdx`. App governance policies extend this with anomaly detection on consented apps.
+
+### Token theft / AiTM session-cookie replay (T1550.004)
+
+This is the attack that bypasses MFA entirely, and it is now the dominant phishing pattern. The attacker stands up a reverse-proxy phishing page (Evilginx-style) that sits in the middle of the real Microsoft sign-in. The victim authenticates *for real* — username, password, and MFA — and the proxy relays everything to Microsoft and back. The catch: after MFA succeeds, Microsoft issues a session cookie/token, and the proxy captures it. The attacker replays that post-MFA cookie and is logged in as the user, having satisfied MFA without ever holding the user's second factor.
+
+<WarStory title="The Token Replay That Walked Past MFA">
+A regional financial-services firm had done what every audit told them to do: MFA enforced for everyone, push notifications with number matching, the works. They considered the account-takeover problem solved. Then a finance manager received a routine-looking message about a shared document, clicked through, and landed on what looked exactly like the corporate sign-in page. It was an adversary-in-the-middle proxy. She typed her password, approved the number-matched push on her phone — a legitimate MFA she initiated — and saw the document.
+
+Behind the scenes, the proxy had relayed her real authentication to Microsoft, captured the post-MFA session token, and replayed it. Within the hour the attacker was reading her mailbox from a residential IP two states away, setting up inbox rules to hide replies to fraudulent wire requests. The MFA logs showed a clean, successful, user-approved sign-in, because from Microsoft's perspective that is exactly what happened. The only anomalies were the impossible-travel signal Identity Protection raised and an unfamiliar sign-in property — the things a risk-based Conditional Access policy would have acted on.
+
+The remediation was the identity-IR runbook: revoke the user's sessions and refresh tokens (a password reset alone would not have evicted the replayed token), force re-registration of MFA on a known-good device, and hunt the mailbox for attacker-created inbox rules and any consented apps. The strategic fix was phishing-resistant MFA — FIDO2 keys, which are origin-bound and cannot be relayed through a proxy — plus token protection / Continuous Access Evaluation and sign-in-risk policies. The lesson the firm took away: MFA stops password replay; it does not stop token replay. The control that actually closes the AiTM gap is phishing-resistant credentials and token binding, not another push prompt.
+</WarStory>
+
+<SC300Badge /> The detections for the cloud attacks above are where this threat model meets the SC-300 blueprint. Entra ID Identity Protection raises **sign-in risk** (anonymous IP, atypical/impossible travel, unfamiliar properties) and **user risk** (leaked credentials) signals precisely for AiTM and consent-phishing patterns, and risk-based Conditional Access turns those signals into enforcement — require MFA on medium/high sign-in risk, force a secure password reset on high user risk. Token protection and Continuous Access Evaluation shrink the replay window. The TTPs in this section are the offense; Identity Protection and risk-based CA are the SC-300-aligned defense (covered in `03-microsoft-identity/02-entra-id.mdx`).
+
+The mitigations cluster: **phishing-resistant MFA (FIDO2)** because it is origin-bound and cannot be proxied, **token protection / token binding and CAE** to bind tokens to the device and revoke them fast, and **sign-in risk policies** to catch the anomalous replay session. MITRE classes the cookie replay itself under T1550.004 (Web Session Cookie).
+
+## Defensive throughline — technique to detector
+
+Every technique above maps to a detection in sections 02-04 and a containment step in section 05. The chain to memorize:
+
+- **Kerberoasting (T1558.003)** and **AS-REP Roasting (T1558.004)** -> Defender for Identity compromised-credential alerts; Sentinel KQL on Kerberos events.
+- **OS Credential Dumping / LSASS (T1003.001)** -> Defender for Endpoint; the enabler that precedes the rest.
+- **DCSync (T1003.006)** -> Defender for Identity "suspected DCSync" (anomalous replication); audit of replication rights.
+- **Golden (T1558.001)** / **Silver (T1558.002)** / Diamond tickets -> Defender for Identity domain-dominance alerts; remediation = `krbtgt` double-reset (Golden) or service-account rotation (Silver) in section 05.
+- **Pass-the-Hash (T1550.002)** / **Pass-the-Ticket (T1550.003)** -> Defender for Identity lateral-movement alerts and lateral-movement paths.
+- **Illicit consent grant (T1528)** -> Entra audit logs / Sentinel KQL on consent operations; app governance.
+- **AiTM token replay (T1550.004)** -> Entra Identity Protection sign-in risk; Sentinel KQL on anomalous sign-ins.
+
+The single most important conceptual takeaway: on-prem attacks abuse *keys and tickets* (`krbtgt`, service-account keys, NTLM hashes), and cloud attacks abuse *tokens* (OAuth refresh tokens, session cookies). Both classes share the property that makes identity incident response uniquely hard — the stolen artifact is portable and outlives a password reset. You are not cleaning a machine; you are invalidating credential and trust material. Hold that thought; it is the spine of section 05.
+
+The attack path itself — phishing to LSASS dump to Pass-the-Hash to DCSync to Golden Ticket to Domain Admin — is the same arc the `<KerberosFlowDiagram />` in Module 2 traces at the protocol level. Re-read it through the lens of these ATT&CK IDs and you will see the diagram is the kill chain.
+
+## Recall drill
+
+<Flashcard front="What is Kerberoasting and which MITRE ATT&CK technique ID identifies it?" back="Any authenticated domain user requests a service ticket (TGS) for a target SPN; the ticket is encrypted with the service account's long-term key, so it can be cracked offline (especially under RC4). MITRE ATT&CK T1558.003. Mitigation: AES-only encryption and gMSAs." />
+<Flashcard front="What is AS-REP Roasting and what account condition enables it?" back="When an account has Kerberos pre-authentication disabled (the DONT_REQ_PREAUTH flag, 0x400000, in userAccountControl), an attacker can request an AS-REP whose encrypted portion is crackable offline without any credential. MITRE ATT&CK T1558.004. Mitigation: never disable pre-auth; alert on the userAccountControl flag." />
+<Flashcard front="What does DCSync abuse and what rights does it require?" back="DCSync uses the Directory Replication Service protocol (MS-DRSR DRSGetNCChanges) to make a domain controller replicate password hashes (including krbtgt) to the attacker as if they were a DC. It requires the Replicating Directory Changes and Replicating Directory Changes All rights. MITRE ATT&CK T1003.006." />
+<Flashcard front="How does Pass-the-Hash differ from Pass-the-Ticket?" back="Pass-the-Hash (T1550.002) reuses a captured NTLM password hash to authenticate over NTLM without cracking it. Pass-the-Ticket (T1550.003) injects a stolen or forged Kerberos TGT/service ticket into a logon session. Both reuse credential material rather than a plaintext password." />
+<Flashcard front="What is OAuth consent phishing (illicit consent grant) and why does it survive a password reset?" back="An attacker lures a user into consenting to a malicious app requesting scopes like Mail.ReadWrite and offline_access; the app receives OAuth access and refresh tokens, so it retains access without the password and a password reset alone does not revoke it. MITRE ATT&CK T1528. Remediation requires revoking the consent/app and the refresh tokens." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "08-security-detection/01-identity-attack-techniques/q1",
+  prompt: "A penetration tester, authenticated as an ordinary domain user, requests Kerberos service tickets for every account that has an SPN and exports them for offline cracking. Which technique is this and what makes it work?",
+  options: [
+    "DCSync; the tester replicated the password database.",
+    "Kerberoasting (MITRE ATT&CK T1558.003); any authenticated user can request a service ticket for any SPN, and the ticket is encrypted with the service account's long-term key, so weak (e.g., RC4) keys can be cracked offline.",
+    "Golden Ticket; the tester forged TGTs with the krbtgt key.",
+    "Pass-the-Hash; the tester reused an NTLM hash."
+  ],
+  correctIndex: 1,
+  explanation: "Kerberoasting (T1558.003) abuses the fact that service-ticket issuance is available to any authenticated principal and the ticket is encrypted under the service account key. DCSync needs replication rights, Golden Ticket needs the krbtgt key, and Pass-the-Hash reuses an NTLM hash — none match requesting and cracking SPN tickets."
+}} />
+
+<Quiz question={{
+  id: "08-security-detection/01-identity-attack-techniques/q2",
+  prompt: "An attacker phishes a user into approving an OAuth consent screen for an app requesting Mail.ReadWrite and offline_access. The security team forces a password reset, yet the attacker keeps reading mail. Why, and what is the correct fix?",
+  options: [
+    "The password reset failed to replicate; reset it again.",
+    "The app holds a valid refresh token (illicit consent grant, MITRE ATT&CK T1528); a password reset does not revoke OAuth tokens, so you must revoke the app's consent and tokens and remove the app.",
+    "The attacker used Pass-the-Ticket, which is unaffected by cloud password resets.",
+    "The mailbox has a forwarding rule that survives password changes."
+  ],
+  correctIndex: 1,
+  explanation: "An illicit consent grant (T1528) gives the malicious app its own access and refresh tokens, independent of the user's password. Remediation is revoking the consent, deleting the enterprise app, and revoking refresh tokens — not resetting the password."
+}} />

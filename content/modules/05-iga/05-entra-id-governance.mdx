@@ -1,0 +1,158 @@
+{/* Objectives current as of 2026-06-01. Vendor license tiers and feature/task names change fast — re-verify against MS Learn before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Plan and implement identity governance — entitlement management (access packages, catalogs), access reviews, and Lifecycle Workflows
+- **SC-300** Plan and implement identity governance — Privileged Identity Management (PIM) reviewed via access reviews (PIM itself taught in Module 3)
+- **SC-300** Implement an identity management solution — governing external (B2B guest) collaboration with access packages and connected organizations
+- **Security+ SY0-701** Objective 5.1 / 4.6 — governance, identity lifecycle, and cloud identity providers
+- **CISSP** Domain 5 (Identity and Access Management) — identity governance, provisioning/deprovisioning, and access review
+</HoloPanel>
+
+# Microsoft Entra ID Governance <SC300Badge />
+
+This is where the SC-300 "Plan and implement identity governance" domain stops being abstract. Everything Module 5 has taught so far — the access lifecycle, joiner-mover-leaver, recertification, the request-approve-provision-certify-revoke spine — Microsoft implements as concrete features inside Entra ID, and the exam tests *those features by name*. If section 01 was the theory of IGA and sections 02 through 04 were the vendor landscape, this section is the one piece of that landscape Microsoft will quiz you on directly. Three building blocks carry the weight: **entitlement management**, **access reviews**, and **Lifecycle Workflows** — sitting alongside Privileged Identity Management (PIM), which you already met in Module 3's Entra ID section.
+
+A note on placement before we start. Module 3 (`03-microsoft-identity/02-entra-id`) taught the Entra ID platform itself — Conditional Access, MFA, PIM, Identity Protection, the app registration model, and the licensing ladder from Free through P1, P2, and the Entra Suite. This section assumes that foundation and builds the governance layer on top of it. When something here depends on a concept from there — the P2 license tier, PIM eligible-versus-active assignments, the tenant as a security boundary — that is a deliberate cross-link, not a gap. Go back and re-read the Module 3 Entra section if any of those feel shaky; the governance features only make sense once the platform underneath them is clear.
+
+## What it is
+
+<Definition term="Microsoft Entra ID Governance">Microsoft's identity governance and administration (IGA) capability set, layered on top of Entra ID. It answers the core IGA question — who has access to what, why, and should they still — using four pillars: entitlement management (self-service, policy-governed access packages), access reviews (recurring attestation of access), Privileged Identity Management (just-in-time privileged role activation), and Lifecycle Workflows (automated joiner-mover-leaver tasks). It is the native Microsoft answer to the same problems SailPoint and Saviynt solve for the broader enterprise estate.</Definition>
+
+The defining trait of Entra ID Governance is that it governs identities and resources *that already live in Entra ID*. Where SailPoint or Saviynt sell themselves on breadth of connectors to reach every on-prem and SaaS system in a large estate, Entra ID Governance is deepest and most native for the things Entra already knows about: Entra security groups, Microsoft 365 groups, enterprise applications, SharePoint Online sites, and Entra roles. That is both its strength — zero integration effort for the Microsoft stack — and the honest boundary of where it stops, which we will come back to.
+
+### Licensing — the gate that controls everything <SC300Badge />
+
+You cannot understand Entra ID Governance on SC-300 without understanding which features the license unlocks, because the exam loves to disguise a licensing problem as a "why is this feature missing" scenario. The platform licensing was covered in Module 3; here is the governance-specific layer.
+
+The governance capabilities require an Entra ID **P2** plan as the baseline — the same tier that unlocks PIM and Identity Protection. Conditional Access and self-service password reset, by contrast, are **P1** features. So a tenant that can build Conditional Access policies but finds entitlement management and access reviews simply absent in the portal is almost always sitting on P1 rather than P2. That is the classic licensing tell.
+
+On top of the P2 baseline, Microsoft sells a standalone **Microsoft Entra ID Governance** add-on (also bundled into the broader **Entra Suite**) that layers in the more advanced governance scenarios — things like access reviews driven by inactivity and machine-learning affiliation recommendations, reviews spanning multiple resources at once, and the richer Lifecycle Workflows automation. The practical mental model: core entitlement management and core access reviews ride on P2; the advanced, analytics-driven governance scenarios ride on the ID Governance add-on or Entra Suite. Treat the exact billing boundaries as version-sensitive and confirm them against current MS Learn licensing guidance before you assert a specific tier to a customer.
+
+<ProTip>On any SC-300 scenario, read the available features as a fingerprint of the license. Conditional Access present but access packages absent points to P1, not P2. Access reviews present but the inactivity-based "recommendations" missing points to P2 without the ID Governance add-on. The exam rarely says the license out loud — it shows you a symptom and expects you to name the tier.</ProTip>
+
+## Why it exists
+
+The same forces that created the IGA market created Entra ID Governance. Microsoft-centric organizations had Entra ID handling authentication beautifully — Conditional Access, MFA, single sign-on to thousands of apps — but the *governance* questions went unanswered inside the platform. Who approved this guest's access? When does it expire? Has anyone confirmed in the last year that the people in the "Finance — Wire Approvers" group should still be there? Did the new hire's access get set up before day one, and did the leaver's access actually get torn down on their last day, or is it still sitting there as an orphaned account?
+
+Before Entra ID Governance, the answers were manual: admins added guests by hand and forgot to remove them, group membership drifted with no review, and onboarding/offboarding ran on spreadsheets and helpdesk tickets. Organizations that needed real governance bolted on a third-party IGA platform. Microsoft's bet with Entra ID Governance is that for the large population of Microsoft-first organizations, the governance layer should be native — requested, approved, provisioned, reviewed, and expired without ever leaving Entra.
+
+The regulatory pressure is the same as everywhere else in Module 5. SOX ITGC wants evidence that access to financially significant systems is periodically reviewed; access reviews produce exactly that audit artifact. Least-privilege mandates want standing access minimized; entitlement management's time-bound, auto-expiring access packages deliver it. The orphaned-account and privilege-creep risks from section 01 are precisely what Lifecycle Workflows exist to kill. Entra ID Governance is the access lifecycle from section 01, rendered as Microsoft product features.
+
+## How it works under the hood
+
+### Entitlement management — access packages and catalogs <SC300Badge />
+
+Entitlement management is Entra's answer to the **request and approval** stages of the access lifecycle, plus the **expiry** that closes the loop. Two objects do the work.
+
+<Definition term="access package">In Entra entitlement management, a bundle of resources — security or Microsoft 365 groups, enterprise applications, and SharePoint Online sites — combined with one or more assignment policies. The access package is the *requestable unit*: a user requests "the Project Phoenix package" and, on approval, receives everything in the bundle at once. When the assignment expires or is revoked, the resources are removed together. It is Entra's expression of the requestable role/access-profile concept from the broader IGA world.</Definition>
+
+<Definition term="access package assignment policy">The rules attached to an access package that govern who may request it (specific users, members of a group, or external users from connected organizations), what the approval flow is (no approval, single-stage, or multi-stage with named approvers), and the lifecycle of the grant (expiration after a fixed period, recurring access review, or no expiry). One access package can carry multiple policies — for example, one policy for employees and a separate, stricter policy for external guests.</Definition>
+
+<Definition term="catalog">The container that groups related resources and access packages and forms the delegation boundary. A catalog owner can add resources to the catalog and delegate access package authoring to resource owners without making them tenant administrators. Catalogs are how you let, say, the Treasury department's resource owner govern Treasury's own access packages while keeping that authority scoped — the cloud analog of delegating administration over an organizational unit.</Definition>
+
+The external-collaboration story is where entitlement management earns its keep in a bank. A <Definition term="connected organization">An external Entra tenant or domain that you explicitly establish a governance relationship with, so users from that organization can request access packages as B2B guests. Connected organizations let you scope which outside parties may request which packages — for example, allowing a specific audit firm's tenant to request the "External Auditor — Read Only" package — and they tie the guest's entire lifecycle (invitation, approval, expiry, removal) to the access package rather than leaving the guest account to linger after the engagement ends.</Definition> turns ad-hoc guest sprawl into governed, self-expiring access. Instead of an admin manually inviting an auditor and hoping someone remembers to remove them, the auditor requests a package, an approver grants it, and the assignment automatically expires and removes the guest at the end of the defined window.
+
+### Access reviews — recurring attestation <SC300Badge />
+
+<Definition term="access review">A one-time or recurring campaign in which a designated reviewer attests whether each subject's access is still appropriate, approving it to continue or denying it to remove it. In Entra ID, access reviews can target group membership (security and Microsoft 365 groups), enterprise application assignments, access package assignments, and Entra role assignments — including PIM-eligible and PIM-active privileged role assignments. This is Entra's implementation of the certification/recertification stage of the access lifecycle.</Definition>
+
+The mechanics map cleanly onto the recertification concepts from section 01. A review has a **scope** (what is being reviewed), one or more **reviewers**, a **recurrence** (one-time, weekly, monthly, quarterly, annually), and an **outcome behavior**. Reviewers can be the resource owner, the affected users' managers, the group owner, the users themselves (self-review), or a specifically named set of people. When the review closes, you choose what happens to access that was denied or never reviewed: with **auto-apply** enabled, denied and un-reviewed access is removed automatically; without it, an administrator must apply the results manually.
+
+The advanced governance tier adds **recommendations** that fight reviewer fatigue and rubber-stamping — the dual pitfalls from section 01. Entra can surface a recommendation to deny based on the user's last sign-in or inactivity (for example, "this user hasn't signed in to this app in 90 days — recommend remove"), and on machine-learning affiliation signals (this user looks unlike their peers in the group). Those recommendation features are part of the ID Governance add-on / Entra Suite rather than the bare P2 baseline, so confirm the tier when a scenario hinges on inactivity-based recommendations.
+
+The privileged-access angle is the cross-link to Module 3's PIM coverage: access reviews can review the eligible and active assignments PIM manages, so a quarterly review of who is eligible to activate Global Administrator is itself an access review. PIM provides just-in-time activation; access reviews provide the periodic confirmation that the eligibility roster is still correct. Together they are the SC-300 privileged-access governance story.
+
+<Flashcard front="What license tier gates the core Microsoft Entra ID Governance features like access packages and access reviews, and what gates the advanced scenarios?" back="Core entitlement management (access packages) and core access reviews ride on the Entra ID P2 plan (the same tier that unlocks PIM and Identity Protection). Advanced governance scenarios — inactivity and ML-affiliation recommendations, multi-resource reviews, richer Lifecycle Workflows automation — require the standalone Microsoft Entra ID Governance add-on or the Entra Suite on top of P2. Conditional Access, by contrast, is a P1 feature. Confirm exact gating against current MS Learn." />
+
+<Flashcard front="What is an access package in Entra entitlement management?" back="A bundle of resources — security/Microsoft 365 groups, enterprise applications, and SharePoint Online sites — plus assignment policies defining who can request it, the approval flow, and how long access lasts before expiration or review. It is the requestable unit: a user requests the package and receives everything in the bundle at once; when the assignment expires the resources are removed together." />
+
+<Flashcard front="What is a catalog in Entra entitlement management, and what does it enable?" back="A catalog is a container that groups related resources and access packages and forms the delegation boundary. A catalog owner can add resources and delegate access-package authoring to resource owners without granting them tenant-admin rights — scoping governance to a department or business unit, much like delegating administration over an organizational unit." />
+
+<Flashcard front="How does Entra entitlement management govern external (B2B guest) access so it does not linger?" back="Through connected organizations and access packages. You establish a governance relationship with an external tenant/domain, then let those external users request scoped access packages as B2B guests. The grant carries approval and automatic expiration/removal, so the guest's entire lifecycle is tied to the package — guest access self-expires instead of becoming an orphaned account after an engagement ends." />
+
+<Flashcard front="What can an Entra access review attest to, and who can be the reviewer?" back="Group membership (security and Microsoft 365 groups), enterprise application assignments, access package assignments, and Entra role assignments including PIM-eligible and PIM-active privileged roles. Reviewers can be the resource/group owner, the affected users' managers, the users themselves (self-review), or a named set of reviewers. Outcomes can be auto-applied so denied or un-reviewed access is removed automatically." />
+
+### Lifecycle Workflows — automated joiner-mover-leaver <SC300Badge />
+
+<Definition term="Lifecycle Workflows">An Entra ID Governance feature that automates joiner-mover-leaver tasks against user lifecycle events. A workflow has a trigger (a time relative to a user attribute, such as a set number of days before employeeHireDate or after employeeLeaveDateTime), a scope (the population of users it applies to, defined by a rule), and an ordered set of tasks that run when the workflow fires. It removes the manual, error-prone onboarding and offboarding steps that create orphaned accounts and onboarding delays.</Definition>
+
+The trigger model is the heart of it. Entra schedules workflows relative to two user attributes: **employeeHireDate** and **employeeLeaveDateTime**. A *joiner* (pre-hire) workflow can be set to run, for example, a couple of days before the hire date so a new employee is ready on day one. A *leaver* workflow runs on or after the leave date to tear access down. A *mover* workflow responds to attribute changes such as a department or job-title change. Because the schedule keys off a date attribute, the source of truth for those dates — typically an HR system feeding Entra — has to be populated correctly, or the automation fires at the wrong time or not at all.
+
+The tasks are pre-built, parameterized actions. Among the built-in tasks an organization commonly wires into a joiner workflow: **generate a Temporary Access Pass (TAP)** and send it to the new user's manager so the employee has a phishing-resistant first credential on day one; **add the user to groups**; **send a welcome/onboarding email**; and **add the user to teams**. On the leaver side: **disable the user account**, **remove the user from all groups**, **remove the user from all teams**, **remove all license assignments**, and **revoke the user's sessions** so existing tokens stop working. When the built-in catalog does not cover a need, a **custom task extension** can call an Azure Logic App to run arbitrary downstream logic — the escape hatch for bespoke onboarding/offboarding steps. Treat the exact built-in task names as version-sensitive and confirm them against the current MS Learn "Lifecycle Workflow tasks and definitions" reference before you script against them.
+
+The TAP-generation task is worth dwelling on because it shows up in SC-300 scenarios. For a pre-hire joiner workflow, Entra uses the user's hire date as the start time for the Temporary Access Pass, and sends it to the manager. The practical gotcha — and a good exam detail — is that the TAP lifetime and the time portion of the hire date have to line up so the pass is still valid when the employee actually shows up on their first day. Set them carelessly and the new hire arrives to a TAP that already expired.
+
+### Where Entra ID Governance fits — and where it stops
+
+Be honest about the boundary, because consulting credibility depends on it. Entra ID Governance is excellent for governing what Entra already owns: cloud groups, enterprise apps, SharePoint, Entra roles, and B2B guests. For a Microsoft-centric mid-market organization, it can be the entire IGA program with zero third-party tooling — which is exactly why section 04 flagged Omada and Entra as the natural fit for that profile.
+
+Where it stops is the deep, connector-heavy, on-prem-and-everywhere estate that SailPoint and Saviynt were built for: dozens of legacy and SaaS systems each needing a bespoke connector, fine-grained SAP/ERP entitlement governance, and the elaborate role and segregation-of-duties modeling that section 06 covers. Entra can provision outward to many SaaS apps via SCIM, and it can reach some on-premises applications through a provisioning agent, but the breadth and depth of role/SoD modeling in a large regulated enterprise still pull those organizations toward a dedicated IGA platform — frequently *alongside* Entra rather than instead of it, with Entra governing the Microsoft estate and the IGA platform governing everything else. The mature pattern in a large bank is not "Entra or SailPoint"; it is both, with a clear division of which systems each one governs.
+
+<ProTip>For external collaboration, make guest access self-expiring by default: put the resources guests need into access packages, gate them behind a connected organization plus an approval policy, and set a hard expiration with a recurring access review. You never again rely on an admin remembering to remove a guest — the lifecycle is the policy, and the orphaned-guest audit finding stops recurring.</ProTip>
+
+## War story
+
+<WarStory title="The Guest Accounts That Outlived Three Audits">
+A community bank — the same profile as the rest of this curriculum, roughly 1,400 employees across 30 branches — kept failing the access-control portion of its annual exam on the same finding, year after year: external guest accounts that lingered long after the engagement that justified them had ended. The external audit firm's staff still had guest accounts from two audits ago. A core-banking vendor's implementation team — gone for fourteen months — still had active guests with access to a SharePoint site full of configuration documents. A law firm that had supported a single acquisition still had three guests in a Teams workspace. Nobody had malicious intent; the accounts simply never got cleaned up, because cleanup depended on an admin remembering, and admins are busy.
+
+The first instinct was the wrong one: write a quarterly manual review, hand a spreadsheet of every guest to the security team, and have them chase down owners. They tried it for one quarter. It took two people most of a week, the owners didn't respond, and the reviewers — facing 400 guest entries with no context — rubber-stamped most of the list just to close it out. The control produced audit evidence and zero risk reduction, which is the exact rubber-stamping failure from section 01.
+
+The fix was to make the lifecycle the policy. The team stood up entitlement management on their existing P2 licensing. They created a catalog per external relationship and built access packages for the specific resources each external party needed — "External Auditor — Read Only," "Core Vendor — Implementation," "Outside Counsel — Project." Each external firm was set up as a connected organization, so only that firm's tenant could request its package. Every assignment policy carried a single-stage approval (the sponsoring internal owner) and a hard expiration tied to the engagement length, with a recurring access review for anything that needed to run longer. They migrated existing guests into the model and let the un-migrated, unexplained ones expire out.
+
+The next exam, the finding was gone. Not because the bank worked harder at cleanup, but because cleanup stopped being a task a human had to remember. The guest's access expired on the date the policy said it would, the access review caught the handful of genuine extensions, and the auditors got a clean, queryable record of who had requested what, who approved it, and when it ended. The lesson generalizes: in a SaaS-first shop the same sprawl shows up as forgotten contractor accounts in dozens of apps; in a defense environment Entra ID Government cloud carries the same entitlement-management features inside a FedRAMP High boundary; the principle is identical — governed, self-expiring access beats a recurring manual cleanup every time.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="What four pillars make up Microsoft Entra ID Governance?" back="Entitlement management (access packages and catalogs for self-service, policy-governed access), access reviews (recurring attestation of access), Privileged Identity Management (just-in-time privileged role activation, taught in Module 3), and Lifecycle Workflows (automated joiner-mover-leaver tasks). Together they implement the IGA access lifecycle natively inside Entra ID." />
+
+<Flashcard front="Which two user attributes do Entra Lifecycle Workflows schedule against, and what lifecycle events do they drive?" back="employeeHireDate drives joiner (pre-hire / new-hire) workflows scheduled relative to the hire date, and employeeLeaveDateTime drives leaver workflows scheduled relative to the leave date. Mover workflows respond to attribute changes such as department or job title. Because scheduling keys off these date attributes, the HR source feeding them must be populated accurately." />
+
+<Flashcard front="Name several built-in Lifecycle Workflow tasks used for joiners versus leavers." back="Joiner tasks include generate a Temporary Access Pass and send it to the manager, add the user to groups, add to teams, and send a welcome email. Leaver tasks include disable the user account, remove from all groups, remove from all teams, remove all license assignments, and revoke the user's sessions. A custom task extension can call an Azure Logic App for bespoke steps. (Confirm exact task names against current MS Learn.)" />
+
+<Flashcard front="In a pre-hire Lifecycle Workflow that generates a Temporary Access Pass, what timing detail can break onboarding?" back="The TAP uses the user's hire date as its start time and is sent to the manager. If the TAP lifetime and the time portion of the hire date are not aligned, the pass can expire before the employee's first day — they arrive to an already-expired credential. Set the TAP lifetime and hire-date time so the pass is still valid when the new hire actually starts." />
+
+<Flashcard front="How do PIM and access reviews work together for privileged-access governance in Entra?" back="PIM provides just-in-time activation of privileged roles via eligible assignments, shrinking standing privilege. Access reviews periodically attest that the eligibility roster is still correct — a recurring review of who is eligible to activate roles like Global Administrator. PIM controls the when-active; access reviews control the should-still-be-eligible. Together they form the SC-300 privileged-access governance story." />
+
+<Flashcard front="Where does Entra ID Governance stop, and what do enterprises pair it with?" back="It governs deeply what Entra already owns — cloud groups, enterprise apps, SharePoint, Entra roles, and B2B guests — but lacks the connector breadth and deep role/SoD modeling of a dedicated IGA platform for large, on-prem-heavy, SAP/ERP-regulated estates. Such enterprises commonly pair it with SailPoint or Saviynt: Entra governs the Microsoft estate while the IGA platform governs everything else, rather than choosing one outright." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "05-iga/05-entra-id-governance/q1",
+  prompt: "A bank repeatedly fails audits because external auditor and vendor guest accounts linger long after their engagements end. Using Microsoft Entra ID Governance, which feature most directly fixes this with self-expiring, approved access?",
+  options: [
+    "Conditional Access policies scoped to guest accounts.",
+    "Entitlement management — access packages (with connected organizations) that guests request, gated by approval and a hard expiration that automatically removes the assignment.",
+    "Privileged Identity Management eligible assignments for the guests.",
+    "Identity Protection risk-based sign-in policies for external users."
+  ],
+  correctIndex: 1,
+  explanation: "Entitlement management governs B2B guest access through access packages and connected organizations: an external party requests a scoped package, an approver grants it, and the assignment automatically expires and removes the guest at the end of the defined window. That ties the entire guest lifecycle to the policy instead of an admin's memory. Conditional Access governs how a sign-in is allowed, not what resources are granted or when they expire; PIM is for privileged role activation; Identity Protection scores risk but does not deprovision lingering access."
+}} />
+
+<Quiz question={{
+  id: "05-iga/05-entra-id-governance/q2",
+  prompt: "An SC-300 scenario requires automatically generating a Temporary Access Pass and adding a new employee to their department groups two days before their start date, driven by the employeeHireDate attribute. Which Entra ID Governance feature is this?",
+  options: [
+    "Access reviews configured to recur before the start date.",
+    "Entitlement management catalogs with a pre-hire assignment policy.",
+    "Lifecycle Workflows — a joiner (pre-hire) workflow whose tasks (generate a TAP, add to groups) run on a schedule relative to employeeHireDate.",
+    "A Conditional Access policy triggered by the hire date."
+  ],
+  correctIndex: 2,
+  explanation: "Lifecycle Workflows automate joiner-mover-leaver tasks scheduled relative to employeeHireDate and employeeLeaveDateTime. A pre-hire joiner workflow can generate a Temporary Access Pass (sent to the manager) and add the user to groups a set number of days before the hire date. Access reviews attest existing access; entitlement management governs requestable bundles; Conditional Access governs sign-in, not lifecycle scheduling."
+}} />
+
+<Quiz question={{
+  id: "05-iga/05-entra-id-governance/q3",
+  prompt: "A team can configure Conditional Access and self-service password reset, but finds that access packages and access reviews are simply unavailable in the Entra portal. What is the most likely cause?",
+  options: [
+    "Those features were deprecated and replaced by Security Defaults.",
+    "The tenant lacks the required licensing — core entitlement management and access reviews require Entra ID P2, whereas Conditional Access needs only P1.",
+    "The Global Administrator role has not been activated in PIM.",
+    "An on-premises provisioning agent must be installed before governance features appear."
+  ],
+  correctIndex: 1,
+  explanation: "Conditional Access and SSPR are P1 features; core entitlement management, access reviews, PIM, and Identity Protection require Entra ID P2 (with advanced governance scenarios riding on the Entra ID Governance add-on or Entra Suite on top of P2). A tenant that has working Conditional Access but no governance features is the classic licensing-tier tell on SC-300 — the symptom is a missing feature, the cause is the tier. Confirm exact gating against current MS Learn licensing guidance."
+}} />

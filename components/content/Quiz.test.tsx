@@ -37,3 +37,49 @@ describe('Quiz', () => {
     expect(screen.getByText(/Kerberos issues TGTs/)).toBeInTheDocument()
   })
 })
+
+describe('Quiz keyboard answers', () => {
+  it('selects option A when "1" is pressed', () => {
+    render(<Quiz question={QUESTION} />)
+    fireEvent.keyDown(window, { key: '1' })
+    expect(screen.getByRole('status')).toHaveTextContent(/^Correct$/)
+    expect(screen.getByText(/Kerberos issues TGTs/)).toBeInTheDocument()
+  })
+
+  it('selects option B when "2" is pressed', () => {
+    render(<Quiz question={QUESTION} />)
+    fireEvent.keyDown(window, { key: '2' })
+    expect(screen.getByRole('status')).toHaveTextContent(/^Incorrect$/)
+    const chosen = screen.getByText('SAML').closest('button')!
+    expect(chosen).toHaveTextContent(/incorrect/i)
+  })
+
+  it('ignores a second key press after answering', () => {
+    render(<Quiz question={QUESTION} />)
+    fireEvent.keyDown(window, { key: '2' }) // wrong (B)
+    fireEvent.keyDown(window, { key: '1' }) // should be ignored; selection is locked
+    // The first (wrong) answer stands: status stays Incorrect, A is shown as the right answer only.
+    expect(screen.getByRole('status')).toHaveTextContent(/^Incorrect$/)
+    const chosen = screen.getByText('SAML').closest('button')!
+    expect(chosen).toHaveTextContent(/incorrect/i)
+  })
+
+  it('ignores number keys beyond the option count', () => {
+    render(<Quiz question={QUESTION} />)
+    fireEvent.keyDown(window, { key: '5' })
+    expect(screen.getByRole('status')).toHaveTextContent('')
+  })
+
+  it('ignores key presses while typing in an input', () => {
+    render(
+      <div>
+        <input data-testid="field" />
+        <Quiz question={QUESTION} />
+      </div>
+    )
+    const field = screen.getByTestId('field')
+    field.focus()
+    fireEvent.keyDown(field, { key: '1' })
+    expect(screen.getByRole('status')).toHaveTextContent('')
+  })
+})

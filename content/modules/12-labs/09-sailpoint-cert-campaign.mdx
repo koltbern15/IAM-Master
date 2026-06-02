@@ -1,0 +1,171 @@
+{/* Lab procedure. SailPoint ISC portal labels, REST API versions, and sailpoint CLI commands shift by release — re-verify against the current SailPoint Developer Community docs and your tenant's API version before running. Tenant access is gated; this lab is written so it teaches with or without hands-on access. */}
+
+<HoloPanel label="COVERS">
+- **Hands-on IGA operations** — account aggregation, identity correlation, and a certification campaign in practice (operationalizes Module 5 §02 SailPoint)
+- **Security+ SY0-701** Objective 4.6 — Implement and maintain identity and access management (access certification, deprovisioning)
+- **CISSP** Domain 5.4 — Manage the identity and access provisioning lifecycle; Domain 1.10 — periodic access review / recertification
+- Not an SC-300 objective — SailPoint is vendor IGA, not a Microsoft cert topic. **Builds on: Module 5 §02 (SailPoint)** and §06 (SoD/RBAC), and the stale-account theme that Lab 11 develops.
+</HoloPanel>
+
+# Run a SailPoint Certification Campaign
+
+## Objective
+
+When you finish this lab you will have driven the core governance loop of the market-leading enterprise IGA platform end to end: you connect a **Source** and **aggregate** its accounts into SailPoint Identity Security Cloud, watch those accounts **correlate** to identities (and surface the ones that do not — the orphans), then design and launch a **certification campaign** so the right reviewers recertify their people's access, and finally watch a **revoke** decision turn into a real provisioning action back on the source. The payoff is a single demonstrable arc — aggregation to correlation to campaign to remediation, with audit-ready evidence at the end — which is exactly the access-governance loop a regulated bank like Richwood has to run and evidence on a recurring schedule.
+
+This is the "now actually do it" counterpart to the SailPoint material in Module 5 §02. There you learned what aggregation, correlation, and certification campaigns are. Here you make them move, and you see the campaign produce the artifact an auditor actually asks for.
+
+<ProTip>
+**SailPoint access is gated — there is no free public tier.** Unlike an Entra developer tenant or an Okta developer org, you cannot self-provision an Identity Security Cloud tenant from a signup page. You get access through an employer, a partner program, or a vendor-arranged sandbox. This lab is written so it teaches whether or not you have a live tenant in front of you: every step is a fully worked walkthrough you can read and reason about, and the commands are drafted against the public SailPoint Developer Community docs. If you do have a tenant, run it. If you do not, treat it as a guided dry run — the conceptual loop is the thing you are here to learn, and it transfers to every IGA tool.
+</ProTip>
+
+## Prerequisites
+
+- **An Identity Security Cloud (ISC) tenant** — formerly branded IdentityNow. Access is via an employer, partner, or vendor-arranged sandbox (see the note above). If you have none, follow the walkthrough conceptually.
+- **A connected Source** to aggregate from. For a clean lab, a simple delimited-file source (a flat-file connector reading a CSV of accounts) is the easiest to stand up and reset; in a real tenant you would more often aggregate Active Directory, Entra ID, or a SaaS app. The principle is identical regardless of connector.
+- **Reviewer identities** to act as campaign reviewers. A certification campaign that reviews access by manager needs at least a couple of identities with a manager relationship so you can route review items to the right person.
+- **Admin authorizations.** You need a role in the tenant that can run aggregations, create campaigns, and (for the API path) generate a Personal Access Token. Confirm your sandbox user has them before you start.
+- **Automation tooling (optional).** The portal does everything in this lab. Where this lab shows automation it uses the **SailPoint REST API** — most conveniently through the official **`sailpoint` CLI** (a standalone command-line tool, not a PowerShell module) or `Invoke-RestMethod` against the ISC API. There is no Microsoft Graph cmdlet for any of this; do not look for one.
+- **Builds on Module 5 §02.** Keep the SailPoint aggregation diagram from that section open. Every step here maps to a stage on it: connect and pull (aggregation), match accounts to people (correlation), review who should keep what (campaign), and push the answer back (provisioning).
+
+### A note on automation: this is not a Microsoft module
+
+Everything in Modules 2 through 6 leaned on Microsoft Graph PowerShell. **SailPoint does not.** ISC exposes a versioned **REST API** (the current generation is the v2025 API, with endpoints rooted at a tenant-specific host such as `https://your-tenant.api.identitynow.com/v2025`), and SailPoint ships an official **`sailpoint` CLI** plus language SDKs (Go, Python, TypeScript) and a community PowerShell SDK on top of that API. When this lab shows a command, it is talking to the ISC REST API through one of those — not a vendor-supported Microsoft module. Most of the workflow is genuinely portal-driven; the automation snippets exist to show the path for the steps that scale (triggering aggregations, creating campaigns from a saved definition), not because the portal cannot do them.
+
+<ProTip>
+Treat the **Admin portal** as the source of truth for *what the labels are* and the **API/CLI** as the source of truth for *what scales*. SailPoint renames blades and reshuffles menus between releases, and the API is explicitly versioned — an endpoint that exists under `v2025` may differ from `v3`/`beta`. Before you script anything, authenticate the `sailpoint` CLI to your tenant and run its help to see the verbs your release actually exposes, and check the API version in the URL against the SailPoint Developer Community reference for that same version. Do not copy an endpoint path from a blog post without confirming the version segment.
+</ProTip>
+
+## Lab steps
+
+### Step 1: Connect a Source and run an account aggregation
+
+A **Source** in ISC is a connected system you pull identity data from — Active Directory, Entra ID, a SaaS app, or a flat file. **Aggregation** is the act of pulling the accounts from that Source into ISC so the platform knows they exist. Until you aggregate, ISC has no idea what is out there; aggregation is the sensor that feeds everything downstream.
+
+<Definition term="account aggregation">The process by which an IGA platform reads all of the accounts that exist on a connected source system and brings a representation of them into the governance platform. In SailPoint ISC the source connector runs its account-list operation, and ISC ingests each account along with its attributes and entitlements. Aggregation is read-first: it builds the platform's picture of *what access actually exists* on the source, which is the prerequisite for correlating those accounts to people and then governing them. You aggregate on a schedule so that picture stays current.</Definition>
+
+In the Admin portal you create or open the Source, confirm its connector configuration and account schema, then run an aggregation (you can trigger it manually for the lab and also set a schedule for steady-state). For a delimited-file source you upload or point at the CSV; for a directory source the connector reads accounts directly. Watch the aggregation complete and note how many accounts came in.
+
+If you script it later, the `sailpoint` CLI and the ISC REST API can trigger an aggregation rather than waiting for the schedule. The conceptual point is that aggregation is the connector's account-list operation surfaced as a governance event — `std:account:list` is the connector command ISC invokes under the hood for a SaaS-connectivity source.
+
+<PowerShellBlock title="Trigger an account aggregation via the ISC REST API (Invoke-RestMethod)">{`# SailPoint ISC uses a versioned REST API. Authenticate with a Personal Access Token (PAT)
+# generated in the Admin portal; exchange the client id/secret for a bearer token first.
+# Confirm the exact host, API version, and endpoint paths against the SailPoint Developer
+# Community reference for YOUR tenant's API version before running.
+
+$tenant   = 'your-tenant'                                  # the subdomain of your ISC tenant
+$baseUri  = $('https://' + $tenant + '.api.identitynow.com')
+$tokenUri = $($baseUri + '/oauth/token')
+
+# 1) Get an OAuth token from your PAT (client_credentials grant)
+$tokenBody = @{
+  grant_type    = 'client_credentials'
+  client_id     = 'YOUR_PAT_CLIENT_ID'
+  client_secret = 'YOUR_PAT_CLIENT_SECRET'    # store in SecretManagement, never inline
+}
+$token   = (Invoke-RestMethod -Method Post -Uri $tokenUri -Body $tokenBody).access_token
+$headers = @{ Authorization = $('Bearer ' + $token) }
+
+# 2) Trigger an account aggregation for a source (sourceId from the Source's details page).
+#    Endpoint shape varies by API version; verify the exact path for your version.
+$sourceId = 'YOUR_SOURCE_ID'
+$aggUri   = $($baseUri + '/v2025/sources/' + $sourceId + '/load-accounts')
+Invoke-RestMethod -Method Post -Uri $aggUri -Headers $headers
+
+# The response includes a task/activity id you can poll for completion.`}</PowerShellBlock>
+
+### Step 2: Review correlation results and surface orphan accounts
+
+Aggregation pulls the accounts in. **Correlation** is the step that decides which *person* each account belongs to — ISC matches incoming accounts to existing identities using a correlation configuration (for example, match the source account's `employeeId` to the identity's `employeeId`). When an account matches, it becomes one of that identity's accounts and rolls up into their access. When it does not match anything, it is an **uncorrelated** — or **orphan** — account: access that exists on a system but is not tied to a known person.
+
+Orphans are not a curiosity; they are the first thing a governance program should hunt. An orphaned account is access nobody owns — a former employee's leftover login, a shared or service account never claimed by an identity, a typo'd username that never matched. In the Admin portal, after aggregation, you review the source's uncorrelated accounts list. Each one is a question: who is this, and should it exist at all? This is the same stale-and-orphaned-access theme Lab 11 attacks from the directory side — here you are seeing it through the IGA lens, where correlation makes ownership (or the lack of it) explicit.
+
+<ProTip>
+**The first thing a certification campaign should surface is the access nobody owns.** Before you recertify the access people *do* have, look at the uncorrelated/orphan accounts — they are pure risk with no accountable owner, and they are usually the cheapest, highest-value cleanup in the whole exercise. A campaign that recertifies thousands of normal entitlements but ignores a pile of orphaned admin accounts has audited the wrong thing first.
+</ProTip>
+
+### Step 3: Design a certification campaign
+
+A **certification campaign** is the scheduled review where designated reviewers attest that the access people hold is still appropriate — keep it, or revoke it. Designing one is three decisions: **what** is reviewed, **who** reviews it, and **when/how often**.
+
+<Definition term="certification campaign">A time-boxed, scheduled access review in which reviewers (most commonly each person's manager) examine the access — accounts, entitlements, roles — held by a defined population and decide, item by item, to approve (recertify) or revoke it. A revoke decision generates a remediation/provisioning action to remove the access on the source. The campaign produces an auditable record of every decision and decider, which is the evidence a SOX or FFIEC reviewer asks for to prove that access is reviewed on a recurring basis. It is the periodic-review control made operational.</Definition>
+
+In the Admin portal you create the campaign and set:
+
+- **Scope** — the population being reviewed. For the lab, scope it tightly: one role, one group of identities, or one source's entitlements. A first campaign scoped to the whole tenant is how you bury reviewers under thousands of items and get rubber-stamp approvals.
+- **Reviewers** — usually **manager certification** (each identity's manager reviews their reports), but it can be an access/role owner, or a self-review with attestation. Manager certification is the common default and the one auditors expect.
+- **What reviewers decide on** — accounts, entitlements, and/or roles. Reviewing raw entitlements is the most granular; reviewing roles is easier on reviewers but only meaningful if your roles are well-defined (Module 5 §06).
+- **Schedule and recurrence** — a recurring campaign (for example quarterly) is the governance norm. Set the recurrence and the behavior for items left un-reviewed when the campaign closes.
+
+The decision in this step is design, not a command. Get the scope and reviewer routing right and the campaign teaches reviewers something; get it wrong and you train them to click Approve on everything.
+
+### Step 4: Launch the campaign and walk a reviewer decision
+
+With the campaign defined, **activate** it. Activation generates the review items and routes them to the assigned reviewers, who see their queue of access to certify. Walk it as a reviewer: open an identity, look at each account/entitlement, and make a decision — **approve** to recertify the access, or **revoke** to remove it. A comment or justification is good practice and is often required by policy.
+
+The moment that matters is the **revoke**: a revoke decision is not just a note in a report. When the campaign processes that decision, ISC generates a **provisioning/remediation action** against the source to actually remove the access — the entitlement is pulled, the account disabled, the group membership stripped, depending on what was revoked and what the source connector supports. That is the difference between a real IGA tool and a spreadsheet: the answer flows back and *changes the system*, and the change is recorded.
+
+If you automate campaign creation, the ISC REST API exposes certification-campaign endpoints (create a campaign from a definition, then activate/start it) and the official SDKs wrap them. The exact request body and the activate verb depend on the API version — confirm against the v2025 (or your version's) `CertificationCampaigns` reference before scripting.
+
+<PowerShellBlock title="Create a certification campaign from a saved definition (Invoke-RestMethod)">{`# Reuses the bearer token and headers from Step 1.
+# Campaign creation takes a JSON definition (name, description, type, and the scope/filter
+# that selects the population). The exact schema is version-specific — pull the request
+# body shape from the v2025 CertificationCampaigns API reference for your tenant.
+
+$campaign = @{
+  name        = 'Q-Review: Lab privileged access'
+  description = 'Lab manager-certification of a scoped population'
+  type        = 'MANAGER'                                  # manager certification
+  # ...plus the scope/filter selecting which identities/access are reviewed.
+} | ConvertTo-Json -Depth 6
+
+$createUri = $($baseUri + '/v2025/campaigns')
+$created   = Invoke-RestMethod -Method Post -Uri $createUri -Headers $headers \`
+                               -Body $campaign -ContentType 'application/json'
+
+# Campaigns are typically created in a draft/staged state, then activated separately.
+# Confirm the activate path/verb for your API version, then start it:
+$activateUri = $($baseUri + '/v2025/campaigns/' + $created.id + '/activate')
+Invoke-RestMethod -Method Post -Uri $activateUri -Headers $headers
+
+# After activation, reviewers receive their certification items in the portal.`}</PowerShellBlock>
+
+### Step 5: Note SoD policy evaluation (the toxic-combination check)
+
+A certification campaign answers "should this person still have this access." A **separation-of-duties (SoD) policy** answers a different, related question: "should this person have *these two things at the same time*." SoD policies in ISC define toxic combinations — for example, the ability to both *create* a vendor and *approve* a payment to that vendor — and flag any identity that holds both sides. You learned the SoD/RBAC design behind this in Module 5 §06; here the point is that a campaign and an SoD policy work together. A reviewer recertifying access should be told when an item is part of an SoD violation, because "this access is individually fine" and "this combination is a control failure" are both true and both matter.
+
+You do not have to build a full SoD policy in this lab, but understand the linkage: correlation tells you who has what, the campaign asks whether they should keep it, and SoD evaluation overlays whether any combination they hold is toxic regardless of the individual approvals. In a banking environment, the SoD violations are often the findings that carry the most weight.
+
+## Validation
+
+You have proven the loop when these hold:
+
+1. **Aggregation populated the source.** After Step 1, the Source shows a count of aggregated accounts, and re-running aggregation does not duplicate them — it updates the existing picture.
+2. **Correlation produced both matched identities and an orphan list.** Most accounts rolled up to identities; the uncorrelated/orphan accounts are visible as their own reviewable list (Step 2).
+3. **The campaign generated reviewer tasks.** After activation, the assigned reviewers have certification items in their queue — the campaign actually routed work to people.
+4. **A revoke produced a remediation action.** The revoke decision you made in Step 4 generated a provisioning/remediation action against the source (not merely a logged opinion), and you can see that action queued or completed.
+5. **The evidence is exportable.** The campaign's decisions and deciders can be exported/reported — the artifact an auditor accepts as proof the review happened.
+
+## Teardown
+
+Because tenant access is gated and often a shared sandbox, leave it clean.
+
+- **End or delete the campaign.** Close the active campaign (or delete it if it was a draft) so it does not keep generating recurring review items in a shared sandbox.
+- **Reset or remove the lab Source.** If you stood up a throwaway delimited-file source just for the lab, delete it (and its aggregated accounts) so the next person starts clean; if you aggregated a real source, simply stop the manual schedule you added.
+- **Revoke the Personal Access Token** you generated for the API path, so the bearer credential is not left valid after the lab.
+- **Capture evidence for your portfolio first.** Before you tear anything down, export the campaign report and screenshot the orphan list and a completed remediation — gated platforms are hard to demo later, so save proof you ran the loop.
+
+## What this proves
+
+You now understand the IGA recertification loop in the tool that defines the enterprise category, as a sequence of moving parts rather than a slide: **aggregate** (pull what access exists), **correlate** (tie that access to people, and expose the access that belongs to no one), **certify** (have the accountable owner decide keep-or-revoke), and **remediate** (push the revoke back so the system actually changes). That loop — aggregation to correlation to campaign to provisioning — is the heart of access governance for a regulated firm, and it is the thing a SOX or FFIEC reviewer wants evidence of. You also saw where SoD evaluation overlays the campaign to catch toxic combinations that individually look fine. Even run as a dry walkthrough without a live tenant, the muscle you built is portable: every IGA platform implements this same loop, and you now know what good looks like.
+
+<WarStory title="The campaign that recertified everything except the access that mattered">
+A regional bank runs its first real SailPoint certification campaign ahead of an exam. Eager to show coverage, the team scopes it to the entire workforce and pushes every account and entitlement into manager review at once. Managers open queues with hundreds of line items each, recognize almost none of the entitlement names, and — under their own deadlines — bulk-approve to clear the queue. The campaign closes with a 99% recertification rate, which reads like a clean result.
+
+What the campaign never surfaced: a stack of uncorrelated accounts on a finance source — leftover logins from contractors who had rolled off, plus two service accounts with elevated rights that matched no identity. They were not in any manager's review queue because they correlated to nobody, and nobody had been assigned to look at the orphan list. Months later one of those contractor accounts is used in an incident. The post-incident review asks the obvious question: the access was reviewed and recertified — how did this get missed? The answer is that the campaign reviewed the wrong thing first. The fix is this lab done in the right order: review the orphan/uncorrelated accounts *before* drowning reviewers in normal entitlements, scope tightly enough that reviewers can actually reason about what they approve, and let revokes flow back as real remediation instead of clicks on a wall of unfamiliar names.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="In SailPoint ISC, what does account aggregation do and why does it surface orphan accounts?" back="Aggregation pulls all accounts from a connected Source into ISC, then correlation matches each account to an identity. Accounts that match no identity are uncorrelated/orphan accounts - access nobody owns - which is a top finding a certification campaign should target first. Confirm exact labels against current SailPoint docs." />
+<Flashcard front="What is a SailPoint certification campaign and what does a revoke decision trigger?" back="A scheduled, time-boxed access review where reviewers (often managers) recertify users' access item by item. An approve keeps the access; a revoke generates a provisioning/remediation action on the source to actually remove it. The campaign produces auditable evidence of every decision and decider for SOX/FFIEC review." />

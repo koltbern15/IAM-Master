@@ -1,0 +1,220 @@
+{/* Lab procedure current as of 2026-06-01. Re-verify cmdlet syntax and event fields against live MS Learn before relying on it in production. Defensive/lab-only — built-in Windows tooling, no offensive frameworks. */}
+
+<HoloPanel label="COVERS">
+- **Security+ SY0-701** Objective 2.4 — Analyze indicators of malicious activity (Kerberos/credential attacks)
+- **CISSP** Domain 7.7 — Operate and maintain detective and preventative measures (event 4769 hunting, RC4 elimination)
+- Maps to **MITRE ATT&CK T1558.003 — Steal or Forge Kerberos Tickets: Kerberoasting**
+- **Builds on:** Module 2 §01 Kerberos (SPNs, TGS, the AS/TGS exchange); Module 8 §01 identity-attack techniques and §04 KQL hunting; **Lab 01** seeded the deliberately weak SPN service account this lab targets
+</HoloPanel>
+
+# Hunt a Kerberoasting Attack
+
+This is the lab where the attacker and the defender are the same person — you. You will request a Kerberos service ticket for a weak service account exactly the way an attacker would, then turn around and detect that request in the Security event log, then remove the attack path entirely. The point is not to teach an attack. The point is that you cannot hunt what you have never seen, and you cannot prove a control works until you have watched it block the thing it was built to block. Every command here is built into Windows. There are no offensive frameworks, no downloaded tools, no cracking. You request a ticket, you find it in 4769, you harden the account, and you confirm the request now looks different. That is the whole arc.
+
+## Objective
+
+By the end of this lab you will have requested a Ticket Granting Service (TGS) ticket for a Service Principal Name (SPN) using only the .NET classes that ship with Windows, located that request in Windows Security event **4769** by its Ticket Encryption Type, written a hunting query that isolates the RC4-encrypted requests that flag a likely Kerberoasting attempt, and remediated the account so the offline-crack path is gone — a strong password, AES-only encryption, and migration to a group Managed Service Account (gMSA). In a banking IAM role this is the single most asked-about Active Directory privilege-escalation technique, and being able to demonstrate both the detection and the fix is the difference between knowing the term and owning the control.
+
+## Prerequisites
+
+- The **Lab 01** `corp.lab` Active Directory environment, including the deliberately weak SPN-registered service account you created there (the `svc_*` account with a guessable password and an SPN). If you skipped that seeding step, create one now: a normal user account, give it an SPN with `setspn` or by setting `ServicePrincipalName`, and set a short dictionary-style password — this account exists only to be the target.
+- A **non-administrative** domain user to request the ticket from. Kerberoasting works because any authenticated user can request a service ticket for any SPN — you are proving exactly that, so do it as a low-privilege user, not as Domain Admin.
+- Access to read the **Security** event log on the domain controller (membership in a group that can read the Security log, or run the query on the DC).
+- The **ActiveDirectory** PowerShell module (RSAT) for the recon and remediation steps.
+
+This lab runs entirely inside your snapshot-protected Lab 01 VM. Nothing here touches a production tenant or domain. As always in this module, you snapshot before you start so revert is your teardown.
+
+<Definition term="SPN (Service Principal Name)">
+A Service Principal Name is the unique identifier that ties a service instance (for example, a SQL Server or a web app pool) to the Active Directory account that runs it. A client that wants to talk to that service asks the Key Distribution Center for a service ticket "for this SPN," and the KDC encrypts that ticket with the long-term key of the account behind the SPN. Because any authenticated user can ask for any SPN's ticket, the SPN-to-account mapping is the doorway Kerberoasting walks through.
+</Definition>
+
+<ProTip>
+**Lab-only, by construction.** Every command below uses tooling that is already on a stock Windows machine — `Add-Type`, a .NET class, `Get-ADUser`, `Get-WinEvent`. There is nothing to download and nothing here cracks a password. Requesting a service ticket is a normal, sanctioned Kerberos operation that legitimate clients perform thousands of times a day; what makes Kerberoasting an attack is the intent and the offline cracking that follows, neither of which this lab performs. Run it only against the throwaway account in your own lab forest.
+</ProTip>
+
+## Lab steps
+
+### Step 1: Recon — enumerate the SPN-bearing accounts
+
+The attacker's first move, and yours, is to find the user accounts that carry an SPN. Computer accounts have SPNs too, but their passwords are 120-character machine-generated strings that rotate automatically — they are not crackable. User accounts with SPNs are the targets, because a human (or a lazy provisioning script) chose their password. While you are here, pull each account's supported encryption types so you can see which ones still allow RC4.
+
+<PowerShellBlock title="Enumerate user accounts that carry an SPN">{`# Run as any domain user. Built-in ActiveDirectory module only.
+Get-ADUser -Filter { ServicePrincipalName -like '*' } \`
+           -Properties ServicePrincipalName, msDS-SupportedEncryptionTypes |
+  Select-Object SamAccountName,
+                @{ N = 'SPNs';        E = { $_.ServicePrincipalName -join ' | ' } },
+                @{ N = 'EncTypes';    E = { $_.'msDS-SupportedEncryptionTypes' } } |
+  Format-Table -AutoSize`}</PowerShellBlock>
+
+Your weak account from Lab 01 should appear in this list. A blank or `0` value for `EncTypes` means the account has never had supported encryption types explicitly set, so the domain default applies — and in many environments that default still permits RC4. That is the condition that makes the next step productive for an attacker.
+
+### Step 2: Request a service ticket for the weak SPN
+
+Now request the TGS for that SPN as the normal user. You do this with the `System.IdentityModel.Tokens.KerberosRequestorSecurityToken` class, which is part of the .NET Framework that ships with Windows. Loading the `System.IdentityModel` assembly and constructing the token with an SPN causes the local Kerberos client to go to the KDC and request a real service ticket — exactly the request an attacker issues, but performed with a sanctioned, built-in API rather than an offensive tool.
+
+<PowerShellBlock title="Request a TGS for an SPN using a built-in .NET class">{`# Run as the non-admin domain user. Replace the SPN with your Lab 01 service account's SPN.
+$spn = 'MSSQLSvc/db01.corp.lab:1433'
+
+# Load the framework assembly that contains the Kerberos requestor token class
+Add-Type -AssemblyName System.IdentityModel
+
+# Constructing the token triggers a real TGS request to the KDC for this SPN.
+# The returned ticket is encrypted with the service account's long-term key.
+$token = New-Object System.IdentityModel.Tokens.KerberosRequestorSecurityToken \`
+           -ArgumentList $spn
+
+# Confirm the ticket is now cached locally for this session
+Write-Host "Requested SPN : $($token.ServicePrincipalName)"
+klist`}</PowerShellBlock>
+
+The TGS you just received is encrypted with the service account's password-derived key. That is the entire premise of Kerberoasting: an attacker takes this ticket *offline* and tries password after password against it with no further contact with the domain, so account lockout and online monitoring never fire. If the password is weak and the encryption is RC4, it falls quickly. This lab stops here — you have the ticket, you have proven the request is possible, and you do not crack anything. The defender's job starts now.
+
+<WarStory title="svc_sql and the password that ran SQL Server since 2019">
+A regional firm runs a SQL Server under a domain account named `svc_sql`. The account was created in 2019, given an SPN so the database could be reached by name, and handed the password `Summer2019!` because that is what the on-call DBA typed at 11pm during the original install. It was never rotated — rotating a service account password means coordinating an outage, and nobody owned that. The account also sat in a privileged group because, years earlier, someone needed it to "just work" and granting more rights was faster than scoping them.
+
+A contractor's laptop gets phished. The foothold is an ordinary domain user with no special rights. The attacker enumerates SPNs, sees `svc_sql`, requests its TGS — the same request you made in Step 2 — and walks out with the encrypted ticket. Offline, against a single wordlist, `Summer2019!` falls in under a minute. Now the attacker has the cleartext password of a privileged service account, no malware required, no exploit, nothing that tripped a single alert. Within the hour they are operating with that account's rights across the environment.
+
+The post-incident review found the account's `msDS-SupportedEncryptionTypes` still allowed RC4 and the password had not changed in five years. Both of the changes in Step 5 of this lab — AES-only and a gMSA — would have closed the path before it opened.
+</WarStory>
+
+### Step 3: Detect — find the request in Security event 4769
+
+Every TGS request is logged on the domain controller as Security event **4769**, "A Kerberos service ticket was requested." The field that matters for hunting is **Ticket Encryption Type**. Modern, healthy clients negotiate AES, which logs as `0x12` (AES256-CTS-HMAC-SHA1-96). A request that comes back as `0x17` is RC4-HMAC — the legacy, weaker cipher that an attacker deliberately prefers because RC4 tickets are faster to crack offline. So your hunting tell is an RC4 (`0x17`) service-ticket request, especially in a burst from a single ordinary user account against many SPNs.
+
+Pull 4769 events and project the fields out of the event XML, because the encryption type and the requesting account live in the structured event data, not the rendered message string.
+
+<PowerShellBlock title="Hunt event 4769 for RC4 service-ticket requests">{`# Run on the DC (or against the Security log of the DC).
+$events = Get-WinEvent -FilterHashtable @{ LogName = 'Security'; Id = 4769 } -MaxEvents 500
+
+$results = foreach ($e in $events) {
+  $x = [xml]$e.ToXml()
+  $data = @{}
+  foreach ($d in $x.Event.EventData.Data) { $data[$d.Name] = $d.'#text' }
+
+  [PSCustomObject]@{
+    TimeCreated   = $e.TimeCreated
+    Account       = $data['TargetUserName']      # the user that requested the ticket
+    ServiceName   = $data['ServiceName']         # the SPN account being targeted
+    EncryptionHex = $data['TicketEncryptionType']
+    Encryption    = switch ($data['TicketEncryptionType']) {
+                      '0x17'  { 'RC4-HMAC (weak)' }
+                      '0x12'  { 'AES256 (hardened)' }
+                      '0x11'  { 'AES128' }
+                      default { $data['TicketEncryptionType'] }
+                    }
+  }
+}
+
+# Isolate the RC4 requests — the Kerberoasting tell
+$results | Where-Object { $_.EncryptionHex -eq '0x17' } |
+  Sort-Object Account, TimeCreated | Format-Table -AutoSize`}</PowerShellBlock>
+
+The request you made in Step 2 should surface here with an `EncryptionHex` of `0x17` (assuming RC4 was still permitted for that account). The signal you are training your eye on is the combination: RC4 encryption, plus one requesting `Account`, plus many distinct `ServiceName` values in a short window. One RC4 request is noise; a single non-service account fanning out across every SPN in the domain in RC4 is a hunt.
+
+<ProTip>
+**RC4 in Kerberos is the enabler, not a side detail.** Kerberoasting depends on the service ticket being crackable offline, and RC4-HMAC tickets are dramatically cheaper to crack than AES. If you eliminate RC4 — set the account to AES-only — the offline math gets far harder, and any remaining RC4 request for that SPN becomes an unambiguous anomaly instead of background noise. AES-only plus a machine-managed password (a gMSA) removes the crackable-password condition entirely. Treat `0x17` for a user-account SPN as a finding to explain, not a value to ignore.
+</ProTip>
+
+### Step 4: Optionally, write the KQL equivalent for Sentinel
+
+If your environment forwards Security events to Microsoft Sentinel or another log analytics workspace, the same hunt is a short KQL query against the `SecurityEvent` table, tying this lab back to the KQL hunting you practiced in Module 8 §04. The exact column names depend on how your connector parses the event, so confirm them against your own schema before relying on the query — but the shape is the same: filter to 4769, then filter to the RC4 encryption type.
+
+<PowerShellBlock title="KQL hunt for RC4 4769 requests (Sentinel — confirm columns to your schema)">{`SecurityEvent
+| where EventID == 4769
+| where TicketEncryptionType == '0x17'           // RC4-HMAC
+| summarize SPNsRequested = dcount(ServiceName),
+            Requests      = count()
+        by Account, bin(TimeGenerated, 1h)
+| where SPNsRequested > 5                          // one account, many SPNs in an hour
+| sort by Requests desc`}</PowerShellBlock>
+
+The `summarize` is what turns a raw event stream into a hunt: it counts how many distinct SPNs each account asked for per hour, and surfaces the accounts whose breadth of requests does not match a normal client. A real application asks for the handful of SPNs it actually talks to; a roasting run asks for everything.
+
+### Step 5: Remediate — strong password, AES-only, then a gMSA
+
+Detection tells you it happened. Remediation removes the path so it cannot happen again. There are three moves, and they stack. First, rotate the account to a long, random password so even an RC4 ticket is no longer feasible to crack. Second, set the account's supported encryption types to AES-only so RC4 tickets are not issued at all. Third — the real fix — migrate the service to a **group Managed Service Account**, whose password is generated and rotated automatically by Active Directory and is far too long and random to crack. A gMSA removes the human-chosen password entirely, which is the root cause.
+
+<PowerShellBlock title="Stopgap — rotate password and force AES-only on the existing account">{`# Run with rights to modify the service account. ActiveDirectory module.
+$svc = 'svc_sql'
+
+# 1) Rotate to a long random password (immediate stopgap)
+$newPw = [System.Web.Security.Membership]::GeneratePassword(32, 8)
+Set-ADAccountPassword -Identity $svc -Reset \`
+  -NewPassword (ConvertTo-SecureString $newPw -AsPlainText -Force) -WhatIf
+# Re-run WITHOUT -WhatIf once you have confirmed the target, then store $newPw nowhere — it is throwaway
+
+# 2) Force AES-only: disable RC4 by setting msDS-SupportedEncryptionTypes to AES128+AES256.
+#    0x18 = AES128 (0x08) + AES256 (0x10). This stops the KDC issuing RC4 tickets for this account.
+Set-ADUser -Identity $svc -Replace @{ 'msDS-SupportedEncryptionTypes' = 0x18 } -WhatIf`}</PowerShellBlock>
+
+The password rotation and AES-only flag are the stopgap. The durable fix is to stop using a regular user account for the service at all. A gMSA hands password management to Active Directory: the password is machine-generated, very long, and rotated on a schedule, so there is no human-chosen secret to guess and the Kerberoasting offline-crack path is gone by construction.
+
+<PowerShellBlock title="Durable fix — provision a gMSA with AES-only encryption">{`# Run once per forest if the KDS root key does not yet exist (in a lab you can use -EffectiveImmediately).
+# Add-KdsRootKey -EffectiveImmediately
+
+# Create the gMSA, scoping which hosts may retrieve its password and forcing AES encryption types.
+New-ADServiceAccount -Name 'gmsa_sql' \`
+  -DNSHostName 'db01.corp.lab' \`
+  -PrincipalsAllowedToRetrieveManagedPassword 'DB01$' \`
+  -KerberosEncryptionType AES256, AES128
+
+# Move the SPN to the gMSA so service-ticket requests now target the machine-managed account.
+# (Remove the SPN from the old user account first to avoid duplicate-SPN issues.)
+Set-ADServiceAccount -Identity 'gmsa_sql' \`
+  -ServicePrincipalNames @{ Add = 'MSSQLSvc/db01.corp.lab:1433' }`}</PowerShellBlock>
+
+After the service runs under `gmsa_sql`, configure the actual service (the SQL instance, the app pool, the scheduled task) to log on as that gMSA. The old user account is now decommissioned for service use, its SPN removed, and the credential it once held is irrelevant.
+
+## Validation
+
+Prove the fix took. Request the ticket again exactly as in Step 2, then re-run the Step 3 hunt and confirm the request for that SPN now comes back as AES (`0x12`), not RC4 (`0x17`). Also confirm the account's supported encryption types reflect AES-only.
+
+<PowerShellBlock title="Confirm the remediation — encryption type now AES">{`# Re-request the ticket for the (now gMSA-backed) SPN, then re-check 4769
+Add-Type -AssemblyName System.IdentityModel
+$null = New-Object System.IdentityModel.Tokens.KerberosRequestorSecurityToken \`
+          -ArgumentList 'MSSQLSvc/db01.corp.lab:1433'
+
+Get-WinEvent -FilterHashtable @{ LogName = 'Security'; Id = 4769 } -MaxEvents 50 |
+  ForEach-Object {
+    $x = [xml]$_.ToXml(); $d = @{}
+    foreach ($n in $x.Event.EventData.Data) { $d[$n.Name] = $n.'#text' }
+    [PSCustomObject]@{
+      Time = $_.TimeCreated
+      SPN  = $d['ServiceName']
+      Enc  = $d['TicketEncryptionType']   # expect 0x12 (AES256) now, not 0x17
+    }
+  } | Format-Table -AutoSize
+
+# Confirm the supported-encryption-types value on the service account
+Get-ADServiceAccount -Identity 'gmsa_sql' -Properties msDS-SupportedEncryptionTypes |
+  Select-Object Name, 'msDS-SupportedEncryptionTypes'`}</PowerShellBlock>
+
+Expected result: the new 4769 entry for that SPN shows `0x12`, the gMSA's supported encryption types reflect AES, and the original weak user account no longer carries the SPN. The offline-crack path is closed.
+
+## Teardown
+
+There is nothing to dismantle beyond the Lab 01 environment, and you should not roll the hardening back — the AES-only setting and the gMSA are the permanent, correct state for any service account, so leave them in place as the baseline for the rest of the module. If you snapshotted before this lab and want a clean slate to re-run it, revert to that snapshot; otherwise keep the hardened account. The one thing worth keeping as a permanent artifact is the Step 3 hunt query — that is a detection you will want running against real Security logs, not just lab ones.
+
+## What this proves
+
+You can now stand on both sides of the most common Active Directory privilege-escalation technique. As the attacker side of T1558.003, you understand *why* it works — any authenticated user can request any SPN's ticket, and that ticket is encrypted with a key derived from a password a human chose. As the defender, you can find the request in event 4769 by its encryption type, separate the RC4 tell from normal traffic at scale with a hunting query, and close the path for good with AES-only encryption and a machine-managed gMSA password. That attacker-then-defender fluency is exactly what a blue-team conversation in a banking environment expects, and it connects directly to the threat-detection material in Module 8 — you are not reciting the technique, you have run the hunt and watched the fix change the log.
+
+## Recall drill
+
+<Flashcard front="Which Kerberos design fact makes Kerberoasting possible, and which encryption type is the red flag in event 4769?" back="Any authenticated user can request a TGS for any SPN, and that TGS is encrypted with the service account's long-term key - crackable offline if the password is weak. In event 4769, a Ticket Encryption Type of RC4 (0x17) is the tell; AES256 (0x12) is the hardened state. Maps to MITRE T1558.003." />
+<Flashcard front="What two changes remove the Kerberoasting offline-crack path for a service account?" back="Set the account to AES-only by configuring msDS-SupportedEncryptionTypes (disabling RC4), and migrate the service to a group Managed Service Account (gMSA) so the password is machine-generated, very long, and auto-rotated - removing the weak human-chosen password entirely." />
+
+## Drill
+
+<Quiz question={{
+  id: "12-labs/10-kerberoasting-hunt/q1",
+  prompt: "While hunting Kerberoasting in your lab, you review Security event 4769 entries. Which single attribute most directly flags a likely Kerberoasting attempt against a crackable service account?",
+  options: [
+    "A logon type of 3 (network).",
+    "A Ticket Encryption Type of 0x17 (RC4), especially in a burst of requests from one non-service account.",
+    "A failed pre-authentication (event 4771).",
+    "A Ticket Encryption Type of 0x12 (AES256)."
+  ],
+  correctIndex: 1,
+  explanation: "RC4 (0x17) service tickets are the tell: attackers prefer RC4 because it is faster to crack offline, and a burst of 4769s for many SPNs from one ordinary account is the pattern. AES256 (0x12) is the hardened, expected state. Event 4771 is a pre-authentication failure (password spray / AS-REP roasting), not Kerberoasting. Logon type is not an attribute of 4769. Maps to MITRE T1558.003."
+}} />

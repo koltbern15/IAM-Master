@@ -1,0 +1,141 @@
+{/* Control identifiers verified against NIST SP 800-53 Rev. 5, NIST CSF 2.0 (CSWP 29), PCI DSS v4.0.1, and 45 CFR 164. Re-confirm cross-framework cells against primary sources before publish. */}
+
+<HoloPanel label="COVERS">
+- **CISSP** Domain 1 (Security & Risk Management) — compliance, regulatory frameworks, and control selection across multiple standards
+- **CISSP** Domain 5 (Identity and Access Management) — the IAM control objectives that every framework restates in its own dialect
+- **Security+ SY0-701** Objective 5.x — Governance, Risk, and Compliance; mapping controls to multiple regulatory drivers
+- **NIST SP 800-53 Rev. 5** — the AC and IA families as the prescriptive anchor the crosswalk maps against
+- **NIST CSF 2.0** — the PR.AA (Identity Management, Authentication, and Access Control) outcomes
+- **PRACTITIONER ARTIFACT** — this section is the deliverable: the single sheet you hand an auditor that answers each IAM control question once and cites it everywhere
+</HoloPanel>
+
+# The IAM Controls Matrix: Framework, Control, Evidence
+
+Spend enough time across PCI assessments, SOX walkthroughs, a FedRAMP package, and a HIPAA risk analysis and a pattern jumps out that nobody puts on the cover page of any standard: they are all asking the same handful of questions. Is every user uniquely identified? Is access strong-authenticated? Is access least-privilege? Are duties separated? Is provisioning controlled? Are leavers removed promptly? Is access reviewed on a cadence? Is privileged use constrained and logged? Eight questions. Every framework in this module is a different dialect for those same eight questions.
+
+An **IAM controls matrix** is the artifact that exploits that fact. Instead of answering each framework from scratch every audit cycle, you answer the eight control objectives once, then maintain a single crosswalk that tells you the exact identifier each framework uses, the evidence that proves the control operates, who owns it, and how often it runs. Map once, cite many. This section builds that matrix, cell by cell, and it is the connective tissue for everything else in Module 9 — sections 01 through 03 fill the framework columns, and section 05 (the audit playbook) is the operational arm of the Evidence column.
+
+<Definition term="Controls matrix (crosswalk)">
+A controls matrix is a single reference that maps each control objective to its identifier in every framework you must satisfy, alongside the evidence artifact that proves it, the accountable owner, and the cadence at which it operates. It collapses many overlapping standards into one source of truth so you answer a control question once and reuse that answer across audits. Keep it in version control like code, not buried in a shared drive — it is a living document that changes as standards revise and as your environment evolves.
+</Definition>
+
+<Definition term="Evidence artifact">
+An evidence artifact is the concrete, produceable thing that demonstrates a control is not just designed but actually operating — an access listing, a signed recertification campaign export, a Conditional Access policy report, a Privileged Identity Management activation log, a terminated-user removal ticket matched to the HR feed. The Evidence column is the most valuable column in the matrix because it is the bridge between abstract control language and what an auditor can actually test. If you cannot name the artifact, you cannot prove the control.
+</Definition>
+
+## What the matrix is, and why it beats per-framework prep
+
+The naive way to handle multi-framework compliance is to treat each standard as its own project: a PCI binder, a SOX binder, a HIPAA binder, each maintained separately, each re-deriving the same controls. That approach guarantees three failures. First, drift — the access-review evidence in the PCI binder says one cadence and the SOX binder says another, and an auditor who sees both asks which is true. Second, wasted effort — you collect the same user access listing three times for three audits in the same quarter. Third, blind spots — a control that one framework names explicitly and another only implies gets dropped because no single view shows the gap.
+
+The matrix fixes all three by inverting the organizing principle. The rows are not frameworks; the rows are **control objectives**. The columns are the frameworks plus the operational metadata (evidence, owner, cadence). Read a row across and you see every name your single control answers to. Read a column down and you see your entire posture against one framework. One control change updates one row and propagates to every framework at once.
+
+The eight universal IAM control objectives this matrix is built around:
+
+| # | Control objective | Plain-English question it answers |
+|---|---|---|
+| 1 | Unique identification | Is every user and account traceable to one real owner, with no shared logins? |
+| 2 | Strong / MFA authentication | Does proving who you are require more than a reusable password? |
+| 3 | Least privilege | Does each identity hold only the access its job requires, and no more? |
+| 4 | Separation of duties | Is any single person blocked from controlling a whole sensitive process end to end? |
+| 5 | Access provisioning (Joiner/Mover) | Is new and changed access requested, approved, and granted through a controlled flow? |
+| 6 | Deprovisioning / termination (Leaver) | Is access removed promptly and completely when someone leaves or goes inactive? |
+| 7 | Periodic access review | Does an accountable owner re-confirm each user's access on a defined cadence? |
+| 8 | Privileged access management & logging | Is elevated access constrained, time-bound, and logged with justification? |
+
+Those eight are the spine. The rest of this section fills the crosswalk cells for each, broken into three readable tables so the master matrix stays legible on a laptop instead of overflowing as one nine-column monster.
+
+## Matrix part 1 — Identity and authentication (objectives 1–2)
+
+The first cluster answers the front-door questions: who are you, and how strongly did you prove it. Across frameworks, unique identification is the most universally and explicitly named IAM control there is — every standard restates it because shared accounts destroy accountability, and accountability is the foundation every other control stands on.
+
+| Control objective | NIST 800-53 Rev. 5 | PCI DSS 4.0 | SOX ITGC | HIPAA | CSF 2.0 |
+|---|---|---|---|---|---|
+| Unique identification | IA-4 Identifier Management | 8.2.1 unique ID per user before access | Access to Programs and Data | 164.312(a)(2)(i) Unique User Identification | PR.AA-01 |
+| Strong / MFA authentication | IA-2 (with IA-2(1) MFA to privileged, IA-2(2) MFA to non-privileged); IA-5 Authenticator Management | 8.3 strong authentication; 8.4.2 MFA for all access into the CDE; 8.5.1 MFA not bypassable / replay-resistant | Access to Programs and Data | 164.312(d) Person or Entity Authentication | PR.AA-03 |
+
+A few cells deserve a note. In 800-53 Rev. 5, the multifactor enhancements consolidated from the Rev. 4 network-versus-local split into the cleaner IA-2(1) privileged and IA-2(2) non-privileged pairing — if you are working from older memory or a Rev. 4 SSP, confirm the current enhancement numbering before you cite it. On the PCI side, requirement 8.4.2 is the headline expansion of v4.0: MFA is now required for *all* access into the Cardholder Data Environment, not merely remote or administrative access as under earlier versions. In CSF 2.0, authentication outcomes live at PR.AA-03 (users, services, and hardware are authenticated), distinct from PR.AA-01 which carries identity and credential management.
+
+<Definition term="Compensating control">
+A compensating control is an alternative measure put in place when the primary control cannot be implemented as written, but the alternative meets the same security intent at equivalent rigor. In PCI DSS it requires a formal, documented worksheet justifying why the original requirement is genuinely infeasible and how the substitute provides comparable protection. In a controls matrix, a compensating control does not get its own row — it is an annotation on the objective it covers, with its own evidence (the worksheet and the risk acceptance). Auditors scrutinize compensating controls harder than primary ones, because they are where shortcuts hide.
+</Definition>
+
+## Matrix part 2 — Authorization and lifecycle (objectives 3–6)
+
+The middle cluster is where most real audit findings land. Least privilege and separation of duties define *what* access should exist; provisioning and deprovisioning govern *how* access enters and leaves the environment. These four are tightly coupled in practice — a clean joiner process means nothing if the leaver process leaks, and least privilege erodes the moment movers accumulate access without anyone pruning the old grants.
+
+| Control objective | NIST 800-53 Rev. 5 | PCI DSS 4.0 | SOX ITGC | HIPAA | CSF 2.0 |
+|---|---|---|---|---|---|
+| Least privilege | AC-6 Least Privilege | 7.2.2 access by job classification/function, least privilege | Access to Programs and Data (least privilege) | 164.308(a)(4) Information Access Management | PR.AA-05 |
+| Separation of duties | AC-5 Separation of Duties | 7.x business-need-to-know restriction | Access to Programs and Data (SoD conflict matrix) | 164.308(a)(3) Workforce Security | PR.AA-05 |
+| Access provisioning (Joiner/Mover) | AC-2 Account Management; AC-2(1) Automated Account Management | 8.2.4 add / change / delete of IDs managed | Access to Programs and Data (provisioning, approvals) | 164.308(a)(3) and (a)(4) | PR.AA-05 |
+| Deprovisioning / termination (Leaver) | AC-2 with AC-2(3) Disable Inactive Accounts | 8.2.5 terminated users revoked immediately; 8.2.6 inactive accounts disabled within 90 days | Access to Programs and Data (terminated-user timeliness) | 164.308(a)(3)(ii)(C) termination procedures | PR.AA-05 |
+
+Two cells are worth defending against a common misreading. First, in CSF 2.0 both least privilege and separation of duties map to the same subcategory: PR.AA-05 explicitly states that access permissions, entitlements, and authorizations are defined in policy, managed, enforced, and reviewed, and incorporate the principles of least privilege and separation of duties. CSF 2.0 does not split those into separate subcategories the way 800-53 splits AC-5 from AC-6, so the matrix cell is correct to point both rows at PR.AA-05 — just know the same subcategory is doing double duty.
+
+Second, the PCI deprovisioning numbers trip people up because they encode two different clocks. Requirement 8.2.5 demands that access for terminated users be revoked *immediately* — there is no grace window for a known termination. Requirement 8.2.6 is the separate inactivity clock: accounts that simply go unused must be disabled within 90 days, which catches the dormant account nobody formally terminated. A matrix that collapses those two into one cell will mislead the person collecting evidence into testing the wrong population.
+
+## Matrix part 3 — Review and privileged access (objectives 7–8)
+
+The last cluster is the assurance layer: the controls that prove the other six keep working over time rather than decaying after go-live. Periodic access review is the single most-requested IAM evidence artifact in any audit, and privileged access is where the highest-blast-radius findings live.
+
+| Control objective | NIST 800-53 Rev. 5 | PCI DSS 4.0 | SOX ITGC | HIPAA | CSF 2.0 |
+|---|---|---|---|---|---|
+| Periodic access review | AC-2 account review; AU-6 audit record review | 7.2.4 review user accounts and access at least every 6 months; 7.2.5.1 review application / system account access periodically | Access to Programs and Data (user access reviews, typically quarterly or annual) | 164.308(a)(4) access management review | PR.AA-05 (reviewed) |
+| Privileged access management & logging | AC-6(5) privileged accounts; AC-6(9) log use of privileged functions; AC-6(10) prohibit non-privileged users from privileged functions; AU-2 / AU-12 audit logging | 7.2.5 manage system / application accounts least privilege; 10.x logging | Access to Programs and Data (privileged-access control and logging) | 164.312(b) Audit Controls | PR.AA-05 / DE detection outcomes |
+
+The cadence cells are where frameworks genuinely diverge, and it is a real trap. PCI requirement 7.2.4 sets a hard floor of at least every six months for human user account and access review — a new periodic-review mandate introduced in v4.0. SOX user access reviews are not fixed by statute; their cadence is whatever the control design and the auditor agree on, commonly quarterly for the most sensitive financial systems and annually for the rest. Run a single annual review and call it good for both, and you have satisfied a typical SOX cadence while failing PCI's six-month floor. The matrix's Cadence column exists precisely to surface that kind of conflict before an auditor does.
+
+For privileged access, note that AC-6(9) — logging the use of privileged functions — is the enhancement auditors quote when they want proof that elevated actions are recorded, distinct from AU-2/AU-12 which govern event logging generally. Knowing the parenthetical, not just the family, is what separates a confident answer from a fumbled one in the walkthrough.
+
+## Adding the operating columns: Evidence, Owner, Cadence
+
+The framework columns turn the matrix into a translation dictionary. The last three columns turn it into an operating plan. For each of the eight objectives, the full row also carries the evidence artifact that proves it, the accountable owner, and the cadence at which it runs.
+
+| # | Control objective | Evidence artifact | Typical cadence |
+|---|---|---|---|
+| 1 | Unique identification | Identity register / user listing; no-shared-account attestation | Continuous; verified each review |
+| 2 | Strong / MFA authentication | MFA coverage report; Conditional Access policy export; coverage percentage | Continuous; reported each review |
+| 3 | Least privilege | Role/entitlement definitions; entitlement report | Reviewed on access-review cadence |
+| 4 | Separation of duties | SoD conflict matrix plus exception / mitigating-control log | Reviewed on access-review cadence |
+| 5 | Access provisioning (Joiner/Mover) | Provisioning tickets with documented approvals | Per event; sampled at audit |
+| 6 | Deprovisioning / termination (Leaver) | Termination tickets vs HR feed; account disable timestamps | Per event; timeliness sampled |
+| 7 | Periodic access review | Signed recertification campaign export with reviewer and dates | PCI 6-month; SOX quarterly/annual |
+| 8 | Privileged access management & logging | PIM eligible-vs-active config; activation logs with justification; PAM session recordings; break-glass usage logs | Continuous logging; config reviewed periodically |
+
+The Owner column is left for each organization to populate, because ownership is where compliance becomes operational. A control with no named owner is a control nobody runs. Assigning the periodic-access-review row to a specific identity-governance lead, with the six-month cadence on a calendar, is the moment the matrix stops being a compliance map and becomes an operating calendar.
+
+<ProTip>
+Map once, cite many — but only if the matrix is the single source of truth. Keep one master matrix in version control (a repo, a tracked spreadsheet, whatever your team actually maintains) and make every framework deliverable a *view* generated from it, never a separately maintained copy. The instant a PCI binder and a SOX binder each hold their own hand-edited access-review evidence, they drift, and an auditor who sees both contradictory artifacts has just found you a finding. One row, one truth, many citations.
+</ProTip>
+
+<WarStory title="The matrix that turned three audits into one">
+A mid-size firm I watched go through its first heavy compliance year was facing a PCI assessment, a SOX 404 ITGC cycle, and a HIPAA risk analysis all inside the same nine months, because a payments line, a public filing obligation, and a health-data partnership had all landed at once. The instinct was three separate workstreams, three binders, three teams pulling the same Entra and AD exports on three different weeks.
+
+The IAM lead pushed back and built one controls matrix instead — eight objective rows, the framework columns filled cell by cell, and a single Evidence column naming each artifact exactly once. When the PCI QSA asked for proof of six-month access reviews, the SOX auditor asked for the user access review of the financial systems, and the HIPAA assessor asked about access management review, all three got the same recertification campaign export, scoped to their systems, cited to their framework's identifier. The MFA coverage report answered IA-2(1), PCI 8.4.2, and 164.312(d) from one file.
+
+The work that would have been collected three times was collected once. More importantly, the matrix surfaced the cadence conflict early: an annual review would have passed SOX and failed PCI's six-month floor, so they set the review to six months and satisfied both. The finding they avoided was worth more than the hours they saved.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="What is an IAM controls matrix and what problem does it solve?" back="A single crosswalk mapping each IAM control objective to its identifier in every framework (800-53, PCI, SOX ITGC, HIPAA, CSF 2.0) plus the evidence artifact, owner, and cadence. It lets you answer each control question once and cite it across many audits, eliminating drift, duplicated effort, and blind spots." />
+<Flashcard front="For the control objective unique identification, give the 800-53, PCI-DSS, and HIPAA identifiers." back="800-53 IA-4 (Identifier Management); PCI-DSS 8.2.1 (unique ID per user before access); HIPAA 164.312(a)(2)(i) (Unique User Identification, a Required implementation specification)." />
+<Flashcard front="For least privilege, give the 800-53, PCI-DSS, and CSF 2.0 identifiers." back="800-53 AC-6 (Least Privilege); PCI-DSS 7.2.2 (access assigned by job classification and function with least privilege); CSF 2.0 PR.AA-05, which covers access permissions and authorizations incorporating least privilege and separation of duties." />
+<Flashcard front="For periodic access review, which identifiers and cadences apply across PCI and SOX?" back="PCI-DSS 7.2.4 mandates reviewing user accounts and access at least every 6 months; SOX user access reviews are typically quarterly or annual depending on the control design; 800-53 AC-2 covers account review. The PCI six-month floor can conflict with an annual SOX cadence." />
+<Flashcard front="For deprovisioning and termination, give the 800-53 and PCI identifiers and the two distinct timeliness rules." back="800-53 AC-2(3) disables inactive accounts. PCI-DSS uses two clocks: 8.2.5 revokes terminated users immediately, while 8.2.6 disables merely inactive (unused) accounts within 90 days. They test different populations and must not be collapsed into one cell." />
+<Flashcard front="Which column of the IAM controls matrix bridges it to the audit playbook, and why?" back="The Evidence Artifact column. It names the exact deliverable (access listing, signed recertification export, PIM activation log) that proves the control operates, which becomes the auditor Provided-By-Client response in section 05's playbook." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "09-compliance/04-iam-controls-matrix/q1",
+  prompt: "You are filling the least privilege row of an IAM controls matrix. Which set of identifiers correctly populates the 800-53 and PCI-DSS columns?",
+  options: [
+    "IA-2 and 8.4.2",
+    "AC-5 and 7.1",
+    "AC-6 and 7.2.2",
+    "AU-6 and 10.6"
+  ],
+  correctIndex: 2,
+  explanation: "Least privilege is 800-53 AC-6 and PCI-DSS 7.2.2 (access assigned by job classification and function with least privilege). AC-5 is Separation of Duties; IA-2 is identification and authentication; AU-6 is audit record review and 10.6 is log review — none of those is the least-privilege cell."
+}} />

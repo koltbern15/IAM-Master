@@ -1,0 +1,162 @@
+{/* Objectives current as of 2026-06-01. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **Security+ SY0-701** Objective 4.4 / 4.5 — identity threat detection and response tooling alongside EDR/XDR/SIEM
+- **CISSP** Domain 5 (Identity and Access Management) — third-party identity threat detection, AD resilience, and recovery
+- **CISSP** Domain 7 (Security Operations) — incident detection, recovery strategies, and the recovery discipline distinct from detection
+- **No direct SC-300 mapping** — this is third-party ITDR (Identity Threat Detection and Response), beyond the Microsoft exam blueprint; one inline contrast to Entra ID Identity Protection is drawn for context <SC300Badge />
+</HoloPanel>
+
+# CrowdStrike Falcon Identity & Semperis
+
+Section 02 covered Microsoft's native answer to identity attacks — Defender for Identity, included in the E5 stack, wired deep into Defender XDR and Entra ID Identity Protection. Native and integrated is a real advantage. But "native" is not the same as "complete," and the moment you operate Active Directory in anger you discover two gaps that the Microsoft-native tooling does not fully close.
+
+The first gap is *real-time enforcement at the moment of authentication* with endpoint-to-identity correlation — the ability to block a Pass-the-Hash or Golden Ticket lateral move while it is happening, not just raise an alert that a SOC analyst triages an hour later. The second, larger gap is *recovery*. Detection tells you the forest was poisoned. It does not rebuild the forest. After a destructive attack — ransomware that encrypted your domain controllers, a wiper, a Golden-Ticket-compromised forest where you no longer trust the `krbtgt` key — you are no longer in the detection business. You are in the recovery business, and that is a different discipline with different tools.
+
+This section covers the two best-known products that live in those gaps: **CrowdStrike Falcon Identity Protection** (best-of-breed real-time identity threat detection and enforcement, correlated with the endpoint) and **Semperis** (AD-specific change detection plus the only credible *automated forest recovery* story on the market). Both belong to a product category that Gartner named ITDR.
+
+## What it is — the ITDR category
+
+<Definition term="Identity Threat Detection and Response (ITDR)">A security product category, named by Gartner, focused on detecting and responding to attacks that target identity infrastructure itself — Active Directory, Entra ID, and the credentials, tickets, and trust material they manage. ITDR sits between EDR/XDR (which watch endpoints) and SIEM (which aggregates and correlates broad enterprise logs) by specializing in the identity layer: misconfigurations, risky delegations, credential theft, ticket forgery, and dangerous directory changes. The premise is that identity is now the primary attack surface, and a tool purpose-built for it catches what a general-purpose endpoint or log tool misses.</Definition>
+
+The category exists because identity became the perimeter. Once a workforce went hybrid and SaaS-first, the attacker's path to your crown jewels stopped running through the network firewall and started running through a stolen token, a phished consent, or a forged Kerberos ticket. EDR watches the box. SIEM watches the logs. Neither was designed to understand the semantics of Active Directory — that a particular ACL grants `DCSync` rights, that a service account just authenticated from a host it has never touched, that someone disabled Kerberos pre-authentication on an account overnight. ITDR was designed for exactly that.
+
+It is worth being precise about how these tools relate rather than compete:
+
+- **EDR / XDR** (CrowdStrike Falcon Insight, Microsoft Defender for Endpoint) watch process execution, file activity, and memory on endpoints and servers.
+- **SIEM** (Microsoft Sentinel, Splunk) ingest logs from everything and let you correlate and hunt — the subject of section 04.
+- **ITDR** (CrowdStrike Falcon Identity Protection, Semperis, Microsoft Defender for Identity) specialize in the identity directory and authentication layer.
+- **PAM** (CyberArk, Delinea) vault and broker privileged credentials — adjacent, but a control, not a detector.
+
+The honest framing for this whole section: native (MDI) versus best-of-breed real-time enforcement (CrowdStrike) versus AD-specific resilience and recovery (Semperis). They overlap, but each owns a center of gravity the others do not.
+
+## Why it exists — the gaps native tooling leaves
+
+Microsoft Defender for Identity is genuinely good at detection, and if you live entirely in the Microsoft estate it may be all you need. Two pressures drive organizations to add a best-of-breed ITDR layer on top.
+
+**Real-time blocking, not just alerting.** MDI's strength is detection and posture; its response actions (disable user, force password reset) are remediation after a detection. CrowdStrike's pitch is that it can sit *inline* with the authentication itself and make a block-or-step-up decision at the moment of sign-in — stopping the lateral move before it completes rather than alerting after.
+
+**The recovery gap.** This is the one that keeps CISOs awake. You can have flawless detection and still be ruined. When ransomware encrypts every domain controller, or an attacker who held Domain Admin has been in your forest for months and you can no longer trust *anything* in it, the question is no longer "did we detect it" but "how do we stand up a clean, trustworthy forest." Microsoft's own answer to that is a long, manual runbook — and that runbook is where Semperis built a business.
+
+<ProTip>
+You can detect Golden Tickets all day. If you cannot *recover the forest*, you have not solved the problem. Detection without a tested recovery path is an incomplete program — the attacker only has to win once, and a trust-level compromise of `krbtgt` or a ransomed set of domain controllers cannot be cleaned by disabling accounts. Treat AD forest recovery as a first-class, rehearsed capability, not a wiki page nobody has read.
+</ProTip>
+
+## How it works under the hood — CrowdStrike Falcon Identity Protection
+
+CrowdStrike Falcon Identity Protection (the product CrowdStrike has also marketed as Falcon Identity Threat Protection / Detection) is the identity module of the broader Falcon platform. The deployment model is the part most often described loosely, so be precise about it.
+
+**Deployment model.** It is not purely agentless. Falcon Identity Protection uses a lightweight sensor connector deployed against the domain controllers so it has an inline, real-time view of authentication traffic, feeding the Falcon cloud platform. Because it sits at the DC, it sees the protocol-level authentication conversations — Kerberos, NTLM, LDAP/S, and (per CrowdStrike's documented protocol expansion) SMB to the DC — rather than relying solely on after-the-fact event logs. Treat the exact connector packaging and supported server versions as something to confirm against current CrowdStrike documentation before you scope a deployment; vendor module names and supported OS lists change.
+
+**Continuous risk scoring.** The platform maintains a continuous identity risk score per account, derived from behavioral analytics: where the account normally authenticates from, which protocols it normally uses, whether it is over-privileged, whether it is a dormant or stale account suddenly active. That score is the input to policy.
+
+<Definition term="risk-based authentication policy (CrowdStrike Falcon Identity)">A policy that consumes the continuous per-identity risk score and, at the moment of authentication, can allow, step up to multi-factor authentication, or block. Because Falcon Identity Protection can integrate inline with the sign-in flow — including, per CrowdStrike, support for Microsoft's External Authentication Method so it can act as an authentication checkpoint for Entra ID — the enforcement happens during the authentication rather than as a follow-up remediation. This is conceptually parallel to Entra ID Conditional Access risk-based policy <SC300Badge />, but driven by CrowdStrike's own risk engine and correlated with Falcon endpoint signals.</Definition>
+
+**Threat detection coverage.** Falcon Identity Protection markets detection of the same attack families covered in section 01: Pass-the-Hash and other credential-reuse lateral movement, Golden Ticket usage, DCSync-style directory replication abuse, and anomalous service-account behavior. CrowdStrike states its real-time enforcement engine can block lateral-movement techniques such as Pass-the-Hash and Golden Ticket before they succeed. The specific detection and capability names should be verified against current CrowdStrike docs rather than asserted as fixed strings — phrase them as families, not product SKUs, unless you have the live datasheet in front of you.
+
+**Endpoint-to-identity correlation.** The genuine differentiator over a standalone identity tool: because Falcon Identity Protection is part of the same platform as Falcon's endpoint detection, an identity anomaly can be correlated with what the endpoint sensor saw on the originating host. A suspicious authentication from a workstation that *also* just dumped LSASS (section 01, T1003.001) is a far higher-confidence signal than either event alone. That correlation across the endpoint and identity planes is the platform argument.
+
+**Service-account visibility — the banking pain point.** A recurring, high-impact finding Falcon Identity Protection surfaces in real environments is the population of stale and over-privileged service accounts: accounts with non-expiring passwords, accounts that hold rights no current process needs, accounts authenticating in unexpected patterns. In a regulated environment like a bank these are audit findings waiting to happen and a favorite attacker target (recall Kerberoasting from section 01 feeds directly on service accounts with weak keys). Continuous identity-layer visibility is how you find them before an auditor — or an attacker — does.
+
+<Flashcard front="What does CrowdStrike Falcon Identity Protection do and how is it deployed?" back="It is the identity module of the CrowdStrike Falcon platform, providing real-time visibility into Active Directory and Entra ID authentication, continuous per-identity risk scoring, and inline enforcement (step-up MFA or block) on risky authentications. It deploys a lightweight sensor against domain controllers so it sees Kerberos, NTLM, and LDAP/S authentication in real time, and it detects credential-theft lateral movement such as Pass-the-Hash, Golden Ticket, and DCSync. Verify exact capability names against current CrowdStrike docs." />
+
+<Flashcard front="What is the key differentiator of CrowdStrike Falcon Identity Protection over a standalone identity detector?" back="Endpoint-to-identity correlation. Because it is part of the same Falcon platform as CrowdStrike endpoint detection, an identity anomaly can be correlated with what the endpoint sensor observed on the originating host (for example a suspicious authentication from a host that also just dumped LSASS), producing a far higher-confidence signal than either event in isolation." />
+
+<Flashcard front="How does CrowdStrike Falcon Identity risk-based enforcement compare to Entra ID Conditional Access risk policy?" back="Both make an allow / step-up-MFA / block decision based on a risk score at authentication time. Entra ID Identity Protection feeds its own sign-in and user risk into Conditional Access; CrowdStrike Falcon Identity uses its own continuous risk engine, can sit inline with Entra ID authentication via Microsoft's External Authentication Method, and additionally correlates with Falcon endpoint signals. They are complementary risk engines, not the same product." />
+
+<Flashcard front="What recurring identity-risk finding does Falcon Identity Protection surface in enterprises, and why does it matter?" back="Stale and over-privileged service accounts and anomalous service-account authentication. These are a common high-impact blind spot: non-expiring passwords and excess rights make them prime targets for attacks like Kerberoasting, and they are frequent audit findings in regulated environments such as banking. Continuous identity-layer visibility finds them before an attacker or an auditor does." />
+
+## How it works under the hood — Semperis
+
+Semperis approaches the same threat from the other end. CrowdStrike is built around real-time detection and enforcement at the authentication moment. Semperis is built around Active Directory itself — detecting dangerous *changes* to the directory, and, crucially, *recovering* the directory when prevention and detection have failed. Two products carry most of that story: Directory Services Protector and Active Directory Forest Recovery.
+
+### Directory Services Protector (DSP)
+
+Semperis Directory Services Protector provides continuous threat detection for Active Directory (and Entra ID), focused on dangerous changes and security posture. It tracks changes to the directory — including changes that bypass the security event log — surfaces indicators of exposure and indicators of compromise, and can automatically roll back malicious changes to their prior state. Confirm the exact auto-remediation feature name and Entra coverage against current Semperis documentation, since these capability names evolve.
+
+<Definition term="Indicator of Exposure (IoE)">A configuration or state in Active Directory that an attacker could exploit, present *before* any active attack — for example a risky delegation, poor `krbtgt` password hygiene, accounts with Kerberos pre-authentication disabled, or dangerous ACLs granting replication rights. IoEs are about attack surface: closing them shrinks what an attacker can do. They contrast with an Indicator of Compromise (IoC), which is evidence that an attack has already happened. ITDR tooling such as Semperis DSP and Purple Knight scans for IoEs so you can fix the exposure before it is used against you.</Definition>
+
+The DSP value proposition for a defender is twofold. First, change-tracking that does not depend solely on the Windows security log means an attacker who tampers with or disables auditing does not blind the detection. Second, the auto-undo capability turns a malicious change — a sudden grant of `DCSync` rights, an unexpected modification to a Tier-0 group — into a self-healing event rather than an incident that has to run all the way through a SOC ticket queue before it is reverted.
+
+### Active Directory Forest Recovery (ADFR)
+
+This is the capability that justifies the section. ADFR automates recovery of an entire AD forest to a clean, trustworthy state after a destructive attack — ransomware, a wiper, or a forest so deeply compromised at the trust level that you cannot believe anything inside it.
+
+The baseline it automates is Microsoft's own guidance. Microsoft documents AD forest recovery as a long, manual runbook — widely cited as a 28-step process — that can take days or weeks to execute correctly under the pressure of a live incident, with ample room for a single mistake to leave the restored forest unhealthy. ADFR's pitch is to compress that to a largely automated workflow that restores a clean forest in hours rather than days.
+
+<Definition term="Active Directory forest recovery">The process of rebuilding an entire AD forest to a known-good, trustworthy state after the directory itself has been compromised or destroyed — as opposed to recovering individual objects or a single domain controller. It is necessary when you can no longer trust the forest's integrity at the trust level: ransomware has encrypted the domain controllers, or an attacker held Domain Admin and may have planted persistence you cannot fully enumerate. Microsoft's native guidance is a long manual runbook (commonly cited as a 28-step process); Semperis ADFR automates that runbook to restore a clean forest in hours instead of days or weeks.</Definition>
+
+Two design choices in ADFR are worth understanding because they show *why* automation matters here, not just *that* it is faster:
+
+- **Malware-free recovery.** Semperis decouples Active Directory from the underlying operating system during recovery, so you do not restore the same OS image that the malware infected — which would simply re-infect the recovered forest. You bring AD back onto a clean OS. This addresses the classic trap of restoring from a backup that contains the very thing that compromised you.
+- **Automation removes human error under pressure.** A 28-step manual runbook executed by an exhausted team at 3 a.m. during a ransomware event is a recipe for a missed step that leaves the forest broken. Automating the metadata cleanup, Global Catalog rebuild, and sequencing removes the most error-prone parts of the runbook from human hands.
+
+<Flashcard front="What is Semperis Directory Services Protector (DSP)?" back="A Semperis product providing continuous threat detection for Active Directory (and Entra ID) focused on dangerous changes and security posture. It tracks directory changes including those that bypass the security event log, surfaces indicators of exposure and compromise, and can automatically roll back malicious changes to their prior state. Confirm the exact auto-rollback feature name against current Semperis docs." />
+
+<Flashcard front="What does Semperis Active Directory Forest Recovery (ADFR) do?" back="It automates recovery of an entire AD forest to a clean, malware-free state after a destructive attack such as ransomware or a trust-level compromise. It replaces Microsoft's long manual forest-recovery runbook (commonly cited as a 28-step process taking days or weeks) with a largely automated workflow that restores a clean forest in hours, and it decouples AD from the underlying OS so recovery does not re-infect the forest." />
+
+<Flashcard front="Why does Semperis ADFR restore Active Directory onto a clean operating system rather than a full system-state backup?" back="To avoid re-infection. A traditional system-state or bare-metal restore brings back the same OS image the malware compromised, which can simply re-infect the recovered forest. Semperis decouples AD from the underlying OS so the directory is restored onto a clean OS, breaking the re-infection cycle — the difference between recovering AD and recovering the malware along with it." />
+
+<Flashcard front="What is an Indicator of Exposure (IoE) in Active Directory security?" back="A configuration or state an attacker could exploit that exists before any active attack — for example risky delegation, weak krbtgt password hygiene, accounts with Kerberos pre-authentication disabled, or dangerous ACLs granting replication rights. IoEs describe attack surface (versus an Indicator of Compromise, which is evidence an attack already happened) and are what tools like Semperis Purple Knight and DSP scan for so you can close the gap proactively." />
+
+### Purple Knight
+
+Semperis also publishes Purple Knight, a free security-assessment tool that scans Active Directory and Entra ID for indicators of exposure and misconfiguration and produces a scored report of findings. It is a common on-ramp — a defender runs Purple Knight, sees the IoEs in their own environment, and that report becomes the business case for a continuous tool like DSP. Verify current scope and platform coverage against Semperis's site, as free-tool feature sets shift over time.
+
+<Flashcard front="What is Purple Knight?" back="A free Active Directory and Entra ID security-assessment tool published by Semperis that scans for indicators of exposure and misconfiguration and produces a scored findings report. It is often used as an on-ramp: the report reveals an environment's IoEs and becomes the business case for a continuous detection product such as Semperis DSP." />
+
+## When you reach for which
+
+A defender does not pick one of these and discard the others — they are largely complementary, and a mature program may run all three. But each has a center of gravity, and matching the gravity to the problem is the skill.
+
+- **Microsoft Defender for Identity** — reach for it first if you are Microsoft-centric. It is native, included in Microsoft 365 E5 / E5 Security, and wired deep into Defender XDR and the Entra ID Identity Protection risk signal that feeds risk-based Conditional Access <SC300Badge />. Lowest friction, strongest integration, no extra vendor.
+- **CrowdStrike Falcon Identity Protection** — reach for it when you want best-of-breed *real-time enforcement* at the authentication moment and *endpoint-to-identity correlation*, especially if you already run Falcon on your endpoints. Its differentiator is inline blocking and the cross-plane correlation a Microsoft-only stack cannot match in the same way.
+- **Semperis** — reach for it for AD-specific *change detection that survives log tampering* and, above all, for *recovery*. Semperis owns the recovery story that neither MDI nor Falcon Identity owns. If your nightmare is "the forest is ransomed and we cannot trust anything in it," Semperis ADFR is the answer to that specific nightmare.
+
+<Flashcard front="How do you choose between Microsoft Defender for Identity, CrowdStrike Falcon Identity Protection, and Semperis?" back="They are complementary, not strict substitutes. MDI is native, included in E5, with the deepest Microsoft integration. CrowdStrike Falcon Identity Protection is best-of-breed real-time inline enforcement with endpoint-to-identity correlation. Semperis specializes in AD change detection that survives log tampering and, uniquely, automated forest recovery. Match the tool to the gap: native integration, real-time blocking, or resilience and recovery." />
+
+<Flashcard front="Why is detection without a tested recovery path incomplete for Active Directory?" back="Because credential and trust material such as the krbtgt key and service-account keys can be forged and persist, and a forest compromised at the trust level or encrypted by ransomware cannot be cleaned by disabling accounts. Only a validated recovery process restores integrity, so resilience requires both detection and a rehearsed recovery capability — detection alone leaves you knowing you were beaten with no way to stand back up cleanly." />
+
+<Flashcard front="Where does ITDR sit relative to EDR/XDR, SIEM, and PAM?" back="EDR/XDR watch endpoints (process, file, memory activity). SIEM aggregates and correlates broad enterprise logs for hunting. PAM vaults and brokers privileged credentials (a control, not a detector). ITDR specializes in the identity directory and authentication layer — AD and Entra misconfigurations, credential theft, ticket forgery, and dangerous directory changes — catching identity-layer threats the others were not built to understand." />
+
+This decision framing sets up section 05. Detection — whether MDI, Falcon Identity, or Semperis DSP — tells you an attack happened. Section 05 is about what you *do* once it has: containing a compromised identity, the `krbtgt` double-reset that invalidates Golden Tickets, and, when the forest itself is lost, the recovery discipline that Semperis ADFR automates.
+
+## War story
+
+<WarStory title="The Forest That Came Back in Hours, Not Weeks">
+A regional manufacturer — roughly 3,000 employees, a single AD forest with eight domain controllers across two data centers — got hit with a ransomware crew that did its homework. They did not just encrypt file servers. They had spent weeks inside the network, escalated to Domain Admin, and on the night of the detonation they encrypted every domain controller in both data centers along with the backup server that held the system-state backups. The forest was gone. Every authentication in the company depended on it, and it was a pile of encrypted disks.
+
+The first instinct was to restore from the most recent system-state backup. That instinct was wrong twice over. The accessible backups had been encrypted along with everything else, and even the older offline copy carried the same compromised OS image the attackers had used to live in the environment for weeks — restoring it would have brought the attackers' persistence right back with the directory. This is the trap: a system-state restore recovers the malware along with the forest.
+
+What saved them was that, six months earlier, after a Purple Knight assessment had lit up a wall of red indicators of exposure, the infrastructure lead had pushed through budget for Semperis — DSP for detection and, more importantly, ADFR with backups stored in cloud blob storage well outside the blast radius of the on-prem ransomware. Those forest backups were untouched.
+
+The recovery ran the ADFR workflow: restore the forest onto clean operating systems decoupled from the infected images, rebuild the Global Catalog, clean up the metadata of the dead domain controllers, and bring the forest back without dragging the malware along. What Microsoft's manual 28-step runbook would have taken an exhausted team days or weeks to execute by hand — with every manual step a chance to leave the forest unhealthy — ran in hours. Authentication came back the same day. The lesson the infrastructure lead repeats to anyone who will listen: they did not get lucky in the recovery. They got lucky six months earlier, when they treated forest recovery as a capability to buy and rehearse rather than a wiki page to write later. Detection would have told them the forest was poisoned. Only the recovery capability brought it back.
+</WarStory>
+
+## Check your understanding
+
+<Quiz question={{
+  id: "08-security-detection/03-crowdstrike-semperis/q1",
+  prompt: "A bank can reliably detect Golden Ticket and DCSync attacks with its identity tooling, but has no plan for a forest that has been ransomware-encrypted and trust-poisoned. Which capability addresses this gap?",
+  options: [
+    "Better KQL hunting queries in Microsoft Sentinel.",
+    "Additional Microsoft Defender for Identity sensors on every domain controller.",
+    "An automated Active Directory forest recovery capability such as Semperis ADFR, which restores the forest to a clean, malware-free state.",
+    "Enabling more Conditional Access risk-based policies in Entra ID."
+  ],
+  correctIndex: 2,
+  explanation: "Detection tools (Defender for Identity, CrowdStrike Falcon Identity, Sentinel hunting) tell you an attack happened, but none of them rebuild a destroyed or trust-poisoned forest. Forest recovery is a distinct discipline — Microsoft's long manual runbook or an automated tool like Semperis ADFR — and it is the only thing that closes the recovery gap. More sensors, more queries, and more CA policies all improve detection or prevention, not recovery."
+}} />
+
+<Quiz question={{
+  id: "08-security-detection/03-crowdstrike-semperis/q2",
+  prompt: "What best describes the ITDR product category that CrowdStrike Falcon Identity Protection and Semperis Directory Services Protector belong to?",
+  options: [
+    "Endpoint Detection and Response focused on workstation and server malware.",
+    "Identity Threat Detection and Response — detecting and responding to attacks against identity infrastructure such as Active Directory and Entra ID.",
+    "A SIEM that ingests and correlates all enterprise logs.",
+    "A privileged access management vault that brokers and stores privileged credentials."
+  ],
+  correctIndex: 1,
+  explanation: "ITDR (Identity Threat Detection and Response, a Gartner-defined category) specializes in the identity layer — AD and Entra misconfigurations, credential theft, ticket forgery, and dangerous directory changes. That is distinct from EDR/XDR (endpoints), SIEM (broad log analytics), and PAM (privileged credential vaulting). The other three options describe those adjacent categories, not ITDR."
+}} />

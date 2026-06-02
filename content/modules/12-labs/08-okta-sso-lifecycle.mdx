@@ -1,0 +1,184 @@
+{/* Lab procedure. Okta portal labels and REST API paths shift by version — re-verify endpoints and the SSWS header against current Okta Developer docs before running against any org. */}
+
+<HoloPanel label="COVERS">
+- **Hands-on IdP operations** — the second dominant enterprise identity platform: Okta Universal Directory, SSO, and Lifecycle Management in practice (operationalizes Module 5 §03 Okta)
+- **Security+ SY0-701** Objective 4.6 — Implement and maintain identity and access management (federation, SSO, account lifecycle/provisioning)
+- **CISSP** Domain 5.4 — Manage the identity and access provisioning lifecycle (joiner/mover/leaver across a third-party IdP)
+- Not an SC-300 objective — Okta is a non-Microsoft IdP, not a Microsoft cert topic. **Builds on: Module 5 §03 (Okta)** for the directory/lifecycle/workflows concepts, and **Module 2 §02/§03 (SAML/OIDC)** for the SSO step.
+</HoloPanel>
+
+# Okta SSO + Universal Directory Lifecycle
+
+## Objective
+
+When you finish this lab you will have stood up a working slice of the *other* dominant enterprise identity platform end to end inside a free Okta Developer org: users living in **Universal Directory**, an **app integration** wired for single sign-on with Okta as the identity provider, those users assigned and signing in to the app, and a **Lifecycle Management** transition — deactivating a user — that pulls their app access with them. You will drive part of it through the Okta admin console and part of it through the **Okta REST API** with PowerShell, so you see both the click path and the automation path. As a final flourish you will sketch an Okta **Workflow** that fires on a lifecycle event, which is how Okta does event-driven automation without code.
+
+The payoff is breadth. Everything in Modules 2 through 6 leaned on Microsoft Entra and Graph PowerShell. That makes you strong on one platform. A consultant — and the VOSB/SDVOSB IAM consulting work specifically — has to be conversant in Okta too, because a large share of the market runs Okta as its IdP rather than Entra. This lab makes you not-Microsoft-only. It is the "now actually do it" counterpart to the Okta concepts you studied in Module 5 §03: there you learned what Universal Directory, Lifecycle Management, and Workflows *are*; here you make them move.
+
+## Prerequisites
+
+- **A free Okta Developer org.** Sign up at developer.okta.com (the Integrator/Developer Edition is free and self-resettable, which makes it ideal for a lab — you can create, break, and delete freely). This gives you an org URL like `https://dev-12345678.okta.com` and an admin console at `/admin`.
+- **An API token (SSWS).** Generate one in the admin console under **Security → API → Tokens → Create Token**. Copy it immediately — Okta shows the token value exactly once. This token is what the PowerShell steps authenticate with. Treat it like a password (see the ProTip below).
+- **Builds on Module 5 §03.** Keep the Okta concepts section open. Every step here maps to a concept from it: users live in **Universal Directory**, SSO is an **app integration**, and the deactivate/reactivate transitions are **Lifecycle Management** state changes.
+- **SAML/OIDC grounding from Module 2.** The SSO step assumes you know the difference between SAML (assertion-based, the Identifier/ACS/NameID anatomy from §02) and OIDC (token-based, the redirect/client-secret model from §03). You will pick one when you create the app integration.
+- **No Microsoft module here.** This lab does not use Microsoft Graph PowerShell. Okta automation is done against the Okta REST API. The PowerShell you write is plain `Invoke-RestMethod` against that API, with an `Authorization: SSWS {token}` header — there is an optional community PowerShell module for Okta, but the API-direct approach below is portable and shows you exactly what is on the wire.
+
+### A note on automation: this is REST, not a vendor cmdlet
+
+Microsoft hands you `Get-MgUser`. Okta hands you an HTTP API. The mechanics you will use repeatedly:
+
+- **Base URL:** your org URL plus the API path, for example `https://dev-12345678.okta.com/api/v1/users`. The Users API is at version `v1`.
+- **Auth header:** `Authorization: SSWS {your-token}` — the literal scheme word is `SSWS`, then a space, then the token. (OAuth 2.0 for service apps is the more modern alternative; see the ProTip.)
+- **Verbs:** `GET` to read, `POST` to create objects *and* to run lifecycle actions (Okta models lifecycle transitions as POSTs to action sub-paths), `PUT`/`POST` to update, `DELETE` to remove.
+
+<ProTip>
+An Okta **SSWS API token is a full-privilege bearer token** — whoever holds it can do anything the token's creating admin can do, and it does not carry granular scopes. So: never commit it to a repo, never paste it into a chat, store it in a secret manager (or at minimum a `$env:` variable you set per session, not a literal in the script), give it the shortest practical lifetime, and rotate it. For anything beyond a personal lab — certainly for production service-to-service automation — prefer the **OAuth 2.0 for Okta** flow with a service app and scoped grants instead of an SSWS token, so the credential is scoped and revocable per app rather than being an all-access key. Re-verify the current token and OAuth guidance against the Okta Developer docs, since the recommended service-auth path is the OAuth one.
+</ProTip>
+
+## Lab steps
+
+### Step 1: Create users in Universal Directory
+
+**Universal Directory** is Okta's consolidated user store — one profile per person, with a flexible attribute schema, that every connected app and the SSO layer read from. Before you can SSO or run a lifecycle transition you need users in it. You can add them in the console (**Directory → People → Add Person**), but the point of this step is to do it through the API so you see the shape of an Okta user and the SSWS header in action.
+
+The Users API creates a user with `POST /api/v1/users`. The query parameter `?activate=true` tells Okta to create the user already activated (versus staged, awaiting activation) — useful in a lab so the account is immediately usable. The request body is JSON with a `profile` object holding the standard attributes (`firstName`, `lastName`, `email`, `login`) and optionally a `credentials` object.
+
+<Definition term="Universal Directory">Okta's consolidated, cloud-hosted user store and profile layer — a single authoritative profile per person with a customizable attribute schema, sourced from imports (HR systems, on-prem AD/LDAP) or created directly. Every Okta app integration and the SSO engine read identity and attributes from Universal Directory, which is why it is the foundation the rest of the platform sits on. Lifecycle Management adds automated joiner/mover/leaver state transitions on top of it.</Definition>
+
+<PowerShellBlock title="Create an Okta user via the REST API (Invoke-RestMethod)">{`# Store the org URL and token OUTSIDE the script body. Set the token per session:
+#   $env:OKTA_TOKEN = '00...your-token...'   (do NOT hardcode it in the file)
+$orgUrl = 'https://dev-12345678.okta.com'           # your Okta Developer org URL
+$token  = $env:OKTA_TOKEN                             # the SSWS API token from prereqs
+
+# SSWS scheme: the literal word SSWS, a space, then the token value.
+$headers = @{
+  Authorization  = "SSWS $token"
+  Accept         = 'application/json'
+  'Content-Type' = 'application/json'
+}
+
+# Build the user profile. login is usually the same as email for cloud-only users.
+$body = @{
+  profile = @{
+    firstName = 'Ada'
+    lastName  = 'Lovelace'
+    email     = 'ada.lovelace@example.com'
+    login     = 'ada.lovelace@example.com'
+  }
+} | ConvertTo-Json -Depth 5
+
+# POST to the Users API. ?activate=true creates the user already active (not staged).
+$newUser = Invoke-RestMethod -Method Post \`
+  -Uri "$orgUrl/api/v1/users?activate=true" \`
+  -Headers $headers \`
+  -Body $body
+
+# The response carries the immutable user id (used by every later lifecycle call) and status.
+"$($newUser.profile.login) created -> id $($newUser.id), status $($newUser.status)"`}</PowerShellBlock>
+
+Note the returned `id`. Okta lifecycle and assignment calls key off that immutable id, not the login — the same way Entra keys off the object id rather than the UPN. Re-verify the create-user endpoint and the `?activate=true` behavior against the current Okta Developer Users API docs, since query-parameter semantics around activation/staging can shift by version.
+
+### Step 2: Create an app integration and assign users
+
+An **app integration** in Okta is the SSO connection to a downstream application — the equivalent of an Entra enterprise application. You create it in **Applications → Create App Integration** and choose the sign-in method:
+
+- **OIDC** (OpenID Connect) for a modern web/SPA/native app — token-based, you get a client ID and (for web apps) a client secret, and you register redirect URIs. This is the Module 2 §03 model.
+- **SAML 2.0** for an app that speaks SAML — you supply the **Single Sign-On URL (ACS)** and the **Audience URI (SP Entity ID)**, and map the NameID and any attribute statements. This is the Module 2 §02 assertion anatomy, with Okta as the IdP issuing the assertion.
+
+For a first lab, an **OIDC web app** is the smoothest path because Okta's console walks you through the client credentials and redirect URIs without you having to stand up SAML metadata. Pick whichever maps to the protocol you want to practice.
+
+Critically, **only assigned users (or members of assigned groups) can use the app**. After creating the integration, go to its **Assignments** tab and assign your Ada user (or a group she is in). An unassigned user does not get the app tile and cannot SSO into it — assignment is the access-control gate, and it is also the hook that Lifecycle Management later pulls on.
+
+### Step 3: Configure SSO and test the sign-in
+
+With the integration created and a user assigned, test the actual sign-on with Okta acting as the **identity provider**:
+
+- **OIDC:** confirm the **Sign-in redirect URI(s)** match where your app expects the callback, and that the **grant types** (authorization code for a web app) are enabled. The flow: user hits the app, the app redirects to Okta, Okta authenticates and (on success) returns an authorization code, the app exchanges it for ID/access tokens. That redirect-and-exchange is the OIDC dance from Module 2 §03.
+- **SAML:** confirm the **ACS URL** and **Audience/Entity ID**, then use Okta's built-in metadata/test-link. The flow: Okta builds and signs a SAML assertion, posts it to the app's ACS URL, the app validates the signature and reads the NameID — the assertion anatomy from Module 2 §02, with Okta as the asserting party.
+
+The simplest end-to-end test: sign in to the **Okta End-User Dashboard** as Ada (her `https://dev-12345678.okta.com` org sign-in), and confirm the assigned app tile appears and launches into the app with no second login prompt. That single-click-into-the-app-without-re-authenticating *is* SSO working.
+
+### Step 4: Lifecycle — deactivate a user and watch access follow
+
+This is the heart of the lab and the reason Okta calls it **Lifecycle Management**: the user's *state* drives their access. **Deactivating** a user does not just stop them logging in — it cascades to every assigned app, removing access and (for apps with provisioning configured) deprovisioning the downstream account. Joiner/mover/leaver expressed as a state machine.
+
+Okta models lifecycle transitions as POSTs to a `/lifecycle/{action}` sub-path under the user. Deactivation is `POST /api/v1/users/{id}/lifecycle/deactivate`. A user must be deactivated before they can be fully deleted, which is why "deactivate" is the leaver primitive — it is the reversible, access-removing state change.
+
+<PowerShellBlock title="Deactivate a user (leaver) via the REST API">{`# Reuse the $orgUrl / $headers from Step 1, and the user id you captured.
+$userId = $newUser.id                                  # immutable Okta user id
+
+# Lifecycle transitions are POSTs to /lifecycle/<action>. Deactivate = the leaver step.
+# This removes the user's access across assigned apps and (where provisioning is set up)
+# deprovisions the downstream accounts. It is reversible via /lifecycle/activate.
+Invoke-RestMethod -Method Post \`
+  -Uri "$orgUrl/api/v1/users/$userId/lifecycle/deactivate" \`
+  -Headers $headers | Out-Null
+
+# Read the user back and confirm the status flipped to DEPROVISIONED.
+$check = Invoke-RestMethod -Method Get \`
+  -Uri "$orgUrl/api/v1/users/$userId" \`
+  -Headers $headers
+
+"$($check.profile.login) status is now $($check.status)"   # expect: DEPROVISIONED`}</PowerShellBlock>
+
+After deactivation the user's status reads `DEPROVISIONED`, the app tile is gone from their dashboard, and they can no longer SSO into the assigned app. That is the leaver step doing exactly what a leaver step must do — and you did it with one API call you could schedule against an HR feed. Re-verify the deactivate sub-path and the resulting status value against the current Okta Users lifecycle docs.
+
+### Step 5: Sketch an Okta Workflow on the lifecycle event
+
+**Okta Workflows** is the low-/no-code automation engine: a visual flow builder where a **trigger** (an Okta event) kicks off a sequence of **cards** (actions, often against other SaaS via connectors) with no script to maintain. You will not build a production flow here — the goal is to *see* the event-driven model so it connects to the lifecycle work above.
+
+In the console (**Workflows → Flows**, available in the Workflows console for your org), the conceptual flow is:
+
+1. **Trigger card:** "User Deactivated" (an Okta event trigger that fires whenever a user enters the deactivated state — exactly the transition you ran in Step 4).
+2. **Action card(s):** for example, "Send a Slack message" or "Send an email" to a security/helpdesk channel announcing the deactivation, optionally enriched with the user's attributes pulled from Universal Directory.
+
+The lesson is the pattern, not the specific connector: Okta lets you hang **event-driven automation** off any lifecycle transition without writing or hosting code. The same trigger could open a ticket, revoke a license in a downstream app, or notify a manager. It is the no-code sibling of the PowerShell automation you wrote in Step 4 — and in a real deployment you would use Workflows for the cross-SaaS orchestration that is awkward to hand-script.
+
+## Validation
+
+You have proven the lab when all of these hold:
+
+1. **The user exists in Universal Directory.** `GET /api/v1/users/{id}` (or **Directory → People** in the console) returns Ada with status `ACTIVE` after Step 1.
+2. **SSO works.** The assigned user signs in to the End-User Dashboard, sees the app tile, and launches into the app with no second sign-in prompt (Step 3).
+3. **Deactivation removed access.** After Step 4 the user's status is `DEPROVISIONED`, the app tile is gone, and an attempt to use the app fails — the leaver transition cascaded.
+4. **The workflow fires (conceptually).** Your "User Deactivated" trigger flow runs when a user is deactivated, sending the notification card's output (Step 5).
+
+A quick API spot-check that ties it together:
+
+<PowerShellBlock title="Validate: confirm the deactivated user no longer has app access">{`# List the apps currently assigned to the user. After deactivation this should be empty
+# (a deprovisioned user holds no app assignments).
+$apps = Invoke-RestMethod -Method Get \`
+  -Uri "$orgUrl/api/v1/users/$userId/appLinks" \`
+  -Headers $headers
+
+if ($apps.Count -eq 0) {
+  "PASS: no app links for $($check.profile.login) -- access removed by deactivation"
+} else {
+  "REVIEW: still $($apps.Count) app link(s) -- check assignment/deprovisioning settings"
+}`}</PowerShellBlock>
+
+The `appLinks` endpoint returns the apps the user can currently launch; an empty result after deactivation is the proof that the leaver transition pulled access. (Confirm the `appLinks` path against your org's API version.)
+
+## Teardown
+
+The Okta Developer org is free and resettable, so cleanup is light — but do it so re-running the lab starts clean:
+
+- **Deactivate then delete the test users.** Okta requires a user be deactivated before deletion. You already deactivated Ada in Step 4; delete with `DELETE /api/v1/users/{id}` (calling DELETE on an already-deactivated user removes it; calling it on an active user first deactivates, so a second DELETE fully removes it). In the console it is **Directory → People → the user → Delete**.
+- **Remove the app integration.** **Applications → your app → deactivate, then delete.** Removing it clears the assignments and SSO config.
+- **Delete or deactivate the workflow flow** if you built one, so it is not firing on later test events.
+- **Rotate or revoke the API token** if it touched anything beyond the lab, under **Security → API → Tokens** (revoke the SSWS token). Never leave a full-privilege bearer token lying around after a lab.
+
+## What this proves
+
+You can operate the other dominant enterprise IdP. You created identities in **Universal Directory**, wired **SSO** with Okta as the identity provider (SAML or OIDC, your choice, both grounded in Module 2), gated access through **assignment**, ran a **Lifecycle Management** transition that removed access exactly the way a leaver process must, and saw how **Workflows** hangs event-driven automation off that transition. Crucially you did the directory and lifecycle pieces through the **REST API with `Invoke-RestMethod`**, so you are not dependent on a vendor cmdlet and you understand what is actually on the wire — the SSWS-or-OAuth auth model, the version-`v1` endpoints, and the lifecycle-as-POST pattern.
+
+That breadth is the point. Pairing this lab with the Entra labs (02, 03, 04, 06) means you can speak fluently to either platform — and in consulting, the question is rarely "do you know Microsoft," it is "can you operate whichever IdP this client already runs." Now the answer is yes for both.
+
+<ProTip>
+Carry the Okta-versus-Entra mental map out of this lab. Universal Directory ≈ the Entra directory; an Okta **app integration** ≈ an Entra **enterprise application**; Okta **assignment** ≈ Entra **app assignment**; Okta **Lifecycle Management** states (staged → active → suspended → deprovisioned) ≈ the Entra joiner/mover/leaver lifecycle; Okta **Workflows** ≈ a no-code mix of Logic Apps / Entra lifecycle workflows. The protocols underneath (SAML, OIDC, SCIM) are identical — they are open standards. What differs is the console, the API surface, and the licensing, not the identity fundamentals. That is exactly why the standards-first approach of Modules 1–2 pays off: learn the protocol once, operate it on any IdP.
+</ProTip>
+
+## Recall drill
+
+<Flashcard front="What is Okta Universal Directory and what does Lifecycle Management add on top of it?" back="Universal Directory is Okta's consolidated cloud user store and profile layer -- one authoritative profile per person with a flexible attribute schema that SSO and every connected app read from. Lifecycle Management adds automated joiner/mover/leaver state transitions (stage, activate, suspend, deactivate) and provisioning/deprovisioning to and from connected apps on top of that directory." />
+<Flashcard front="How does Okta REST API automation authenticate, and what is the caution with SSWS tokens?" back="Via the Okta REST API using an API token in an Authorization: SSWS {token} header (the literal scheme word SSWS, a space, then the token), or OAuth 2.0 for service apps. SSWS tokens are full-privilege bearer tokens with no granular scopes, so protect, scope-by-limiting-the-admin, and rotate them; prefer the OAuth 2.0 service-app flow for production service-to-service automation. Re-verify the header and OAuth guidance against current Okta docs." />

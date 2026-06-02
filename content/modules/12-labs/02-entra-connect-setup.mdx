@@ -1,0 +1,165 @@
+{/* Lab procedure current as of 2026-06-01. Re-verify portal paths and cmdlet names against MS Learn before a cert sitting or a production run — Entra portal labels and Graph schemas shift between releases. */}
+
+<HoloPanel label="COVERS">
+- Aligns with **SC-300: Implement and manage hybrid identity** — Entra Connect / Cloud Sync, Password Hash Sync, source of authority
+- Aligns with **SC-300: Implement an identity management solution** — directory synchronization and hybrid object verification
+- **Security+ SY0-701** Objective 4.6 — Hybrid identity and federation concepts
+- **CISSP** Domain 5 (Identity and Access Management) — credential synchronization and federated identity
+- **Builds on:** Lab 01 (the `corp.lab` AD forest); Module 3 §02 Entra ID; Module 3 §03 Hybrid Identity (the PHS / PTA / Federation decision tree)
+</HoloPanel>
+
+# Sync On-Prem AD to Entra ID with Entra Connect / Cloud Sync <SC300Badge />
+
+This is the lab that builds the single most common enterprise IAM topology on the planet. Almost every Microsoft-shop bank, hospital, and manufacturer you will ever consult for runs hybrid identity: an on-prem Active Directory forest that owns the user accounts, and an Entra ID tenant that fronts Microsoft 365 and the SaaS estate. The plumbing between them is a sync engine, and after this lab you will have stood that plumbing up with your own hands instead of reading about it on a slide.
+
+## Objective
+
+Take the `corp.lab` directory you built in Lab 01 and synchronize it into a development Entra tenant. You will choose **Password Hash Synchronization (PHS)** as the sign-in method, scope the sync to a single OU so you do not accidentally push your entire lab directory into the cloud, force a sync cycle, and then prove — from PowerShell, against the live tenant — that your on-prem users now exist as hybrid objects anchored back to AD. When you finish, a user created in AD will be able to sign in to the tenant with the password they set on-prem. That round trip is the whole point of hybrid identity, and it is a core SC-300 objective.
+
+## Prerequisites
+
+- **Lab 01 completed.** You need the `corp.lab` forest with the `OU=Corp` structure and a handful of test users in `OU=Users,OU=Corp`. The sync agent reads from that directory.
+- **A development Entra tenant.** Do not do this against any tenant that matters. A free Microsoft 365 developer subscription or a small pay-as-you-go tenant is the right sandbox. Microsoft documents the developer-subscription signup on MS Learn ("Set up a Microsoft 365 developer subscription"); confirm current eligibility terms before you rely on it, because Microsoft has changed the program rules more than once.
+- **A verified domain, or the tenant default.** Hybrid sign-in works cleanly only when the user's UPN suffix matches a domain that is *verified* in the tenant. For a lab you can either verify a domain you own or simply accept that users whose on-prem UPN suffix is not verified will sync up with a `@yourtenant.onmicrosoft.com` UPN. Understand *why* before you proceed (Step 1 covers it).
+- **A sync host.** In production the sync agent runs on its own domain-joined Windows Server, never on a domain controller. For a throwaway lab it is acceptable to run it on the DC to save a VM — but say it out loud so you never carry that shortcut into a real environment.
+- **Graph PowerShell** for the verification steps: `Install-Module Microsoft.Graph -Scope CurrentUser`, then `Connect-MgGraph -Scopes 'User.Read.All','Directory.Read.All'`.
+
+<Definition term="source of authority">The system that owns an identity attribute and whose value wins on every sync. In a hybrid deployment, on-prem AD DS is the source of authority for synchronized attributes (displayName, UPN, the password hash). Entra ID is downstream: it receives those values and will overwrite any cloud-side edit to a synced attribute on the next cycle. Knowing where the source of authority lives tells you where to make a change so it actually sticks — edit a synced user in AD, not in the Entra portal.</Definition>
+
+<ProTip>
+**Never run a first sync without OU filtering scoped first.** The default behavior of the sync wizard, if you click through it, is to bring the *whole directory* into the tenant — every service account, every disabled object, every nested admin group you never meant to expose to the cloud. The damage from an unscoped first sync is not instantly visible; it shows up weeks later in an access review when someone asks why there are 1,200 cloud objects in a tenant that should have 40. Scope to a single known OU (`OU=Corp`), verify the count, then widen deliberately. This `-WhatIf`-style discipline is the hybrid-identity equivalent of the lab safety banner from Lab 01: confirm the target set before you write.
+</ProTip>
+
+## Choosing your sync engine: Cloud Sync vs Connect Sync
+
+Microsoft ships two sync engines, and the first real decision in this lab is which one you stand up.
+
+- **Entra Cloud Sync** is the modern, lightweight, Microsoft-managed agent. The configuration lives in the cloud; the on-prem footprint is just a small provisioning agent. For a single-forest lab like `corp.lab`, this is the preferred choice and the direction Microsoft is steering new deployments. Cite MS Learn "What is Microsoft Entra Cloud Sync."
+- **Entra Connect Sync** (formerly Azure AD Connect) is the heavier, full-featured Windows Server application with the classic Synchronization Service Manager. You still meet it constantly in the field because it has been deployed for a decade and supports complex multi-forest and advanced-filtering scenarios Cloud Sync does not. Cite MS Learn "Microsoft Entra Connect: Install using Express Settings."
+
+This lab walks Cloud Sync as the primary path and notes the Connect Sync equivalent at each step, because you will encounter both. Either way the sign-in method you want is **Password Hash Synchronization** — it ties back to the PHS / PTA / Federation decision tree from Module 3 §03, where PHS is the recommended default for the great majority of organizations: the password hash (a hash of a hash, never the cleartext) replicates to Entra ID so authentication can happen entirely in the cloud, with no dependency on an on-prem endpoint being reachable at sign-in time.
+
+### Step 1: Reconcile the UPN suffix before you sync anything
+
+The most common hybrid "why are all my users named wrong in the cloud" problem is a UPN-suffix mismatch. If your on-prem users have a UPN like `caroline@corp.lab` and `corp.lab` is *not* a verified domain in your tenant, the sync engine cannot honor that suffix — it stamps the synced object with the tenant's routable `.onmicrosoft.com` suffix instead. Users then sign in to the cloud with a name that does not match their on-prem identity, which breaks SSO expectations and confuses every downstream app.
+
+Fix it on the on-prem side first. Add a UPN suffix to the forest that matches a domain you have verified (or will verify) in the tenant, then stamp your test users with it.
+
+<PowerShellBlock title="Add a routable UPN suffix and apply it to the lab users (on-prem AD)">{`# Run on the DC, in an elevated ActiveDirectory-module session.
+# Add an alternate UPN suffix to the forest (must match a domain you can verify in the tenant).
+Set-ADForest -Identity corp.lab \`
+  -UPNSuffixes @{ Add = 'corp.example.com' }
+
+# Confirm it took
+(Get-ADForest).UPNSuffixes
+
+# Re-stamp the lab users in OU=Corp with the routable suffix
+$base = 'OU=Users,OU=Corp,DC=corp,DC=lab'
+Get-ADUser -Filter * -SearchBase $base | ForEach-Object {
+  $newUpn = "$($_.SamAccountName)@corp.example.com"
+  Set-ADUser -Identity $_ -UserPrincipalName $newUpn
+  Write-Host "Restamped $($_.SamAccountName) -> $newUpn"
+}`}</PowerShellBlock>
+
+The exact portal location to *verify* the domain (Entra admin center, under custom domain names) shifts between portal revisions — find it under the tenant's domain settings and add the TXT or MX record it gives you. If you are running a pure throwaway lab and do not own a routable domain, you can skip the verify and simply accept the `.onmicrosoft.com` suffix — but understand that you are choosing the broken-looking outcome on purpose, not by accident.
+
+### Step 2: Install the provisioning agent and choose Password Hash Sync
+
+For **Cloud Sync**, download the Microsoft Entra provisioning agent from the Entra admin center (under the Cloud Sync setup blade) and install it on your sync host. The installer registers the agent against your tenant; you then create a Cloud Sync configuration in the portal, point it at your AD forest, and select Password Hash Synchronization as the sign-in method. The on-prem install is deliberately thin — the configuration itself lives in the cloud.
+
+For **Connect Sync**, you would instead run the Entra Connect MSI and walk the Express Settings wizard, which installs the full sync service and defaults to PHS. Same destination, heavier vehicle.
+
+<ProTip>
+Whichever engine you pick, this is where you confirm the sign-in method is **Password Hash Sync**, not Pass-through Authentication or Federation. PHS keeps authentication self-contained in Entra ID and survives an on-prem outage — which is exactly why Module 3 §03 frames it as the default. Choosing PTA or Federation in a lab just to "try it" adds an on-prem availability dependency you do not need and complicates teardown.
+</ProTip>
+
+### Step 3: Scope the sync to OU=Corp only
+
+This is the step the ProTip at the top warned about, and it is non-negotiable. Before you enable provisioning, set scoping/OU filtering so the engine only reads `OU=Corp` (and its children), not the whole directory.
+
+In **Cloud Sync**, scoping is configured in the configuration's scoping filters in the portal — add an organizational-unit scope of `OU=Corp,DC=corp,DC=lab`. In **Connect Sync**, OU filtering lives in the wizard's Domain/OU Filtering page (and later under the Synchronization Service Manager's connector properties). Either way, the rule is the same: include the known OU, exclude everything else, and verify the projected object count is what you expect before you let a single object flow.
+
+### Step 4: Force a sync cycle
+
+Synchronization runs on a schedule (roughly every couple of minutes for Cloud Sync, ~30 minutes by default for Connect Sync), but for a lab you want to trigger it immediately so you are not staring at the portal waiting.
+
+For **Connect Sync**, the cmdlet is `Start-ADSyncSyncCycle` from the `ADSync` module (cite MS Learn `Start-ADSyncSyncCycle`):
+
+<PowerShellBlock title="Force a delta sync cycle (Entra Connect Sync)">{`# Run on the Connect Sync server. 'Delta' syncs only changes since the last cycle;
+# 'Initial' does a full re-import (slower, use only when you must reprocess everything).
+Start-ADSyncSyncCycle -PolicyType Delta
+
+# Watch the scheduler / confirm a cycle is not already running
+Get-ADSyncScheduler`}</PowerShellBlock>
+
+For **Cloud Sync**, there is no `Start-EntraCloudSyncProvisioning` cmdlet — that name does not exist. The supported on-prem tooling is the **`AADCloudSyncTools`** PowerShell module that ships with the provisioning agent (installed under the agent's `Utility` folder). Import it, then restart the provisioning job to force a fresh full pass, or resume it to continue from the last watermark:
+
+<PowerShellBlock title="Force a Cloud Sync run with AADCloudSyncTools (Cloud Sync)">{`# Module ships with the Entra provisioning agent; import it from the agent's Utility path.
+Import-Module 'C:\\Program Files\\Microsoft Azure AD Connect Provisioning Agent\\Utility\\AADCloudSyncTools'
+
+Connect-AADCloudSyncTools
+
+# List the provisioning jobs so you can grab the job/agent identifier you need
+Get-AADCloudSyncToolsJobStatus
+
+# Restart a full synchronization (use Resume- to continue from the last watermark instead)
+Restart-AADCloudSyncToolsJob`}</PowerShellBlock>
+
+Confirm the exact job parameters against MS Learn "AADCloudSyncTools PowerShell module for Microsoft Entra Cloud Sync," since the job identifiers are environment-specific. The conceptual move is identical to the Connect Sync delta: nudge the engine to run now rather than wait for the schedule.
+
+### Step 5: Verify the hybrid objects in the cloud <SC300Badge />
+
+Now prove it from the cloud side. Synced users carry two telltale attributes: `OnPremisesSyncEnabled` is `true`, and `OnPremisesImmutableId` holds the anchor that ties the cloud object back to its on-prem source object. That anchor is the immutable link — it is how the engine knows "this cloud user *is* that AD user" across every future sync.
+
+<PowerShellBlock title="Verify directory-synced users in Entra ID (Microsoft Graph)">{`Connect-MgGraph -Scopes 'User.Read.All','Directory.Read.All'
+
+# Return only the hybrid (directory-synced) users
+$synced = Get-MgUser -Filter 'onPremisesSyncEnabled eq true' -All \`
+  -Property 'displayName,userPrincipalName,onPremisesSyncEnabled,onPremisesImmutableId,onPremisesSamAccountName'
+
+$synced | Select-Object DisplayName, UserPrincipalName, OnPremisesSamAccountName, OnPremisesImmutableId |
+  Format-Table -AutoSize
+
+Write-Host "$($synced.Count) directory-synced users present in the tenant"`}</PowerShellBlock>
+
+Cite MS Learn for the Microsoft.Graph `Get-MgUser` cmdlet. The count this returns is the number that has to match your on-prem `OU=Corp` user count in the validation below. Inspect a single object's `OnPremisesImmutableId` — that value (a base64-encoded form of the source object's anchor) is the source-of-authority fingerprint in action.
+
+You can also confirm sync and PHS health from the portal's connect-health view (under the hybrid management blade in the Entra admin center). The exact blade name moves between portal revisions, so navigate by the "hybrid" / "connect health" labels rather than memorizing a path.
+
+## Validation
+
+You have succeeded when all three of these are true:
+
+1. **Counts match.** The number of users `Get-MgUser -Filter 'onPremisesSyncEnabled eq true'` returns equals the on-prem count from `(Get-ADUser -Filter * -SearchBase 'OU=Users,OU=Corp,DC=corp,DC=lab').Count`. A mismatch means your OU scoping or UPN suffix is off — go back to Step 1 or 3.
+2. **The anchor is present.** Each synced user shows a non-empty `OnPremisesImmutableId` and `OnPremisesSyncEnabled` of `true`.
+3. **A round-trip sign-in works.** Pick one synced user, sign in to `https://myapps.microsoft.com` (or the tenant's My Apps portal) with the password that user set on-prem. Because you chose PHS, the password hash synced and the cloud authenticates the user with no on-prem call. That successful sign-in is the proof that hybrid identity is live.
+
+## Teardown
+
+Hybrid sync leaves cloud objects behind, so a clean teardown matters if you want to re-run this lab from a known state.
+
+<PowerShellBlock title="Disable sync and clean up synced cloud objects">{`# 1) Disable directory synchronization for the tenant (cloud side).
+#    After this runs, the previously-synced objects become cloud-only and can be managed/removed directly.
+Connect-MgGraph -Scopes 'OnPremDirectorySynchronization.ReadWrite.All','User.ReadWrite.All'
+Update-MgDirectoryOnPremiseSynchronization # confirm the current sync-enabled state first via Get-
+
+# 2) Soft-delete the lab's synced users (dry run first).
+$synced = Get-MgUser -Filter 'onPremisesSyncEnabled eq true' -All
+$synced | ForEach-Object { Remove-MgUser -UserId $_.Id -WhatIf }   # remove -WhatIf to execute
+
+# 3) Hard-delete from the deleted-items container to reclaim the names immediately.
+Get-MgDirectoryDeletedItemAsUser -All |
+  ForEach-Object { Remove-MgDirectoryDeletedItem -DirectoryObjectId $_.Id -WhatIf }`}</PowerShellBlock>
+
+Two things to know during teardown. First, deleting a user does **not** wipe it instantly — Entra ID holds deleted users in a **soft-deleted (recoverable) state for 30 days**, during which the account and its properties can be fully restored. To re-run the lab cleanly and reclaim the UPNs immediately, hard-delete from the deleted-items container as shown above; otherwise wait out the 30-day window. Second, after disabling sync, uninstall the provisioning agent (Cloud Sync) or the Entra Connect application (Connect Sync) from the sync host so a stale agent does not silently re-provision objects on a schedule you forgot about. Always run the delete steps with `-WhatIf` first — the same confirm-before-you-write discipline from the top of the lab.
+
+## What this proves
+
+You can now establish hybrid identity end to end: extend a UPN suffix so cloud names are correct, install and scope a sync engine, choose PHS deliberately, and verify from PowerShell that on-prem objects became cloud-anchored hybrid objects. More importantly, you understand the concepts the exam and the job both lean on — **source of authority** (AD owns synced attributes, so you edit there, not in the cloud), the **immutableId anchor** that binds the two objects across every sync, and **OU scoping** as the safeguard that keeps a first sync from flooding the tenant. This is the topology you will walk into at almost every Microsoft-centric employer, and being able to build it rather than merely describe it is what separates an IAM operator from someone who has only read the docs.
+
+## Recall drill
+
+<Flashcard front="Which Graph filter returns only directory-synced (hybrid) users, and which attribute confirms a user is sourced on-prem?" back="Get-MgUser -Filter 'onPremisesSyncEnabled eq true'. The OnPremisesSyncEnabled / OnPremisesImmutableId attributes confirm the object's source of authority is on-prem AD, synced via Entra Connect/Cloud Sync. The immutableId is the anchor that binds the cloud object to its source object." />
+<Flashcard front="Why must you scope Entra Connect/Cloud Sync to specific OUs before the first sync?" back="Without OU filtering the first sync pushes the entire on-prem directory into the tenant, including service/admin/disabled objects you never intended to sync. Scope to a known OU (e.g. OU=Corp) first, verify counts, then widen." />
+<Flashcard front="Why is Password Hash Sync the default hybrid sign-in method, and what is its key resilience property?" back="PHS replicates a hash of the password hash to Entra ID so authentication happens entirely in the cloud. It needs no on-prem endpoint reachable at sign-in time, so it survives an on-prem outage — unlike Pass-through Authentication or Federation, which depend on an available on-prem component." />
+<Flashcard front="After you delete a synced user in Entra ID, how long can it be restored, and how do you reclaim the name immediately?" back="Entra ID keeps deleted users in a soft-deleted (recoverable) state for 30 days, during which the account and properties can be fully restored. To reclaim the UPN immediately, hard-delete the object from the deleted-items container instead of waiting out the window." />

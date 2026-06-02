@@ -1,0 +1,183 @@
+{/* Objectives current as of 2026-06-01. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Implement access management — Identity Protection: respond to and remediate risky users, revoke sessions, and apply risk-based Conditional Access remediation
+- **SC-300** Implement authentication and access management solutions — session/token revocation as a containment control
+- **Security+ SY0-701** Objective 4.8 — incident response activities (containment, eradication, recovery) applied to identity
+- **CISSP** Domain 7 (Security Operations) — incident management lifecycle and recovery; Domain 5 (IAM) — privileged credential remediation
+- **Beyond the blueprint** — the krbtgt double-reset runbook, Kerberos persistence eradication, and forest recovery are operational depth past SC-300
+</HoloPanel>
+
+# Identity Incident Response <SC300Badge />
+
+Every prior section in this module taught you to *see* an identity attack — the techniques in section 01, the native detections in Microsoft Defender for Identity, the third-party ITDR tooling, the KQL hunts in Sentinel. This section is about the worst day: the alert is real, the attacker is in, and you have to get them out without breaking the business. Identity incident response is its own discipline, and it is harder than endpoint IR for one structural reason — you are not cleaning a machine, you are invalidating *credentials and the trust material that mints them*. A re-imaged laptop is clean the moment the image lands. A compromised directory is not clean until every forged token, every stolen ticket, and every key that signs them has been rotated out of validity. That distinction drives everything below.
+
+## The framing — NIST SP 800-61
+
+The reference standard for incident handling is **NIST SP 800-61**. The version most practitioners still carry in their heads is Revision 2, whose four-phase lifecycle — *Preparation*; *Detection and Analysis*; *Containment, Eradication, and Recovery*; and *Post-Incident Activity* — is the mental model the rest of this section uses because it maps cleanly onto identity work. Be aware that NIST finalized **Revision 3 in April 2025**, which retitled the document *Incident Response Recommendations and Considerations for Cybersecurity Risk Management* and reorganized the guidance around the Cybersecurity Framework (CSF) 2.0 functions — Govern, Identify, Protect, Detect, Respond, and Recover — rather than the older rigid lifecycle. For exam and audit purposes, cite the revision you are actually working under; the four-phase shorthand below is the practical scaffolding, and it still aligns with the Detect / Respond / Recover functions in the newer revision.
+
+<Definition term="incident response lifecycle">The structured set of phases an organization moves through when handling a security incident. In the long-standing NIST SP 800-61 Rev. 2 framing those phases are Preparation, Detection and Analysis, Containment/Eradication/Recovery, and Post-Incident Activity. Identity IR specializes the generic playbook: containment means revoking sessions and disabling accounts rather than isolating a subnet, and eradication means rotating the keys that sign tokens rather than wiping a disk.</Definition>
+
+Identity IR does not replace your generic IR plan; it specializes it. The phases are the same. What changes is the *artifacts* you act on — sessions, refresh tokens, Kerberos tickets, krbtgt and service-account keys, OAuth consents, directory ACLs — and the brutal fact that several of those artifacts are portable and outlive a password change. Plan the identity-specific containment steps in advance, in the Preparation phase, because you will not have time to invent them while an attacker is replicating your directory.
+
+## Containing a compromised cloud identity (Entra ID) <SC300Badge />
+
+When a single Entra ID account is confirmed compromised, the containment sequence is well-defined and is squarely on the SC-300 blueprint under Identity Protection remediation. The steps, in priority order:
+
+1. **Block sign-in / disable the account.** This stops *new* interactive authentications immediately. It does not, by itself, kill sessions the attacker already holds — that is the next step, and the distinction matters more than it looks.
+2. **Revoke refresh tokens and sessions.** This is the load-bearing containment action. In the portal it is the user's *Revoke sessions* button; in automation it is the Microsoft Graph PowerShell cmdlet **`Revoke-MgUserSignInSession`**, which I confirmed against Microsoft Learn. The cmdlet resets the user's `signInSessionsValidFromDateTime` to the current time, which invalidates every previously issued refresh token and browser session cookie — the attacker must re-authenticate to obtain anything new.
+3. **Force a password reset.** Required so the attacker cannot simply sign in again with the credentials they already stole.
+4. **Re-register MFA if the methods may be attacker-controlled.** If the attacker registered their own Authenticator or phone number during the intrusion, resetting the password is not enough — they still own a second factor. Delete the suspect methods and require the user to re-enroll.
+5. **Review and revoke app consents.** Hunt for malicious enterprise apps the attacker may have consented to (the illicit consent grant from section 01). Revoke the consent and remove the app — a refresh token granted to a rogue app survives a user password reset.
+
+<Definition term="session and token revocation">The act of invalidating a user's outstanding refresh tokens and session cookies so existing sessions can no longer be silently renewed. In Entra ID this is achieved by resetting the account's signInSessionsValidFromDateTime (via the portal Revoke sessions action or Revoke-MgUserSignInSession), which causes every refresh token issued before that timestamp to fail. It is the cloud equivalent of pulling a stolen door key out of circulation.</Definition>
+
+<PowerShellBlock title="GRAPH — REVOKE A COMPROMISED USER'S SESSIONS">
+# Connect with a scope that allows the revoke action.
+Connect-MgGraph -Scopes &quot;User.ReadWrite.All&quot;
+
+# Resolve the target account.
+$user = Get-MgUser -UserId &quot;jdoe@contoso.com&quot;
+
+# Revoke ALL refresh tokens + browser session cookies for this user.
+# This resets signInSessionsValidFromDateTime to &quot;now&quot;.
+Revoke-MgUserSignInSession -UserId $user.Id
+
+# Containment is not complete on revoke alone — also block sign-in
+# and force a password change so stolen creds cannot re-auth.
+Update-MgUser -UserId $user.Id -AccountEnabled:$false
+</PowerShellBlock>
+
+There is a catch that the SC-300 material wants you to understand cold, and it is the reason step 1 and step 2 are not the same action.
+
+### Why revocation is not instant — Continuous Access Evaluation <SC300Badge />
+
+Revoking refresh tokens stops the attacker from *renewing* access. It does not immediately kill the **access token** they are holding right now. An OAuth access token is a self-contained bearer token, cryptographically valid until its expiry — typically about an hour — and resource providers do not phone home to check it on every request. So in the gap between your revoke action and the token's natural expiry, the attacker can keep reading the mailbox with the token they already have. Microsoft's own documentation calls this out: `Revoke-MgUserSignInSession` affects refresh tokens, not access tokens, so there can be up to roughly an hour of lag.
+
+**Continuous Access Evaluation (CAE)** closes that gap. With CAE, Entra ID and supporting resource providers (Exchange Online, SharePoint Online, Teams, and others) subscribe to critical events — account disable, password reset, token revocation, and Identity Protection high-risk detections — and reject a still-valid access token near real time instead of honoring it until expiry.
+
+<Definition term="Continuous Access Evaluation (CAE)">A near-real-time enforcement channel between Entra ID and CAE-aware resource providers. Without CAE, an access token is valid until it expires (about an hour), leaving a window where a revoked or disabled user keeps working. With CAE, critical events — disable, password reset, session revocation, detected high risk — are pushed to the resource provider, which rejects the token immediately rather than waiting for expiry. It is what turns &quot;revoke sessions&quot; from an action with an hour of lag into one that bites in seconds.</Definition>
+
+This is the same CAE concept introduced in `03-microsoft-identity/02-entra-id.mdx`; here it is the difference between a containment action that works in seconds and one that leaves the attacker an hour of runway. When you write a cloud-identity containment runbook, confirm CAE is enabled for your tenant and that the affected services support it — otherwise plan for the token-expiry lag and watch the attacker's session in the logs until it dies.
+
+<ProTip>Block sign-in and revoke sessions are two different actions, and you need both. Blocking stops new logons; revoking kills the refresh tokens that renew existing ones. Neither instantly expires an access token already in hand — only CAE does that. Run all three, then verify in the sign-in logs that the hostile session actually stopped.</ProTip>
+
+## Tenant-wide token revocation and mass remediation <SC300Badge />
+
+A single compromised account is a contained problem. A mass compromise — a successful AiTM phishing campaign that harvested dozens of post-MFA session tokens, or a rogue admin who consented a malicious app for the whole tenant — is a different exercise. The same primitives scale up, but the orchestration changes:
+
+- **Bulk session revocation.** Loop `Revoke-MgUserSignInSession` over every affected user, or use Identity Protection's *confirm compromised* action to drive remediation across the risky-user set.
+- **A Conditional Access &quot;block&quot; with a break-glass exception.** When you need to stop the bleeding tenant-wide, a CA policy that blocks the affected population (or, in the extreme, all users) buys time — but it must explicitly **exclude your break-glass emergency-access accounts**, or the very policy meant to contain the attacker also locks out the accounts you need to run the response. This is the same break-glass exclusion rule taught in the Entra ID section, and it is the single most common self-inflicted wound in a mass-remediation event.
+- **Tenant-wide consent revocation.** Revoke risky app grants and disable user consent so the attacker cannot re-establish access through a rogue app.
+- **Rotate compromised app credentials.** Any client secret or certificate the attacker may have read must be rotated; a leaked app credential is a standing backdoor that no user password reset touches.
+
+<WarStory title="The Break-Glass That Wasn't Excluded">
+A regional financial-services firm took an AiTM phishing hit over a holiday weekend — a convincing payroll-portal lookalike that proxied the real Microsoft sign-in and harvested post-MFA session cookies from roughly forty employees, several of them in finance. The SOC caught it Sunday from a Sentinel correlation: a cluster of impossible-travel sign-ins from a hosting-provider IP range, all reusing tokens minted minutes earlier from the legitimate users' real locations.
+
+The on-call engineer did the right reflexes fast: he confirmed the forty users as compromised in Identity Protection, kicked off bulk session revocation, and — to stop any token he might have missed — stood up an emergency Conditional Access policy that blocked all access except from the corporate egress IPs. The bleeding stopped. So did everything else. Because the policy scoped &quot;all users&quot; and the two cloud-only break-glass Global Administrator accounts had never been added to the exclusion list, the moment he saved the policy he locked himself out too. The break-glass accounts authenticated from his home IP, not the corporate range, and the block caught them.
+
+For ninety minutes the firm had an active incident and no administrative access to the tenant. Recovery came only because a second admin happened to have an unexpired session open in another browser tab and could edit the policy's exclusions before her own token aged out. They added the break-glass accounts, the on-call admin signed back in, and the remediation continued — but the post-incident review spent more time on the lockout than on the original phishing.
+
+The lessons compounded. First, **CAE meant the session revocation actually bit in seconds**, which was the one thing that went right — the attacker's stolen cookies stopped working almost immediately, not an hour later. Second, **break-glass exclusion is not optional and not a nicety; it is the precondition for ever issuing a tenant-wide block.** Their remediation runbook now opens with a hard gate: no emergency CA block is saved until an automated check confirms both break-glass accounts are on the exclusion list. Third, they realized phishing-resistant MFA (FIDO2) for the finance team would have prevented the token theft outright — an AiTM proxy can relay a password and an OTP, but it cannot relay an origin-bound FIDO2 assertion. That rollout started the following Monday.
+</WarStory>
+
+## Containing a compromised on-prem identity
+
+On-premises Active Directory containment is grittier because the credential material is more varied and longer-lived. For a compromised standard account: disable it, reset the password, and hunt the host it was used from. For a **privileged** account the runbook hardens:
+
+- **Reset the password twice** for privileged accounts. The rationale is to flush cached and reusable credential material: a single reset changes the password, but performing two resets clears the current-and-previous credential history that Pass-the-Hash and related reuse depend on. (Microsoft's privileged-access guidance describes the double-reset pattern for sensitive accounts — treat the exact mechanism as something to confirm against the current doc for your domain functional level before you run it in production.)
+- **Invalidate Kerberos tickets** and force re-authentication.
+- **Isolate the host** the credential was harvested from so you can image it for forensics and stop further dumping.
+- **Hunt for persistence** the attacker may have planted while privileged: surprise group memberships (Domain Admins, Enterprise Admins), ACL backdoors, AdminSDHolder abuse (which re-stamps a persistent ACE onto protected accounts every hour), scheduled tasks, and rogue accounts holding replication rights.
+
+## The marquee runbook — Golden Ticket and the krbtgt double-reset
+
+A Golden Ticket is the worst-case on-prem identity compromise because it is a forged Ticket Granting Ticket signed with the domain's **krbtgt** account key (the mechanics are in `02-protocols/01-kerberos.mdx`; here we *remediate* it). Once an attacker has the krbtgt hash — usually via DCSync (T1003.006) — they can mint a TGT for *any* principal, including ones that do not exist, with an arbitrary lifetime. Disabling accounts does nothing. The forged tickets do not correspond to a real credential you can reset. The only way to invalidate them is to rotate the key that signs them: the krbtgt account password.
+
+And it must be reset **twice**.
+
+<Definition term="krbtgt double-reset">The procedure for invalidating forged Golden Ticket TGTs by resetting the krbtgt account password two times in succession, with replication convergence between the resets. Active Directory retains the current (N) and previous (N-1) key versions for the krbtgt account so that tickets in flight are not abruptly invalidated. A single reset invalidates tickets signed with the current key, but the N-1 key still validates the attacker's forged tickets. The second reset — after the first has fully replicated to every domain controller — retires that previous-key window and invalidates the forged tickets. Resetting faster than replication completes can break legitimate Kerberos authentication domain-wide.</Definition>
+
+The reason for two resets is the key-version history. AD keeps two krbtgt key versions live at once (N and N-1) precisely so a single password change does not instantly break every Kerberos ticket currently in use across the domain. That same mercy is what protects the attacker: after one reset, their forged tickets — signed with what is now the N-1 key — still validate. You must reset a second time to push the compromised key out of the N/N-1 window entirely.
+
+<ProTip>Reset krbtgt twice — but wait for full replication between the two resets. If you reset back-to-back faster than the first key version propagates to every domain controller, you can break legitimate Kerberos authentication across the domain and turn your remediation into a self-inflicted outage. Microsoft publishes a krbtgt key-reset script (the community-maintained New-KrbtgtHistory / New-KrbtgtKeys tooling) that enforces the replication wait — confirm the current script name and guidance against Microsoft's source before you run it. Let the first reset converge, verify replication health, then reset again.</ProTip>
+
+This is the runbook the Module 2 Kerberos war story — the bank with the krbtgt account that had not been rotated since a 2008 domain build — was building toward. That section taught *why* an un-rotated krbtgt is catastrophic; this is *how* you recover once it is abused. The double-reset is the same answer to that section's quiz: one reset is not enough.
+
+## Eradicating Kerberos persistence beyond krbtgt
+
+Here is the trap that catches teams who think the krbtgt reset finished the job: **Silver Tickets survive it.** A Silver Ticket is a forged *service* ticket signed with an individual service account's long-term key — not the krbtgt key — so rotating krbtgt does nothing to it. To eradicate Silver Ticket persistence you must rotate the password of every potentially compromised service account, or convert it to a group Managed Service Account (gMSA) so the key is machine-managed and auto-rotated. Other Kerberos and AD persistence to hunt and eradicate in the same sweep:
+
+- **Skeleton key** — an in-memory patch of the LSASS process on a domain controller that adds a universal master password while leaving each user's real password working. It does not survive a DC reboot, but if the attacker re-injects it you have a deeper compromise; reboot the DC and hunt for the dropper.
+- **DSRM account abuse** — using the Directory Services Restore Mode local admin credential for persistence.
+- **SID-history injection** — adding a privileged group's SID to a controlled account's SID history so it inherits that group's access without visible group membership.
+- **AdminSDHolder / ACL backdoors** — a malicious ACE on AdminSDHolder is re-applied to every protected account hourly by the SDProp process, giving the attacker durable rights even after you clean the individual objects.
+
+The discipline: after a domain-dominance attack you do not just reset the account you caught. You enumerate every credential and trust artifact the attacker could have touched and invalidate the lot.
+
+<Definition term="AdminSDHolder">A container object in Active Directory whose ACL is the template that the SDProp process re-stamps onto all protected (privileged) accounts and groups roughly every hour. Attackers abuse it as a persistence mechanism: add a malicious access control entry to AdminSDHolder and it is automatically re-applied to Domain Admins and other protected principals on the next SDProp cycle, restoring the attacker's rights even after a defender removes them from the individual objects. Eradication requires cleaning the AdminSDHolder ACL itself, not just the downstream accounts.</Definition>
+
+## When detection ends and recovery begins
+
+Containment and eradication assume the directory itself is still trustworthy and you are evicting an intruder from it. Sometimes that assumption is gone: the forest has been ransomware-encrypted, the trust material is poisoned beyond confident cleanup, or the attacker held domain dominance long enough that you cannot prove what they did or did not alter. At that point detection is over and **recovery** begins — rebuilding the forest from a clean, known-good state. The options are Microsoft's manual *AD Forest Recovery* runbook (a long, exacting, largely manual procedure) or an automated forest-recovery tool such as Semperis ADFR, covered in `03-crowdstrike-semperis.mdx`. The decision point: if you cannot trust the directory's integrity, no amount of account-level cleanup restores it — only recovery to a clean state does. This is exactly the recovery gap that section 03 argued detection tooling alone cannot close.
+
+## Post-incident — closing the loop
+
+The phase teams skip when they are exhausted is the one that prevents the repeat. After containment and recovery:
+
+- **Rotate all Tier-0 secrets** — krbtgt (done above), domain admin credentials, service-account keys, and any app secrets in scope.
+- **Audit who held replication rights** — review every principal granted *Replicating Directory Changes* and *Replicating Directory Changes All* (the DCSync prerequisite from section 01). Remove what should not be there.
+- **Tighten consent policies** — restrict user consent and require an admin consent workflow so the next illicit consent grant cannot land.
+- **Deploy honeytokens** — seed decoy accounts (the MDI honeytoken pattern from `02-defender-for-identity.mdx`) so the next reconnaissance attempt trips a high-fidelity alarm.
+- **Build detections for the TTP that was used** — write the Sentinel KQL hunt (section 04) into a scheduled analytics rule so the same technique generates an incident next time instead of going unnoticed.
+- **Tabletop the runbook** — exercise the identity-IR playbook against the scenario you just lived, and fix the gaps the real incident exposed (the break-glass exclusion gate, the CAE check, the FIDO2 rollout).
+
+This is the lessons-learned phase NIST SP 800-61 closes the lifecycle with, and for identity it is where the rest of this module's content becomes standing defense rather than after-the-fact cleanup.
+
+## The hard truth
+
+Identity incident response is harder than endpoint incident response, and it is worth being honest about why. When you contain an endpoint you isolate it, image it, and re-deploy a clean build — the machine is trustworthy again the instant the new image lands. Identity has no such clean line. Tokens and tickets are **portable** — they work from anywhere, on any device — and **long-lived** — a refresh token, a Golden Ticket, an OAuth grant can outlast the password reset you think contained the incident. You are not cleaning a box. You are invalidating credentials and the trust material that mints them: krbtgt and service-account keys on-prem, refresh tokens and app consents in the cloud. Miss one and the attacker is still in. Get the discipline right — revoke, rotate, double-reset, hunt the persistence, and recover the forest if you must — and you have actually evicted them.
+
+## Recall drill
+
+<Flashcard front="Which NIST publication defines the incident-response lifecycle, and what changed in its latest revision?" back="NIST SP 800-61. Revision 2 used the four-phase lifecycle: Preparation; Detection and Analysis; Containment, Eradication and Recovery; and Post-Incident Activity. Revision 3 (finalized April 2025) reorganized the guidance around the CSF 2.0 functions (Govern, Identify, Protect, Detect, Respond, Recover) instead of the rigid lifecycle. Cite the revision you are actually working under." />
+<Flashcard front="How do you contain a compromised Entra ID cloud account?" back="Block sign-in, revoke refresh tokens and sessions (Revoke-MgUserSignInSession or the portal Revoke sessions action), force a password reset, re-register MFA if the methods may be attacker-controlled, and review and revoke any risky app consents or rogue enterprise apps the attacker may have added." />
+<Flashcard front="Why does revoking a session not take effect instantly without CAE?" back="Access tokens are self-contained bearer tokens valid until expiry (about an hour), and resource providers do not re-check them on every request. Revoking refresh tokens stops renewal but leaves the existing access token working until expiry. Continuous Access Evaluation closes that window by pushing critical events (disable, password reset, revocation, high risk) to resource providers so they reject the token near real time." />
+<Flashcard front="What exactly does Revoke-MgUserSignInSession do to a user account?" back="It resets the user's signInSessionsValidFromDateTime to the current time, which invalidates every refresh token and browser session cookie issued before that moment, forcing re-authentication. It affects refresh tokens, not access tokens, so without CAE there can be up to roughly an hour of lag before an existing access token stops working." />
+<Flashcard front="What is the krbtgt double-reset and why must it be done twice?" back="It is the procedure to invalidate forged Golden Ticket TGTs by resetting the krbtgt account password two times in succession. Active Directory keeps the current (N) and previous (N-1) key versions live, so a single reset still validates tickets signed with the previous key. The second reset, after the first replicates fully, retires that previous-key window and invalidates the forged tickets." />
+<Flashcard front="Why must you wait for replication between the two krbtgt resets?" back="The new key version from the first reset must propagate to every domain controller before the second reset. Resetting faster than replication converges can leave DCs with mismatched key versions and break legitimate Kerberos authentication across the domain, turning the remediation into a self-inflicted outage." />
+<Flashcard front="Do Silver Tickets survive a krbtgt reset, and how do you eradicate them?" back="Yes. A Silver Ticket is a forged service ticket signed with an individual service account's long-term key, not the krbtgt key, so a krbtgt reset does not affect it. Eradication requires rotating the affected service account's password or converting it to a gMSA so the key is machine-managed and auto-rotated." />
+<Flashcard front="How do you perform tenant-wide token revocation during a mass compromise?" back="Bulk-revoke sessions across the affected users (loop Revoke-MgUserSignInSession or use Identity Protection confirm-compromised), apply a Conditional Access block that excludes the break-glass accounts, revoke risky app consents and disable user consent, and rotate any compromised app secrets or certificates. CAE makes the revocation bite in near real time." />
+<Flashcard front="Why must break-glass accounts be excluded from an emergency tenant-wide CA block?" back="A block intended to contain attackers would otherwise lock out the cloud-only emergency-access accounts you need to run the response, leaving you with an active incident and no administrative access to the tenant. Excluding break-glass accounts from the block is the precondition for issuing one." />
+<Flashcard front="What persistence should you hunt after a domain-dominance attack besides krbtgt?" back="Silver-ticket-enabling service accounts, skeleton key (in-memory LSASS patch on a DC), DSRM-account abuse, SID-history injection, AdminSDHolder and ACL backdoors, and rogue accounts holding DCSync rights (Replicating Directory Changes and Replicating Directory Changes All)." />
+<Flashcard front="What is AdminSDHolder and why is it a persistence concern during identity IR?" back="AdminSDHolder is a container whose ACL is re-stamped onto protected privileged accounts roughly hourly by the SDProp process. An attacker who adds a malicious access control entry to it gets that ACE automatically reapplied to Domain Admins and other protected principals every cycle, restoring their rights even after a defender removes them from the individual objects. You must clean the AdminSDHolder ACL itself." />
+<Flashcard front="When does identity incident response shift from containment to recovery?" back="When the directory itself can no longer be trusted, for example after the forest is ransomware-encrypted or the trust material is poisoned beyond confident cleanup. Account-level cleanup no longer restores integrity; you must recover the forest to a clean, known-good state via Microsoft's manual AD Forest Recovery runbook or an automated tool like Semperis ADFR." />
+<Flashcard front="Why is identity IR harder than endpoint IR?" back="An endpoint is trustworthy again the moment a clean image is deployed. Identity has no clean line: tokens and tickets are portable and long-lived, so a refresh token, Golden Ticket, or OAuth grant can outlast a password reset. You must invalidate the credentials and the trust material that mints them (krbtgt and service-account keys, refresh tokens, app consents), not just clean a machine." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "08-security-detection/05-identity-incident-response/q1",
+  prompt: "Incident responders confirm a Golden Ticket attack in an on-prem Active Directory domain. Which action invalidates the forged TGTs, and why must it be done twice?",
+  options: [
+    "Reset every user's password once; this invalidates all Kerberos tickets in the domain.",
+    "Reset the krbtgt password twice in succession (waiting for replication between resets): the first reset invalidates tickets signed with the current key, but AD still honors the previous key version until a second reset closes that window.",
+    "Disable and re-enable every SPN-registered service account to flush their ticket history.",
+    "Reboot all domain controllers to flush the Kerberos ticket cache from memory."
+  ],
+  correctIndex: 1,
+  explanation: "A Golden Ticket TGT is signed with the krbtgt account key. AD retains the current (N) and previous (N-1) key versions, so a single reset leaves a window where previous-key forged tickets still validate. Two resets, with replication convergence in between, close that window. Resetting user passwords does not touch forged TGTs; service-account changes affect Silver Tickets, not Golden; and a reboot does not invalidate the cryptographically valid forged tickets. This mirrors the Module 2 Kerberos remediation lesson."
+}} />
+
+<Quiz question={{
+  id: "08-security-detection/05-identity-incident-response/q2",
+  prompt: "After containing a compromised Entra ID account by forcing a password reset, the attacker keeps reading the mailbox using a token issued before the reset. What concept explains the lag, and what reduces it?",
+  options: [
+    "DNS caching is serving a stale endpoint; flushing the resolver fixes it.",
+    "Access tokens remain valid until expiry (about an hour) and are not re-checked per request; Continuous Access Evaluation (CAE) lets Entra ID and supporting resource providers reject tokens near real time on password reset, disable, or high risk.",
+    "Kerberos ticket lifetime is the cause; resetting the krbtgt key twice will stop the mailbox access.",
+    "Replication latency between domain controllers is delaying the password change from taking effect."
+  ],
+  correctIndex: 1,
+  explanation: "Cloud access tokens are self-contained bearer tokens valid until expiry, and a password reset only stops new token issuance and refresh — it does not retroactively kill an access token already in hand. CAE closes that window by signaling CAE-aware resource providers to revoke on critical events. Kerberos/krbtgt and DC replication are on-prem concerns and not the cause of a cloud mailbox token surviving a reset."
+}} />

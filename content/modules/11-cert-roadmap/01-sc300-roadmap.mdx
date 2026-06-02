@@ -144,3 +144,74 @@ The right cert order is not the official prerequisite list. Microsoft says SC-90
 <Flashcard front="Is SC-900 a required prerequisite for SC-300, and should an active Entra ID practitioner take it?" back="No. Microsoft calls SC-900 recommended, which means strategically optional. It is a breadth-not-depth familiarity exam and not a standalone hiring signal — if you already have hands-on Entra ID time, skip it and go straight to SC-300." />
 <Flashcard front="In the cert stack, why does the curriculum place CISSP last rather than first?" back="CISSP is a capstone that probes breadth across all eight CBK domains and assumes the SecOps vocabulary Security plus teaches and the IAM depth SC-300 builds. Domain 5 Identity and Access Management is your head start, but the CAT format exposes weak domains, so the accumulated experience from earlier certs is the substance behind the signal." />
 <Flashcard front="What does the 80%-on-a-fresh-practice-exam readiness bar look like specifically for SC-300?" back="Score 80 percent or higher consistently on a fresh, unseen SC-300 practice exam — not a memorized run — and the identity governance functional group should no longer feel like a foreign language. You should also have configured a Conditional Access policy and set up PIM for a role from scratch." />
+<Flashcard front="Where do SC-900, SC-300, and SC-100 sit in Microsoft's certification tiers?" back="SC-900 (Security, Compliance, and Identity Fundamentals) is a fundamentals-level familiarity exam. SC-300 (Identity and Access Administrator) is associate-level and the IAM practitioner cert. SC-100 (Cybersecurity Architect) is expert-level and requires you to already hold an eligible associate cert (such as SC-300, SC-200, or AZ-500) to earn the expert credential. For an IAM day job, SC-300 is the anchor; SC-100 is a later architect-track goal." />
+<Flashcard front="Which Security+ SY0-701 domain is hardest for a pure IAM practitioner, and what is its weight?" back="Security Operations, weighted 28 percent — the largest domain. It covers detection, incident response, monitoring, and SecOps tooling that an identity specialist touches less day-to-day. Lean into it; it is also the vocabulary CISSP later assumes." />
+<Flashcard front="What is the CISSP experience requirement, and what happens without it?" back="Five years of cumulative paid work experience across two or more of the eight CISSP CBK domains (up to one year is waivable with an approved degree or an additional approved credential). Pass the exam without the experience and you become an Associate of ISC2, with up to six years to earn and document it; you also need endorsement by an existing ISC2-certified member to finalize the CISSP." />
+<Flashcard front="What question formats should you expect on SC-300?" back="Standard multiple-choice and multiple-response, plus case studies (a scenario with several linked questions), drag-and-drop sequencing, and build-list/ordering items. Once you continue past a case-study or exam section you cannot navigate back to it, so read the full scenario and review your answers before moving on." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "11-cert-roadmap/01-sc300-roadmap/q1",
+  prompt: "Your organization must block access to Microsoft 365 from outside the corporate countries and require multifactor authentication for all administrators, but a break-glass emergency account must never be locked out by policy. Which Entra ID Conditional Access design is correct?",
+  options: [
+    "Create one policy that requires MFA for all users including the break-glass account, and rely on the account's strong password as the exception.",
+    "Create a named-location-based policy that blocks sign-ins outside the allowed countries, plus a policy requiring MFA for the administrator roles, and EXCLUDE the break-glass account(s) from both policies; monitor those accounts with alerts.",
+    "Apply MFA at the per-user MFA settings page instead of Conditional Access so it does not affect the break-glass account.",
+    "Disable Conditional Access and use Security Defaults, which already enforce all of these requirements."
+  ],
+  correctIndex: 1,
+  explanation: "Conditional Access uses named locations to scope by country, can target the administrator directory roles for MFA, and supports user/group EXCLUSIONS — the supported way to keep break-glass (emergency access) accounts out of policies that could lock everyone out. Microsoft explicitly recommends excluding break-glass accounts from CA policies and monitoring them. Per-user legacy MFA is being deprecated in favor of CA; Security Defaults are all-or-nothing and cannot express country blocks or per-role rules."
+}} />
+
+<Quiz question={{
+  id: "11-cert-roadmap/01-sc300-roadmap/q2",
+  prompt: "A Global Administrator wants to grant a help-desk lead the ability to perform Helpdesk Administrator tasks only when needed, with approval and a time limit, instead of a permanent assignment. Which Microsoft Entra capability and assignment type meet this?",
+  options: [
+    "Assign the role permanently (active) and rely on access reviews to remove it later.",
+    "Use Privileged Identity Management (PIM) to make the user ELIGIBLE for the Helpdesk Administrator role, configured to require activation with approval and an expiring activation window (just-in-time).",
+    "Add the user to a security group that is a member of the Global Administrator role.",
+    "Use a Conditional Access policy to grant the role at sign-in."
+  ],
+  correctIndex: 1,
+  explanation: "Privileged Identity Management distinguishes ELIGIBLE assignments (the user must activate the role just-in-time, optionally with MFA, justification, approval, and a maximum activation duration) from ACTIVE/permanent assignments. Making the help-desk lead eligible for Helpdesk Administrator delivers JIT, time-bound, approval-gated access — the least-standing-privilege answer. A permanent assignment, a nested GA group, and Conditional Access do not provide JIT role activation."
+}} />
+
+<Quiz question={{
+  id: "11-cert-roadmap/01-sc300-roadmap/q3",
+  prompt: "External partner users need self-service request access to a bundle of groups, a SharePoint site, and an app, with manager approval and automatic expiry after 180 days, governed in one place. Which Entra Identity Governance feature is designed for this?",
+  options: [
+    "A dynamic membership group with a rule based on the partners' domain.",
+    "Entitlement Management: publish an access package (in a catalog) that bundles the groups, site, and app, scope it to a connected organization for the partner, and configure an access-request policy with approval and a 180-day expiration.",
+    "A Conditional Access policy that grants the resources to guest users.",
+    "An access review that re-grants the resources every 180 days."
+  ],
+  correctIndex: 1,
+  explanation: "Entitlement Management is built exactly for this: an access PACKAGE bundles resource roles (groups, SharePoint sites, apps) inside a CATALOG, access-request POLICIES define who can request and the approval flow, lifecycle settings set expiration/auto-removal, and CONNECTED ORGANIZATIONS let external partners self-request. Dynamic groups automate membership but do not bundle multi-resource self-service with approval and expiry; CA gates access but does not provision it; access reviews recertify existing access rather than granting bundles."
+}} />
+
+<Quiz question={{
+  id: "11-cert-roadmap/01-sc300-roadmap/q4",
+  prompt: "A company wants employees of a partner firm to sign in to an internal app using their OWN organization's credentials, and separately wants to build a consumer-facing app where millions of customers self-register. Which Entra External ID models fit each need?",
+  options: [
+    "Use B2B collaboration (guest invitations / cross-tenant access) for the partner employees, and Entra External ID for customers (the consumer/CIAM model, succeeding Azure AD B2C) for the consumer app.",
+    "Use Azure AD B2C for both the partners and the consumers.",
+    "Create internal member accounts in your own tenant for every partner employee and every consumer.",
+    "Use B2B collaboration for both scenarios."
+  ],
+  correctIndex: 0,
+  explanation: "B2B collaboration invites partner users as guests who authenticate with their home-tenant credentials (governed by cross-tenant access settings) — the right fit for partner-employee access to an internal app. The consumer scenario is CIAM: Microsoft Entra External ID for customers (the successor to Azure AD B2C, which is now closed to new tenants) is purpose-built for self-service registration, social identities, and consumer scale. Creating member accounts for everyone defeats federation and does not scale to millions."
+}} />
+
+<Quiz question={{
+  id: "11-cert-roadmap/01-sc300-roadmap/q5",
+  prompt: "Your team is deciding how an Azure-hosted app should authenticate to Microsoft Graph. One option needs no stored secret because Azure manages the credential; another is a directory object representing the app in your tenant; another is the app's identity in a different tenant. Match service principal, managed identity, and app registration to these roles.",
+  options: [
+    "An app registration is the secret-free Azure-managed identity; a managed identity is the tenant-local app object; a service principal is unused in this scenario.",
+    "A managed identity is an Azure-managed service principal whose credential Azure rotates (no stored secret) — the best fit for the Azure-hosted app; an app registration is the global application definition (the blueprint) in its home tenant; a service principal is the local instance of that app in a given tenant that gets role and permission grants.",
+    "A service principal and a managed identity are the same object; an app registration is only for multitenant apps.",
+    "An app registration should hold a client secret in code for the Azure-hosted app; managed identity is only for user sign-in."
+  ],
+  correctIndex: 1,
+  explanation: "An app registration is the application object (the global blueprint) created in the app's home tenant; a service principal is the local representation of that app in a specific tenant, and it is what receives app-role grants and role assignments. A managed identity is a special, Azure-managed service principal whose credentials Azure provisions and rotates automatically — so an Azure-hosted workload should use a managed identity and store no secret. Putting a client secret in code is exactly what managed identity exists to avoid."
+}} />

@@ -1,0 +1,167 @@
+{/* Control identifiers current as of 2026-06-01. Re-verify each control/enhancement number against the primary NIST source before quoting it in an audit. */}
+
+<HoloPanel label="COVERS">
+- **CISSP Domain 1** (Security and Risk Management) — security control frameworks, governance, and compliance obligations
+- **CISSP Domain 5** (Identity and Access Management) — control families that govern identification, authentication, and access enforcement
+- **Security+ SY0-701** Objective 5.x (Security Program Management and Oversight) — governance, risk, and compliance frameworks and their control structures
+- **NIST SP 800-53 Rev. 5** — the federal catalog of security and privacy controls (AC and IA families)
+- **NIST Cybersecurity Framework 2.0** (NIST CSWP 29) — the six Functions and the PR.AA identity outcomes
+</HoloPanel>
+
+# The Control Frameworks: NIST 800-53 & CSF 2.0
+
+Every compliance regime you will meet in the rest of this module — PCI-DSS, SOX, FFIEC, HIPAA, GDPR, FedRAMP — is, underneath the branding, asking the same handful of identity questions. Who is this user, really? Should they have this access? Who approved it, and when did anyone last check? Two NIST publications are the lingua franca that lets you answer those questions once and translate the answer into every dialect an auditor speaks. NIST SP 800-53 is the prescriptive control catalog. The NIST Cybersecurity Framework (CSF) 2.0 is the outcome-based map that organizes those controls into something a board can read. If you can speak both, you can sit in a federal contract kickoff and a bank exam and a startup's first SOC 2 readiness call and recognize the same skeleton under all three.
+
+This section teaches the two families inside 800-53 that an IAM practitioner lives in — Access Control (AC) and Identification and Authentication (IA) — at the level of the exact control numbers an auditor will quote at you. Then it places those controls inside CSF 2.0 so you understand the difference between a control and an outcome, and why both matter.
+
+## What 800-53 actually is
+
+<Definition term="Control catalog (NIST SP 800-53)">
+NIST Special Publication 800-53, Revision 5, is the catalog of security and privacy controls for information systems and organizations. It is not a checklist you pass or fail — it is a library of several hundred controls from which an organization selects the subset appropriate to its risk. The selected subset becomes the system's control set, which is then implemented, assessed, and authorized.
+</Definition>
+
+800-53 Revision 5 was published in September 2020 and is the current revision; NIST maintains it through patch releases rather than full renumbering, so treat the catalog as live and confirm the exact patch designation on the NIST CSRC page before you cite a fine detail. The controls are organized into roughly twenty **control families**, each identified by a two-letter prefix — AC for Access Control, IA for Identification and Authentication, AU for Audit and Accountability, and so on. Every family opens with a `-1` control covering the family's policy and procedures (AC-1, IA-1), so the moment you see a two-letter prefix you know which family you are in.
+
+<Definition term="Control family">
+A grouping of related controls under a shared two-letter identifier (AC, IA, AU, CM, and so on). The prefix tells you the control's subject area; the number tells you the specific requirement. Example: the AC family is Access Control, and AC-6 within it is Least Privilege.
+</Definition>
+
+Three documents work as a set, and confusing them is a classic interview tell:
+
+- **800-53** is the control catalog (the menu of controls).
+- **800-53B** holds the **control baselines** — the predefined Low, Moderate, and High control selections that an organization starts from based on the system's impact level. The catalog lists every dish; 800-53B is the prix-fixe menu for each impact tier.
+- **800-37** is the Risk Management Framework (RMF), the process that consumes the catalog and baselines — categorize the system, select controls, implement, assess, authorize, monitor.
+
+<Definition term="Control baseline (Low / Moderate / High)">
+A predefined starting set of 800-53 controls, published in NIST SP 800-53B, that corresponds to the security impact level of a system (Low, Moderate, or High). Organizations begin from the baseline matching their system's impact and then tailor it — adding, removing, or adjusting controls with documented justification.
+</Definition>
+
+Controls also carry **control enhancements**, written as a parenthetical number after the base control. AC-6 is Least Privilege; AC-6(9) is a specific enhancement of it. This is the single most important notational habit in this section, because auditors and assessors do not cite the base control — they cite the enhancement.
+
+<Definition term="Control enhancement">
+An optional, more specific requirement that strengthens or adds detail to a base control, written in parentheses after the control number (for example AC-6(9)). Enhancements are selected as part of the baseline or added during tailoring; their numbering is specific to a given revision of the catalog and was reorganized between Revision 4 and Revision 5.
+</Definition>
+
+## The Access Control (AC) family
+
+The AC family is the heart of IAM in 800-53. These are the controls you already implement in Entra ID, Active Directory, and your PAM tooling, expressed in federal language. Learn these specific ones cold.
+
+- **AC-1 — Policy and Procedures.** Every family has its `-1`. This is the documented access-control policy and the procedures that operationalize it. An auditor who cannot find a current, approved policy will write AC-1 before testing anything technical.
+- **AC-2 — Account Management.** The account lifecycle control: defining account types, identifying authorized users, assigning group and role membership, and enabling, modifying, reviewing, and disabling accounts. This is the joiner-mover-leaver (JML) control in catalog form. Its enhancements carry the operational teeth — **AC-2(1)** Automated System Account Management, **AC-2(3)** Disable Accounts (for inactive accounts), and **AC-2(13)** Disable Accounts for High-Risk Individuals.
+- **AC-3 — Access Enforcement.** Enforce approved authorizations for logical access. This is the policy-enforcement point doing its job: the gate that actually permits or denies based on the access decision.
+- **AC-5 — Separation of Duties.** Divide responsibilities and associated privileges so that no single individual can subvert a critical process — the classic example being that the person who requests access cannot also approve it.
+- **AC-6 — Least Privilege.** Grant only the access required to perform assigned duties. Its enhancements are where the high-value audit detail lives: **AC-6(1)** Authorize Access to Security Functions, **AC-6(2)** Non-Privileged Access for Non-Security Functions, **AC-6(5)** Privileged Accounts (restrict privileged accounts to designated personnel), **AC-6(9)** Log Use of Privileged Functions, and **AC-6(10)** Prohibit Non-Privileged Users from Executing Privileged Functions.
+- **AC-7 — Unsuccessful Logon Attempts.** Lockout thresholds and behavior after repeated failed logons.
+- **AC-17 — Remote Access**, **AC-19 — Access Control for Mobile Devices.** Carry these as breadth — they extend access enforcement to remote and mobile contexts.
+
+A caution that the plan and the catalog both flag: enhancement numbering changed between Revision 4 and Revision 5, with several AC-2 enhancements renumbered or consolidated. Always confirm the parenthetical against the Revision 5 catalog rather than reciting a number you learned under Rev. 4.
+
+## The Identification and Authentication (IA) family
+
+If AC governs what an authenticated subject may do, IA governs how you establish who the subject is in the first place.
+
+- **IA-2 — Identification and Authentication (Organizational Users).** Uniquely identify and authenticate your own users. The two enhancements to know are **IA-2(1)** Multi-factor Authentication to Privileged Accounts and **IA-2(2)** Multi-factor Authentication to Non-privileged Accounts. Revision 5 consolidated the MFA enhancements here — Revision 4 split MFA across network-versus-local enhancements, and Rev. 5 reorganized them into the cleaner privileged-versus-non-privileged pair, so do not quote the old Rev. 4 split.
+- **IA-4 — Identifier Management.** Manage the identifiers themselves — assignment, reuse prevention, and disabling of identifiers, distinct from the credentials bound to them.
+- **IA-5 — Authenticator Management.** Manage the authenticators (passwords, tokens, certificates, biometrics). **IA-5(1)** Password-Based Authentication is the password control. This is where the most-misquoted guidance in all of IAM lives: NIST SP 800-63B shifted password guidance away from forced periodic rotation and mandatory composition rules toward minimum length, screening against breach lists, and rotation only on evidence of compromise. If you are still enforcing 90-day rotation purely because policy always said so, 800-63B is the citation that lets you change it. **IA-5(2)** covers Public Key-Based Authentication.
+- **IA-8 — Identification and Authentication (Non-Organizational Users).** The control for external users — partners, contractors, federated identities — reaching your systems.
+- **IA-12 — Identity Proofing.** A family member emphasized in Revision 5 that ties the catalog to the identity-proofing guidance in NIST SP 800-63A.
+
+### How 800-53 hands off to 800-63
+
+800-53 tells you *what* to do — perform MFA, manage authenticators, proof identities. It does not tell you *how strong*. That is the job of the **NIST SP 800-63 Digital Identity Guidelines**, which split the question into three assurance dimensions:
+
+- **800-63A — Identity Assurance Level (IAL):** how rigorously you proved the person is who they claim to be.
+- **800-63B — Authenticator Assurance Level (AAL):** how strong the authentication mechanism is.
+- **800-63C — Federation Assurance Level (FAL):** how strongly a federated assertion is protected.
+
+So when an auditor asks "is your MFA phishing-resistant?" they are really asking an AAL question that 800-63B answers, scoped by an 800-53 IA-2 control that says MFA is required at all. NIST has been advancing 800-63 toward Revision 4; treat its publication status as something to confirm against NIST CSRC rather than asserting a final date from memory.
+
+## NIST CSF 2.0 — the outcome-based map
+
+800-53 is a catalog of controls. The Cybersecurity Framework is a different kind of artifact: a voluntary, outcome-based structure for organizing and communicating cybersecurity posture. You do not "comply with CSF" the way you comply with a control — you use it to describe what outcomes you are achieving and to talk to leadership in language that crosses technical boundaries.
+
+<Definition term="Informative Reference">
+A mapping inside CSF that cross-walks a CSF subcategory to the specific controls in other documents that help achieve it — including 800-53 controls. Informative References are how CSF (the outcome) connects to 800-53 (the control); they are the seam where the prescriptive catalog plugs into the outcome map.
+</Definition>
+
+CSF 2.0 — published as NIST CSWP 29 on February 26, 2024 — organizes everything into six **Functions**:
+
+- **GOVERN (GV)** — new in 2.0. Establishes and oversees the cybersecurity risk-management strategy, expectations, and policy. This is where IAM *program ownership* lives — who owns identity governance, the RACI, the policy that AC-1 and IA-1 demand. Relevant categories include GV.RR (Roles, Responsibilities, and Authorities) and GV.PO (Policy).
+- **IDENTIFY (ID)** — understand the organization's assets and risk. ID.AM (Asset Management) is the function that says identities and credentials are part of your inventory: you cannot govern access you cannot see.
+- **PROTECT (PR)** — the safeguards, and where the bulk of IAM controls live. The category to memorize is **PR.AA — Identity Management, Authentication, and Access Control.**
+- **DETECT (DE)**, **RESPOND (RS)**, **RECOVER (RC)** — round out the lifecycle: spot the event, contain and act, restore.
+
+The single most important CSF-versioning fact for an IAM person: the identity category was renamed and expanded in 2.0. In CSF 1.1 the identity outcomes lived under **PR.AC** (Identity Management and Access Control). In CSF 2.0 they live under **PR.AA** (Identity Management, Authentication, and Access Control) — authentication was promoted into the name, and the old PR.AC subcategories were reorganized across the new PR.AA subcategories. Two PR.AA subcategories worth knowing by their outcome wording: PR.AA-01 (identities and credentials are managed) and PR.AA-05 (access permissions, entitlements, and authorizations are defined, managed, enforced, and reviewed). If you cite PR.AC, you are quoting the retired 1.1 numbering.
+
+| Framework element | One-line meaning | IAM mechanism that satisfies it |
+|---|---|---|
+| 800-53 AC-2 | Account lifecycle: create, modify, review, disable | Automated JML provisioning from the HR feed into Entra ID / AD |
+| 800-53 AC-5 | Separation of duties | SoD conflict matrix; requester cannot self-approve |
+| 800-53 AC-6 | Least privilege | Role-based access, scoped admin roles, entitlement reviews |
+| 800-53 AC-6(9) | Log use of privileged functions | PIM activation logs; privileged-session audit records |
+| 800-53 IA-2(1) | MFA for privileged accounts | Conditional Access requiring MFA on admin roles |
+| 800-53 IA-2(2) | MFA for non-privileged accounts | Tenant-wide MFA / Conditional Access for all users |
+| 800-53 IA-5(1) | Password-based authentication | Password policy aligned to 800-63B (length, breach screening) |
+| CSF 2.0 PR.AA | Identity, authentication, and access-control outcomes | The entire IAM control set, mapped via Informative References to the AC/IA controls above |
+| CSF 2.0 GV.RR / GV.PO | Roles, responsibilities, and policy ownership | Documented IAM RACI and access-control policy (the AC-1 / IA-1 artifacts) |
+
+That last column is the whole game: CSF gives you the outcome, 800-53 gives you the control, and your Entra ID or AD configuration is the implementation that an auditor will ask you to evidence. Map the relationship once and you can defend it in any framework.
+
+## Compensating controls
+
+<Definition term="Compensating control">
+An alternative safeguard implemented when an organization cannot meet a control as written, but achieves an equivalent level of protection. A legitimate compensating control is documented, justified by a constraint, and demonstrably equivalent in rigor — it is not an excuse to skip the control, and auditors test it as rigorously as the original requirement.
+</Definition>
+
+Compensating controls recur in every framework in this module (PCI-DSS formalizes them with a worksheet; SOX accepts them as mitigating controls), so anchor the concept here. The pattern is always the same: a real constraint, a documented alternative, and evidence that the alternative is genuinely equivalent — not weaker dressed up in paperwork.
+
+<WarStory title="The auditor who wanted the parenthetical">
+Early in an internal-audit support engagement, a junior analyst answered a control question by saying, "Yes, we do least privilege — that's AC-6." The assessor nodded, then asked: "Show me AC-6(9). Where do you log the use of privileged functions, and can you produce the log for last quarter's emergency change?"
+
+The analyst froze. He knew least privilege as a concept and he knew the base control number, but he had never internalized that the assessor would test at the enhancement level — and that AC-6(9) is a specific, evidence-bearing requirement, not a vibe. The team had the logs; PIM was capturing every privileged activation. But the fumble cost an hour of the walkthrough and a follow-up request, because nobody could immediately tie the evidence to the enhancement the assessor was actually testing.
+
+The lesson stuck: auditors live in the parentheticals. Knowing AC-6 makes you conversational. Knowing AC-6(5), (9), and (10) — and exactly which log proves each one — makes you ready.
+</WarStory>
+
+<ProTip>
+Auditors and assessors quote the enhancement, not just the base control. Saying you implement AC-6 (Least Privilege) is necessary but not sufficient — be ready for AC-6(9) Log Use of Privileged Functions and AC-6(5) Privileged Accounts, with the specific evidence that proves each. Memorize the parentheticals for the controls you touch daily, and confirm enhancement numbers against the Revision 5 catalog, because Rev. 4 used different numbering.
+</ProTip>
+
+## Recall drill
+
+<Flashcard front="What does NIST SP 800-53 Rev. 5 catalog, and what holds the Low/Moderate/High control baselines?" back="800-53 Rev. 5 is the catalog of security and privacy controls organized into families (AC, IA, AU, and others). The Low, Moderate, and High baselines that select subsets of those controls live in the companion document NIST SP 800-53B; 800-37 is the Risk Management Framework process that consumes them." />
+<Flashcard front="What is NIST 800-53 control AC-6, and which enhancement requires logging the use of privileged functions?" back="AC-6 is Least Privilege. AC-6(9) Log Use of Privileged Functions requires auditing the execution of privileged functions; AC-6(5) restricts privileged accounts to designated personnel and AC-6(10) prohibits non-privileged users from executing privileged functions." />
+<Flashcard front="In NIST 800-53, what is control AC-2 and which control covers Separation of Duties?" back="AC-2 is Account Management, the account lifecycle control covering creation, enabling, modification, review, and disabling of accounts (the JML control). Separation of Duties is a separate control, AC-5." />
+<Flashcard front="Which 800-53 control family covers MFA, and which enhancement mandates MFA for privileged accounts?" back="The Identification and Authentication (IA) family. IA-2 covers identification and authentication of organizational users; IA-2(1) requires MFA for privileged accounts and IA-2(2) requires MFA for non-privileged accounts. Revision 5 consolidated the older Rev. 4 network-versus-local enhancement split into this privileged-versus-non-privileged pair." />
+<Flashcard front="What is 800-53 IA-5, and how did NIST 800-63B change its password guidance?" back="IA-5 is Authenticator Management; IA-5(1) covers password-based authentication. NIST SP 800-63B shifted guidance away from forced periodic rotation and mandatory composition rules toward minimum length, screening against breach lists, and rotation only on evidence of compromise." />
+<Flashcard front="Name the six Functions of the NIST Cybersecurity Framework 2.0." back="GOVERN, IDENTIFY, PROTECT, DETECT, RESPOND, and RECOVER. GOVERN was added in CSF 2.0 (NIST CSWP 29, February 2024) to elevate governance and risk-management oversight." />
+<Flashcard front="In CSF 2.0, which category holds Identity Management, Authentication, and Access Control, and what was it called in CSF 1.1?" back="PR.AA (Identity Management, Authentication, and Access Control) under the PROTECT function. In CSF 1.1 the identity outcomes lived under PR.AC, and authentication was promoted into the category name in 2.0 while the old subcategories were reorganized into the new PR.AA subcategories." />
+<Flashcard front="How does NIST CSF differ in nature from NIST 800-53?" back="CSF 2.0 is a voluntary, outcome-based framework used to organize and communicate cybersecurity posture; 800-53 is a prescriptive control catalog. CSF subcategories use Informative References to cross-walk to specific 800-53 controls, so CSF describes the outcome and 800-53 supplies the control that achieves it." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "09-compliance/01-control-frameworks/q1",
+  prompt: "An auditor asks which control requires you to log every use of a privileged function. Which NIST 800-53 control and enhancement is the correct citation?",
+  options: [
+    "AC-2 Account Management",
+    "AC-6(9) Log Use of Privileged Functions",
+    "IA-2 Identification and Authentication",
+    "AU-2 Event Logging, on its own"
+  ],
+  correctIndex: 1,
+  explanation: "AC-6 is Least Privilege; the (9) enhancement specifically requires logging the execution of privileged functions. AU-2 governs which events are logged in general, but the privileged-function logging requirement is cited as AC-6(9). AC-2 is account management and IA-2 is authentication — neither is the privileged-function logging control. This is why auditors cite the enhancement, not just the base control."
+}} />
+
+<Quiz question={{
+  id: "09-compliance/01-control-frameworks/q2",
+  prompt: "Which statement best distinguishes NIST CSF 2.0 from NIST SP 800-53?",
+  options: [
+    "CSF 2.0 is a prescriptive control catalog, while 800-53 is voluntary guidance",
+    "They are the same document published under two different names",
+    "CSF 2.0 is a voluntary, outcome-based framework whose subcategories cross-walk to the prescriptive 800-53 controls via Informative References",
+    "800-53 applies only to banks while CSF applies only to federal agencies"
+  ],
+  correctIndex: 2,
+  explanation: "CSF organizes outcomes into Functions, Categories, and Subcategories and is voluntary; 800-53 is the prescriptive control catalog. CSF Informative References map a subcategory such as PR.AA to specific 800-53 controls, so CSF supplies the outcome and 800-53 supplies the control that achieves it. The other options invert the relationship or invent scope limits that do not exist."
+}} />

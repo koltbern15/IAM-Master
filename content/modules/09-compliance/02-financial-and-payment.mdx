@@ -1,0 +1,189 @@
+{/* Control identifiers and dates current as of 2026-06-01. Re-verify against the primary standard text (PCI SSC, PCAOB, FFIEC) before any audit or cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **REAL JOB** — This is the section that maps directly to Richwood Bank: card processing puts you under **PCI-DSS**, financial reporting puts the bank under **SOX 404 ITGC**, and the bank's examiners cite **FFIEC** handbooks by name. Treat every control number here as something you may have to produce evidence for.
+- **CISSP** Domain 1 (Security & Risk Management) — legal, regulatory, and contractual compliance obligations; the difference between a regulation, a standard, and a contractual mandate
+- **CISSP** Domain 5 (Identity and Access Management) — access provisioning, review, and accountability as the controls these frameworks all test
+- **Security+ SY0-701** Objective 5.x (Governance, Risk, and Compliance) — regulatory and contractual frameworks, audit and assessment, and the role of access controls in compliance
+- **PCI-DSS v4.0.1** — Requirement 7 (least privilege) and Requirement 8 (identify and authenticate)
+- **SOX 404 / PCAOB AS 2201** — IT General Controls in the Access to Programs and Data domain
+- **FFIEC IT Examination Handbook** — Information Security and Authentication and Access guidance
+</HoloPanel>
+
+# Financial & Payment: PCI-DSS, SOX 404, FFIEC
+
+Most of this curriculum teaches you how to *build* identity controls. This section teaches you how to *prove* them — to the three regimes that govern a bank. If you process cards, the **Payment Card Industry Data Security Standard (PCI-DSS)** applies by contract. If your employer files financial statements, **Sarbanes-Oxley Section 404** drives IT General Controls over the systems that produce those numbers. And if you are a federally regulated financial institution, the **FFIEC** examiners walk in the door with handbooks that cite specific expectations for authentication and access.
+
+Here is the secret that makes this section easier than it looks: all three are asking the same four questions about identity. Can you prove every user has a unique ID? Can you prove access is limited to what the job needs? Can you prove someone reviews that access on a schedule? Can you prove strong authentication, especially for privileged and remote access? PCI writes those questions as numbered requirements, SOX writes them as control objectives an auditor tests, and FFIEC writes them as risk-based expectations an examiner evaluates. Learn the four primitives once and you can translate them into any of the three dialects.
+
+<Definition term="Cardholder Data Environment (CDE)">
+The people, processes, and technology that store, process, or transmit cardholder data (the primary account number and associated data) or sensitive authentication data — plus any system components connected to or that could impact the security of those. PCI-DSS scope is defined by the CDE boundary: everything inside is in scope, and the first move in any PCI engagement is drawing that boundary correctly. Identity controls (who can reach the CDE, with what authentication, under what privilege) are scoped to the CDE and its connected systems.
+</Definition>
+
+## PCI-DSS 4.0 — scope first, then the access requirements
+
+PCI-DSS is not a law. It is a contractual standard maintained by the **PCI Security Standards Council** (PCI SSC) and enforced through the card brands and acquiring banks. If your organization stores, processes, or transmits cardholder data, your merchant agreement obligates you to comply, and a **Qualified Security Assessor (QSA)** or self-assessment validates it. The current standard is **PCI-DSS v4.0**, released in March 2022, with a limited-revision **v4.0.1** released June 11, 2024 that corrected errata and clarified intent without adding or removing requirements. Version 4.0 fully retired the prior v3.2.1 in early 2024, and the set of requirements that v4.0 flagged as "future-dated" became mandatory on March 31, 2025. Two of those future-dated items are squarely in IAM's lap, and we will hit them below.
+
+Of the twelve PCI-DSS requirements, two are pure identity and access. **Requirement 7** is least privilege. **Requirement 8** is identification and authentication. Know these two cold.
+
+### Requirement 7 — Restrict Access by Business Need to Know
+
+Requirement 7's title says it: *Restrict Access to System Components and Cardholder Data by Business Need to Know.* This is PCI's least-privilege requirement, and its structure is worth memorizing because QSAs test the sub-requirements individually.
+
+- **7.1** — Processes and mechanisms for restricting access are defined and understood. (The "do you have a documented policy" layer.)
+- **7.2** — Access is appropriately defined and assigned. This is where the substance lives:
+  - **7.2.1** — An access control model is defined that grants access based on need-to-know and job classification.
+  - **7.2.2** — Access is assigned to users, including privileged users, based on job classification and function, applying **least privilege**.
+  - **7.2.4** — *All user accounts and related access privileges are reviewed at least once every 6 months* to confirm they remain appropriate, with management acknowledging the access is still required. This is a **new periodic access review mandate** introduced in v4.0 — call it out, because before v4.0 PCI did not require a recurring user access review at all.
+  - **7.2.5 / 7.2.5.1** — Application and system accounts and their access are managed with least privilege, and that access is reviewed periodically (with the review frequency informed by a targeted risk analysis).
+- **7.3** — Access control systems enforce the restrictions, configured to **deny all** by default unless access is explicitly granted.
+
+That 6-month review at **7.2.4** is the one to tattoo on your brain. It is the requirement most likely to generate a finding at a bank, because it forces a recurring, evidenced **user access review (UAR)** that someone must actually perform and sign. (Note the practical wrinkle: the *standard* says at least every 6 months, but many QSAs and processors expect quarterly reviews for high-sensitivity environments — meet or beat the cadence your assessor expects.)
+
+### Requirement 8 — Identify Users and Authenticate Access
+
+Requirement 8's title: *Identify Users and Authenticate Access to System Components.* If Requirement 7 is "who gets in," Requirement 8 is "are they who they say they are."
+
+- **8.1** — Processes and mechanisms for identifying users and authenticating access are defined.
+- **8.2** — User identification and related accounts are managed throughout their lifecycle:
+  - **8.2.1** — A **unique ID** is assigned to every user before access is granted. No shared interactive logins.
+  - **8.2.2** — Shared, group, or generic accounts are only used when necessary, and their use is tightly controlled and accountable.
+  - **8.2.4** — Addition, deletion, and modification of user IDs and credentials are managed (the JML provisioning control).
+  - **8.2.5** — Access for **terminated users is immediately revoked.**
+  - **8.2.6** — Inactive user accounts are removed or disabled **within 90 days.**
+  - **8.2.7** — Accounts used by third parties or vendors for remote access are managed and monitored, enabled only when needed.
+- **8.3** — Strong authentication is established and managed:
+  - **8.3.1** — All access is authenticated using something you know, something you have, or something you are.
+  - **8.3.6** — When passwords are used, the minimum is **12 characters** (or 8 if the system genuinely cannot support 12), containing both letters and numbers — a v4.0 increase from the old 7-character minimum.
+  - **8.3.9** — If a password or passphrase is the *only* authentication factor for user access, it is changed at least every 90 days, or the security posture of accounts is dynamically analyzed to determine real-time access.
+- **8.4 / 8.5** — Multifactor authentication:
+  - **8.4.2** — **MFA for all access into the CDE.** This is the headline v4.0 expansion: previously MFA was required only for remote network access and administrative access; v4.0 extended it to *all* non-console access into the cardholder data environment. This is a **future-dated requirement that became mandatory March 31, 2025.**
+  - **8.4.3** — MFA for all remote network access originating from outside the entity's network.
+  - **8.5.1** — MFA systems are implemented to resist replay attacks and cannot be bypassed by any user, including administrators, unless specifically documented and authorized for a limited time.
+
+<Definition term="Least privilege / business need-to-know">
+The principle that a user, account, or process is granted only the access strictly required to perform its function — and nothing more. PCI-DSS phrases it as "business need-to-know" and operationalizes it through an access control model (7.2.1), job-function-based assignment (7.2.2), and default-deny enforcement (7.3). In NIST 800-53 the same idea is control AC-6; in SOX it is the heart of the Access to Programs and Data ITGC. Excess standing privilege is the single most common root cause behind audit findings across all three frameworks.
+</Definition>
+
+## SOX 404 — ITGCs and the Access to Programs and Data domain
+
+Here is the thing that trips people up about Sarbanes-Oxley: **SOX names no IT controls at all.** The Sarbanes-Oxley Act of 2002, at **Section 404**, requires a public company's management to assess and report on the effectiveness of its **internal control over financial reporting (ICFR)**, and requires the external auditor to attest to that assessment. The auditor performs that attestation under **PCAOB Auditing Standard AS 2201** (the standard governing an audit of internal control over financial reporting that is integrated with an audit of financial statements). Nowhere does the statute say "use MFA" or "review access quarterly."
+
+So where do the IT control expectations come from? From the *frameworks the auditor uses to evaluate ICFR.* Companies use **COSO** as the framework for internal control overall, and **COBIT** as the framework for IT controls, and the IT pieces get expressed as **IT General Controls (ITGCs)** — the controls over the IT environment that financial-reporting applications depend on. ITGCs are conventionally organized into four domains:
+
+- **Access to Programs and Data** — *this is the IAM domain.* Provisioning, periodic access recertification, privileged access, and segregation of duties for financially significant systems.
+- **Program Changes** — change management for the application code and configuration.
+- **Program Development** — controls over building or acquiring new systems.
+- **Computer Operations** — job scheduling, backups, incident and problem management.
+
+Everything an IAM practitioner does for SOX lands in **Access to Programs and Data.** The evidence an auditor wants from you: **user access reviews (UARs)** of the in-scope, financially significant systems; **segregation-of-duties (SoD) conflict matrices** with documented exceptions; **terminated-user removal timeliness** (how fast did access actually get pulled after HR flagged the termination); and **privileged-access logging** showing who used elevated rights and why.
+
+<Definition term="IT General Controls (ITGCs)">
+The foundational controls over an organization's IT environment that the integrity of financial-reporting applications depends on. ITGCs are not the application's own business-logic controls; they are the surrounding controls — access management, change management, development, and operations — that give an auditor confidence the application-level controls can be relied on. If ITGCs are weak (for example, anyone can change production or terminated users keep access), the auditor cannot trust the automated controls inside the financial systems, and testing scope expands sharply.
+</Definition>
+
+<Definition term="Control deficiency, significant deficiency, and material weakness">
+The three-tier severity scale auditors use for ICFR control problems. A **control deficiency** exists when a control is missing or does not operate as designed, so it fails to prevent or detect a misstatement on a timely basis. A **significant deficiency** is a deficiency (or combination) important enough to merit the attention of those responsible for oversight of the company's financial reporting. A **material weakness** is the most severe: a deficiency, or combination of deficiencies, such that there is a reasonable possibility that a material misstatement of the financial statements will not be prevented or detected on a timely basis. A material weakness in an IAM ITGC — say, no functioning access review on a financially significant system — is the outcome you are working to prevent.
+</Definition>
+
+A vocabulary note worth keeping straight: a **key control** is one the auditor relies on to address a specific financial-reporting risk, and it is tested directly. A **compensating control** is a different control you point to when the primary control is not in place or not effective — it must address the same risk with comparable rigor, and you must document why it is sufficient. "We can't do X, but Y covers the same risk" is the compensating-control argument, and it shows up in both SOX and PCI.
+
+## FFIEC — the bank examiner angle
+
+PCI is contractual and SOX is statutory; **FFIEC** is the *examination* lens that a federally regulated bank actually faces. The **Federal Financial Institutions Examination Council** is the interagency body whose members include the **FDIC, the OCC, the Federal Reserve, the NCUA,** and the **CFPB.** It issues the **FFIEC IT Examination Handbook**, a set of booklets that examiners use directly when they evaluate an institution. When a Richwood Bank examiner shows up, they are not improvising — they are working the **Information Security** booklet and the access-and-authentication guidance.
+
+The piece every IAM practitioner at a bank must know is the FFIEC's authentication guidance — the **Authentication and Access to Financial Institution Services and Systems** guidance issued in 2021, which replaced the older 2005/2011 "Authentication in an Internet Banking Environment" guidance. The shift matters: the old guidance was read as a fairly mechanical "use two factors for internet banking" expectation. The 2021 guidance is explicitly **risk-based and layered.** It expects the institution to perform a risk assessment, apply **layered security**, and apply **stronger (often multifactor) authentication to higher-risk activities** — high-risk customer transactions, and crucially, **administrative and privileged access** to systems. It also folds in identity and access management practices, periodic access reviews, and authentication for *both* customers and employees/administrators.
+
+The practical upshot: an FFIEC examiner is not handing you a single checkbox like "you must use SMS OTP." They are asking whether your authentication controls are *commensurate with the risk* of what is being accessed, whether you have layered defenses, whether you review who has access, and whether your privileged and remote access is held to a higher bar. That risk-based posture is exactly how the question should be answered — and it lines up neatly with PCI's MFA expansion and SOX's privileged-access expectations.
+
+## The crosswalk: three dialects, four primitives
+
+Now stack them. Strip away the citation format and the same four IAM primitives carry the weight in all three regimes — which is precisely the insight the controls matrix in the next section is built on.
+
+| IAM primitive | PCI-DSS v4.0.1 | SOX ITGC (Access to Programs and Data) | FFIEC | NIST 800-53 echo |
+|---|---|---|---|---|
+| Unique identification | 8.2.1 unique ID per user | Identifiable, attributable access | Identity management in the Authentication guidance | IA-4 |
+| Least privilege | 7.2.2 access by job function | Provisioning by role; SoD | Risk-based access commensurate with the activity | AC-5, AC-6 |
+| Periodic access review | 7.2.4 at least every 6 months | User access reviews (typically quarterly or annual) | Periodic access reviews expected | AC-2 account review |
+| Strong / MFA authentication | 8.4.2 MFA into the CDE; 8.5.1 non-bypassable | Privileged-access and authentication controls | Layered, risk-based MFA for high-risk and admin access | IA-2(1)/(2) |
+
+Read it down the columns and you can see why a single, well-run access-review program produces evidence for a QSA, a SOX auditor, and an FFIEC examiner at the same time. Read it across the rows and you have the translation table for any conversation with any of the three.
+
+Here is the table again broken to the sub-requirement level for the two PCI requirements an IAM practitioner is graded on most directly:
+
+| PCI-DSS sub-requirement | Plain English | IAM control that satisfies it |
+|---|---|---|
+| 7.2.2 | Assign access by job function, least privilege | Role-based access (RBAC) tied to job classification |
+| 7.2.4 | Review all user accounts and access every 6 months | Scheduled, evidenced user access review / recertification campaign |
+| 7.3 | Deny all by default | Default-deny access control configuration |
+| 8.2.1 | Unique ID for every user before access | One identity per person; no shared interactive accounts |
+| 8.2.5 | Revoke terminated users immediately | Automated deprovisioning tied to the HR termination feed |
+| 8.2.6 | Disable or remove inactive accounts within 90 days | Inactivity-based disable policy and stale-account report |
+| 8.4.2 | MFA for all access into the CDE | Conditional Access / MFA enforcement scoped to CDE systems |
+| 8.5.1 | MFA cannot be bypassed and resists replay | Phishing-resistant MFA, no per-user bypass without documentation |
+
+<WarStory title="The terminated controller who could still post journal entries">
+A regional bank I will keep anonymous failed a SOX ITGC test for exactly one reason: timeliness. The control as written said access for terminated employees would be removed within one business day. The auditor pulled the HR termination feed for the audit period, sampled twenty-five terminations, and matched each one against the actual disable timestamp in the financial system and Active Directory.
+
+Twenty-three were clean. Two were not. One was a contractor whose AD account stayed enabled eleven days after the end date because the offboarding ticket routed to a team that no longer existed after a reorg. The second was worse: a departed accounting employee retained access to the general-ledger application for nineteen days — and that account had the entitlement to post journal entries. Nobody alleged the account was misused. It did not matter. The auditor's job was not to prove harm; it was to test whether the control operated as designed. It did not, on two of twenty-five samples, so the control was deemed not operating effectively for the period.
+
+That single timeliness gap escalated to a **significant deficiency** because the affected system was financially significant and the access was privileged. Remediation was not glamorous — it was wiring the HR termination feed directly into automated deprovisioning so the disable happened the same day HR flagged the exit, plus a daily reconciliation report of terminations versus disable timestamps. The lesson the team took away: the control is not "we remove terminated users." The control is "we can *prove*, for every termination in the period, that removal happened inside the window." Evidence over intention.
+</WarStory>
+
+<ProTip>
+Do not let the review-cadence numbers blur together — auditors test the exact interval, and they differ by framework. PCI-DSS 7.2.4 requires user access reviews at least **every 6 months.** SOX user access reviews are not fixed by statute; their cadence is set by the control design and is commonly **quarterly or annual** depending on the system's risk. FFIEC expects periodic reviews proportionate to risk. The trap: a bank under all three runs *one* access-review program, so design it to the **tightest applicable cadence** (often quarterly to satisfy both the PCI 6-month floor and a quarterly SOX design) and you produce evidence for everyone at once. Running separate, conflicting review schedules per framework is how you end up with gaps and contradictory evidence.
+</ProTip>
+
+## Recall drill
+
+<Flashcard front="What does PCI-DSS 4.0 Requirement 7 govern?" back="Restricting access to system components and cardholder data by business need-to-know (least privilege) — defining an access control model, assigning access by job classification and function, and enforcing default-deny so access exists only where explicitly granted." />
+<Flashcard front="What PCI-DSS 4.0 sub-requirement mandates a periodic review of user accounts and access, and how often?" back="Requirement 7.2.4 requires reviewing all user accounts and related access privileges at least once every 6 months to confirm they remain appropriate. It is a new periodic access review mandate introduced in v4.0; earlier versions had no recurring user access review requirement." />
+<Flashcard front="What does PCI-DSS 4.0 Requirement 8 govern, and what is the unique-ID rule?" back="Identifying users and authenticating access to system components. Requirement 8.2.1 requires a unique ID assigned to every user before access is granted, which rules out shared interactive accounts." />
+<Flashcard front="Under PCI-DSS 4.0, what is the rule for terminated users versus inactive accounts?" back="Requirement 8.2.5 requires access for terminated users to be revoked immediately; Requirement 8.2.6 requires inactive user accounts to be removed or disabled within 90 days." />
+<Flashcard front="What major MFA expansion did PCI-DSS 4.0 introduce, and when did it become mandatory?" back="Requirement 8.4.2 expanded MFA to all access into the Cardholder Data Environment, not just remote or administrative access. It was a future-dated requirement that became mandatory on 31 March 2025." />
+<Flashcard front="Does the Sarbanes-Oxley Act itself specify IT controls for access?" back="No. SOX Section 404 requires management to assess internal control over financial reporting (ICFR) and the auditor to attest under PCAOB standards. The IT control expectations come from the auditor frameworks (COSO and COBIT) expressed as IT General Controls; access controls land in the Access to Programs and Data ITGC domain." />
+<Flashcard front="Name the four ITGC domains, and which one contains IAM controls." back="Access to Programs and Data, Program Changes, Program Development, and Computer Operations. IAM controls — provisioning, recertification, privileged access, and segregation of duties — live in Access to Programs and Data." />
+<Flashcard front="In SOX terms, what is the difference between a control deficiency, a significant deficiency, and a material weakness?" back="A control deficiency is a control that is missing or does not operate as designed. A significant deficiency is severe enough to merit the attention of those overseeing financial reporting. A material weakness is a deficiency, or combination, creating a reasonable possibility that a material misstatement will not be prevented or detected on a timely basis." />
+<Flashcard front="What is the FFIEC, and which guidance governs identity authentication at banks?" back="The FFIEC is the interagency body whose members include the FDIC, OCC, Federal Reserve, NCUA, and CFPB; it issues the IT Examination Handbook. The 2021 Authentication and Access to Financial Institution Services and Systems guidance sets risk-based, layered authentication expectations, replacing the older internet-banking two-factor guidance." />
+<Flashcard front="What is the Cardholder Data Environment (CDE) in PCI-DSS?" back="The CDE is the people, processes, and technology that store, process, or transmit cardholder data or sensitive authentication data, plus connected systems that could affect their security. PCI-DSS scope is defined by the CDE boundary, so the first step in any assessment is drawing that boundary correctly." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "09-compliance/02-financial-and-payment/q1",
+  prompt: "A QSA reviewing your CDE asks for evidence that user accounts and access privileges are reviewed on a defined cadence. Which PCI-DSS 4.0 requirement and interval are they testing?",
+  options: [
+    "8.2.6 every 30 days",
+    "7.2.4 at least every 6 months",
+    "10.6 daily log review",
+    "8.3.9 every 90 days"
+  ],
+  correctIndex: 1,
+  explanation: "PCI-DSS 4.0 Requirement 7.2.4 newly mandates reviewing all user accounts and related access privileges at least once every 6 months. 8.2.6 is the 90-day inactive-account rule, 8.3.9 is the password-change cadence when a password is the only factor, and 10.6 concerns log review — none of those is the user access review."
+}} />
+
+<Quiz question={{
+  id: "09-compliance/02-financial-and-payment/q2",
+  prompt: "During a SOX 404 audit, the auditor tests whether terminated employees lose access to financially significant systems promptly. Which ITGC domain does this control fall under?",
+  options: [
+    "Program Changes",
+    "Computer Operations",
+    "Access to Programs and Data",
+    "Program Development"
+  ],
+  correctIndex: 2,
+  explanation: "Termination and deprovisioning is an access-management control, which sits in the Access to Programs and Data ITGC domain — the IAM-relevant domain among the four ITGC categories (Access to Programs and Data, Program Changes, Program Development, Computer Operations)."
+}} />
+
+<Quiz question={{
+  id: "09-compliance/02-financial-and-payment/q3",
+  prompt: "A community bank examiner cites the FFIEC for not applying stronger authentication to high-risk transactions and administrative access. Which characterization of the FFIEC authentication expectation is correct?",
+  options: [
+    "FFIEC mandates a single hardware token for all customers",
+    "FFIEC sets risk-based, layered authentication expectations, with stronger controls for high-risk transactions and administrative access",
+    "FFIEC defers entirely to PCI-DSS and sets no authentication expectation",
+    "FFIEC requires SMS one-time passcodes specifically"
+  ],
+  correctIndex: 1,
+  explanation: "The FFIEC 2021 Authentication and Access guidance is risk-based and layered. It expects stronger (often multifactor) controls for high-risk customer transactions and for administrative and privileged access, rather than a single one-size-fits-all checkbox or a specific mandated factor."
+}} />

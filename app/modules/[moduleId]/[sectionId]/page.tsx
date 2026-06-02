@@ -2,7 +2,9 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ChevronLeft, ChevronRight, Clock } from 'lucide-react'
 import { ReadShell } from '@/components/layout/ReadShell'
+import { SectionArticle } from '@/components/layout/SectionArticle'
 import { SectionMountTracker } from '@/components/jarvis/SectionMountTracker'
+import { SectionKeyboardNav } from '@/components/jarvis/SectionKeyboardNav'
 import { SectionComplete } from '@/components/jarvis/SectionComplete'
 import { SC300Badge } from '@/components/content/SC300Badge'
 import { loadSection } from '@/lib/content-loader'
@@ -67,10 +69,13 @@ export default async function SectionPage({ params }: { params: Params }) {
   const { Component, plainText } = section
   const readingMinutes = await getReadingMinutes(moduleId, sectionId)
   const { prev, next } = getPrevNext(moduleId, sectionId)
+  const prevHref = prev ? `/modules/${prev.moduleId}/${prev.slug}` : null
+  const nextHref = next ? `/modules/${next.moduleId}/${next.slug}` : null
 
   return (
     <ReadShell tutorSectionId={tutorSectionId} tutorSectionContent={plainText}>
       <SectionMountTracker sectionKey={tutorSectionId} />
+      <SectionKeyboardNav prevHref={prevHref} nextHref={nextHref} />
 
       <header className="mb-8 border-b border-panel-border pb-6">
         {breadcrumbs}
@@ -90,9 +95,9 @@ export default async function SectionPage({ params }: { params: Params }) {
         </h1>
       </header>
 
-      <article className="prose prose-invert max-w-none">
+      <SectionArticle>
         <Component />
-      </article>
+      </SectionArticle>
 
       <footer className="mt-12 space-y-6 border-t border-panel-border pt-8">
         <SectionComplete sectionKey={tutorSectionId} />

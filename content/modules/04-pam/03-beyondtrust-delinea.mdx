@@ -1,0 +1,162 @@
+{/* Product naming current as of 2026-06-01. Re-verify SKU/feature names against vendor docs before a cert sitting or a client deck. */}
+
+<HoloPanel label="COVERS">
+- **PAM market** — the two largest CyberArk challengers: BeyondTrust and Delinea, and how their portfolios map to the PASM / PEDM / remote-access pillars
+- **BeyondTrust** — Password Safe (PASM), Endpoint Privilege Management (PEDM), and Privileged Remote Access (vendor/third-party access)
+- **Delinea** — the Thycotic + Centrify lineage, Secret Server (vault), and Privilege Manager (endpoint)
+- **Vendor selection** — a defensible comparison of CyberArk vs BeyondTrust vs Delinea, framed as fit rather than ranking
+- **CISSP** Domain 5 (Identity and Access Management) — privileged-account management tooling and the PASM/PEDM control split
+</HoloPanel>
+
+# BeyondTrust & Delinea: The Challengers
+
+CyberArk is the gravity well of the PAM market, but it is not the only star. Two vendors sit directly behind it and win deals it does not — BeyondTrust and Delinea. If you work IAM at a bank, you will eventually evaluate all three, and the worst thing you can do in that evaluation is treat the names as interchangeable. They are not. Each grew from a different founding problem, each leads on a different pillar, and each has a product lineage tangled with mergers and rebrands that will trip you up if you do not have the family tree memorized. This section gives you that family tree, the flagship products, and a comparison you can defend in front of an examiner or a vendor's sales engineer.
+
+## What it is
+
+BeyondTrust and Delinea are the two strongest alternatives to CyberArk in the Privileged Access Management market. Both offer the full PAM stack — a credential vault, automatic rotation, session brokering and recording, and endpoint privilege management — but they arrived at "full stack" from opposite ends.
+
+BeyondTrust's center of gravity has historically been the **endpoint and remote access**. Its endpoint-privilege and remote-support heritage shaped a portfolio that leads on getting local admin off workstations and brokering third-party connections without a VPN. Delinea's center of gravity is the **vault**: Secret Server, the product at the heart of Delinea, is widely regarded as one of the fastest privileged-credential vaults to stand up, and the company built outward from there into endpoint and platform offerings.
+
+<Definition term="Privileged Remote Access (PRA)">A capability — and, at BeyondTrust, a named product — that brokers and records privileged sessions for remote and third-party users without issuing them a VPN account or a shared password. The vendor or contractor connects through the PRA broker, which enforces what endpoints they may reach, when, and which applications they may run, then captures the full session for audit. It is the control that answers the examiner question: how does your core-banking vendor get administrative access to your servers, and where is the recording?</Definition>
+
+The reason this distinction matters in practice is that a real PAM evaluation is rarely "which tool is best." It is "which tool fits the problem in front of me." A bank drowning in vendor remote-access risk has a different shortlist than a bank whose problem is 4,000 workstations with local admin, which has a different shortlist again from a bank that just needs to vault and rotate 600 service-account passwords before the next exam. The challengers win when their founding strength matches your founding problem.
+
+## Why it exists
+
+The PAM market did not start as a single category. It started as three or four adjacent problems that different vendors solved separately, and then everyone converged.
+
+One problem was the shared privileged password: how do you stop ten admins from all knowing the local Administrator password, with no rotation and no record of who used it when? That problem produced the **vault** — store the secret, rotate it, hand it out under policy, log every retrieval. Delinea's Secret Server and BeyondTrust's Password Safe both answer this. This is the **PASM** pillar — Privileged Account and Session Management.
+
+A second, distinct problem was standing local admin on the endpoint. Every workstation where a user is a local administrator is a place malware runs with full rights and an attacker lands with a head start. The answer was to strip local admin and elevate only specific, approved applications on demand by policy. That is the **PEDM** pillar — Privilege Elevation and Delegation Management — and it is a fundamentally different technology from a vault. BeyondTrust's Endpoint Privilege Management and Delinea's Privilege Manager live here.
+
+<Definition term="Endpoint Privilege Management (EPM / PEDM)">The discipline of removing standing local-administrator rights from endpoints and granting privilege surgically — elevating a specific approved application or action on demand by policy — so the human operator runs as a standard user almost all the time. EPM is the productized form of the PEDM pillar. It is distinct from a vault: a vault protects a shared secret; EPM removes the need for the standing local-admin account in the first place. The two compose, and most mature programs run both.</Definition>
+
+A third problem was the vendor at the edge: third parties who need administrative access but must never hold a VPN credential or a standing account on your network. BeyondTrust built deep here through its remote-support heritage, and that lineage became Privileged Remote Access.
+
+So the category you see today — every major PAM vendor offering vault, rotation, sessions, endpoint, and remote access — is the result of three vendors who each owned one pillar growing into the others. BeyondTrust grew from endpoint and remote access into vaulting. Delinea grew from the vault into endpoint and platform. CyberArk grew from the vault into everything, earliest and deepest. Understanding that history tells you where each vendor is still strongest, because the founding pillar is almost always the most mature part of the portfolio.
+
+## How it works under the hood
+
+### BeyondTrust — Password Safe (PASM)
+
+Password Safe is BeyondTrust's vault and session-management product — its PASM offering. It discovers privileged accounts, vaults their credentials, rotates them automatically, and brokers and records the sessions that use them. It safeguards not only account passwords but DevOps secrets such as certificates, API keys, tokens, and SSH keys, and it can be deployed as a cloud service or as a virtual or physical appliance.
+
+The differentiator the plan flagged — and which the current product documentation confirms — is **Smart Rules**. Smart Rules are a policy-driven automation engine inside Password Safe that automatically classify and act on assets and accounts as they are discovered. Instead of an administrator manually onboarding each newly found account into a managed group, a Smart Rule can match accounts by attribute and automatically place them under management, assign rotation policy, and grant access. In a large estate where new servers and service accounts appear constantly, this auto-onboarding is the operational feature that keeps the vault's coverage from rotting the day after the initial discovery sweep.
+
+Password Safe also implements just-in-time access controls, so a credential can be made available only for the window a task requires rather than standing open, and it integrates tightly with BeyondTrust's Privileged Remote Access so that a remote session can pull and auto-inject a vaulted credential at connect time.
+
+### BeyondTrust — Endpoint Privilege Management (PEDM)
+
+BeyondTrust's PEDM product is **Endpoint Privilege Management** (EPM), covering Windows, Mac, and Unix/Linux. The product carries a long lineage — earlier generations were marketed under names in the PowerBroker and Defendpoint families — so when you read older runbooks or RFPs you will see those names referring to the same capability area. The current branding is Endpoint Privilege Management.
+
+The job is the PEDM job: remove standing local-administrator rights from endpoints and elevate only approved applications and actions on demand by policy. An agent on the endpoint enforces the rules, and it can also run a scheduled discovery scan that publishes local user and asset data back up to the management plane — so the same agent that strips local admin also helps you see who still has it. The point of EPM is that the user no longer needs to be a local admin to do their job, which means an attacker who lands on that endpoint does not inherit local-admin rights either.
+
+### BeyondTrust — Privileged Remote Access (PRA)
+
+PRA is the product that controls, manages, and audits privileged access for internal, external, and third-party users — explicitly framed by BeyondTrust as just-in-time, zero-trust access to on-premises and cloud resources. Administrators define which endpoints a remote user may reach, schedule when they may reach them, allow or block specific applications during the session, and capture detailed session recordings.
+
+Crucially for the secrets-vs-sessions theme of this whole module, PRA can discover, manage, rotate, and **auto-inject** privileged credentials to start a session on demand, storing the password in its own in-appliance vault or pulling it from Password Safe. So the vendor connecting through PRA never sees or holds the credential — the broker injects it, exactly the credential-injection property that makes session isolation meaningfully stronger than simply knowing the password. For a bank managing core-banking vendors, network-gear maintainers, and software contractors, PRA is the control that replaces the security nightmare of vendor VPN accounts and shared admin passwords with brokered, recorded, time-bound sessions.
+
+### Delinea — the lineage you must memorize
+
+<ProTip>
+Before you touch a Delinea deal or doc, burn the family tree into memory: **Delinea was formed in 2021 from the merger of Thycotic and Centrify.** Every older document, RFP, and runbook you encounter will use the legacy names. "Thycotic Secret Server" is now Delinea Secret Server — same vault product. Centrify's privilege and identity capabilities folded into the Delinea portfolio as well. If a colleague or a vendor says "Thycotic" or "Centrify," they are describing pre-2021 branding of what is now Delinea. Knowing this single fact prevents the most common confusion in any Delinea conversation.
+</ProTip>
+
+The lineage matters because the two halves of Delinea came from different strengths. Thycotic was known for Secret Server, a vault celebrated for fast, light deployment. Centrify brought privilege and identity capabilities with a different heritage. The merged company carries both, and you will still see the seams in product positioning and in old documentation.
+
+### Delinea — Secret Server (the vault)
+
+Secret Server is Delinea's flagship and the product the company is built around. It stores secrets with role-based access control, rotates them automatically, launches and records privileged sessions, and discovers privileged accounts across the estate. Four named features the plan flagged are worth teaching precisely, because they show up in exams, RFPs, and architecture discussions, and the current documentation confirms all four:
+
+- **Remote Password Changing (RPC)** is Secret Server's automatic rotation engine. When a secret expires, RPC generates a new strong password and updates it on the remote target system, keeping the managed account synchronized with the vault. This is Delinea's name for what CyberArk calls the CPM's change operation.
+- **Heartbeat** is the credential-validity check. At set intervals, Heartbeat attempts to authenticate to the target with the stored credential and flags any mismatch — so if an administrator changes a privileged password outside Secret Server, you find out instead of discovering it the next time a job fails. RPC fixes drift; Heartbeat detects it.
+- **Check Out** is Delinea's one-time / exclusive-access model. A user checks out a credential, holds it exclusively for a set window, and on check-in the password is rotated so it cannot be reused. This guarantees one accountable operator at a time and a fresh secret after every use — the control you want for vendor access or for the most sensitive accounts.
+- **DoubleLock** adds a second, separate encryption key on top of the vault's normal encryption to protect the most sensitive secrets, so that even inside the vault those secrets require an additional key to decrypt. (Delinea has since introduced a quantum-resistant successor that hardens this same idea against future quantum attacks.)
+
+<Definition term="Remote Password Changing (RPC)">Delinea Secret Server's automatic credential-rotation engine. When a managed secret expires (or is checked in, or is rotated on demand), RPC generates a new strong password and pushes the change to the remote target account, keeping the live account synchronized with what the vault stores. It is the functional equivalent of CyberArk's CPM change operation. RPC works hand in hand with Heartbeat: RPC changes the password, Heartbeat continuously verifies the stored credential still authenticates so out-of-band changes are caught.</Definition>
+
+<Definition term="check-out / exclusive access">A vault model in which a user reserves a credential for their exclusive use for a bounded window; no one else can retrieve it until check-in, and the secret is typically rotated automatically on check-in so it can never be reused. It guarantees single-operator accountability and a fresh secret after every use. Delinea calls its implementation Check Out; the concept appears across PAM vendors (CyberArk's exclusive / one-time passwords, for example) and is the right control for vendor access and for the highest-sensitivity accounts.</Definition>
+
+### Delinea — Privilege Manager (the endpoint)
+
+Privilege Manager is Delinea's PEDM/endpoint product, inherited from the Thycotic side of the house. It removes local-administrator rights from endpoints and applies application control — allow, deny, elevate, or sandbox a given application by policy — so users operate as standard users while approved work still elevates cleanly. It is the direct competitor to BeyondTrust's Endpoint Privilege Management and to CyberArk's endpoint offering. Delinea has also been pushing a broader cloud platform direction with an analytics layer for privileged-behavior monitoring, consistent with the whole market's drift from on-prem suites toward SaaS-delivered identity-security platforms.
+
+### The comparison matrix
+
+Use this as a defensible map of general market positioning — not a benchmark, and not a claim of feature parity in either direction. Each vendor's products evolve; confirm specifics against current vendor documentation before you put a recommendation in writing.
+
+| Capability | CyberArk (recap) | BeyondTrust | Delinea |
+|---|---|---|---|
+| Vault (PASM) | Privileged Access Manager / Privilege Cloud | Password Safe | Secret Server |
+| Endpoint privilege (PEDM) | Endpoint Privilege Manager | Endpoint Privilege Management | Privilege Manager |
+| Session management | PSM (isolated, recorded, credential injection) | Password Safe + PRA sessions | Secret Server session launch + recording |
+| Discovery mechanism | Accounts Discovery | Smart Rules auto-onboarding | Secret Server discovery engine |
+| Vendor / third-party remote access | Vendor PAM offerings | Privileged Remote Access (a portfolio strength) | Via platform / remote access features |
+| App / DevOps secrets | CCP / AAM, Conjur | Password Safe secrets (certs, keys, tokens) | Secret Server secrets + platform |
+| Deployment | Self-hosted and SaaS (Privilege Cloud) | Cloud service or virtual/physical appliance | Self-hosted and SaaS, known for fast deployment |
+| General sweet spot | Largest, most-regulated estates | Unified endpoint + remote-access story | Fast time-to-value, vault-first |
+
+### How to choose
+
+Frame the decision as fit, not as a leaderboard. Three honest, sourceable generalizations hold up:
+
+- **Scale and regulatory weight tend to favor CyberArk.** It is the historical leader in the largest, most heavily regulated environments — big banks among them — where depth, examiner familiarity, and the operational gravity of a hardened vault are decisive. That depth comes with deployment weight.
+- **Time-to-value and lighter deployment tend to favor Delinea Secret Server.** Its reputation is fast, lighter standup of the vault — attractive when the immediate problem is "get 600 service accounts vaulted and rotating before the next exam" rather than "build a ten-year enterprise PAM platform."
+- **A unified endpoint-plus-remote-access story tends to favor BeyondTrust.** If the dominant pain is local-admin sprawl on the endpoint and uncontrolled vendor access, BeyondTrust's EPM and PRA combination is its strongest pitch.
+
+None of these is a verdict that one tool is "best." All three are credible enterprise PAM platforms. The discipline is to name your founding problem first, then let the vendor whose founding strength matches it earn the shortlist. A bank that picks a tool because a peer bank uses it, rather than because it fits the bank's own privileged-access risk profile, is buying a logo, not a control.
+
+## War story
+
+<WarStory title="The Vendor Who Still Had a VPN Account Eleven Months Later">
+A regional bank, roughly 900 employees, used an outside firm to maintain a specialized loan-origination platform. The standard pattern, set up years earlier: the vendor's engineers each got a domain account and a VPN profile, sat in a security group that granted them administrative access to the four servers the platform ran on, and connected whenever they needed to push a patch or debug a problem. No session recording. No time bounding. The accounts were "vendor accounts," so they were quietly exempt from the 90-day disable-stale-accounts job because disabling them kept breaking the vendor's maintenance windows.
+
+During an internal access review ahead of an exam, an analyst pulled the membership of that administrative group and found seven vendor accounts. The vendor, when asked, confirmed that only three of those people still worked on the bank's account. Two had left the firm. One of the two had left eleven months earlier. The account was still enabled, still a member of the admin group, still had a live VPN profile, and — because nobody on the bank side owned the vendor's HR offboarding — nobody had known to disable it. There was no evidence the account had been misused. There was also no way to prove it had not, because there were no session recordings to review. For eleven months, a credential with administrative access to a loan-origination system had existed outside the bank's control, and the bank could not say what, if anything, had been done with it.
+
+The remediation became the bank's first real Privileged Remote Access project. They stood up a remote-access broker, removed every vendor VPN profile and standing admin account, and required the vendor to connect through the broker instead. Now each vendor session was time-bounded to an approved window, scoped to only the four platform servers, recorded end to end, and — critically — the vendor never again held a credential at all: the broker injected a vaulted, rotated password at connect time, so there was nothing for a departed engineer to walk away with. The bank no longer depended on the vendor's offboarding process, because there was no standing account to offboard. Access existed only inside a brokered, recorded session and evaporated when the session ended.
+
+The lesson generalizes past banking. In defense, the same failure mode is a cleared contractor whose access outlives the contract because the account lived in your directory, not theirs. In healthcare, it is the imaging-equipment vendor with a permanent remote-maintenance account into a network segment that also touches PHI. The fix is the same in every case: third-party privileged access must be brokered and recorded, time-bounded, and credential-free for the vendor — because the one thing you cannot control is the other organization's offboarding, and a standing account is only as safe as the weakest HR process that touches it.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="What is BeyondTrust Password Safe?" back="BeyondTrust's PASM product: privileged credential discovery, vaulting, automatic rotation, and session management/recording. It also safeguards DevOps secrets like certificates, API keys, tokens, and SSH keys, and uses Smart Rules to drive automated account onboarding as new accounts are discovered." />
+<Flashcard front="What are Smart Rules in BeyondTrust Password Safe?" back="A policy-driven automation engine that classifies and acts on assets and accounts as they are discovered — automatically placing matching accounts under management, assigning rotation policy, and granting access. Smart Rules are what keep vault coverage from decaying after the initial discovery sweep in a large, constantly changing estate." />
+<Flashcard front="What is BeyondTrust Endpoint Privilege Management (EPM)?" back="A PEDM product that removes standing local-administrator rights from Windows, Mac, and Unix/Linux endpoints and elevates only approved applications and actions on demand by policy — least privilege at the endpoint. Its lineage includes the older PowerBroker and Defendpoint product names." />
+<Flashcard front="What is BeyondTrust Privileged Remote Access (PRA) used for?" back="Brokered, recorded, just-in-time privileged access for internal, external, and third-party users to on-prem and cloud resources — without a VPN or shared credentials. It can auto-inject a vaulted, rotated credential at connect time so the remote user never holds the secret. It is a major control for third-party access in banking." />
+<Flashcard front="Delinea was formed from which two companies, and when?" back="From the 2021 merger of Thycotic and Centrify. Older product names like Thycotic Secret Server are now Delinea Secret Server, and Centrify privilege/identity capabilities folded into the Delinea portfolio. Recognizing the lineage prevents confusion with legacy branding." />
+<Flashcard front="What is Delinea Secret Server and what are its core capabilities?" back="Delinea's flagship vault: secrets storage with role-based access control, automatic rotation via Remote Password Changing (RPC), session launching and recording, Check Out (one-time/exclusive access), credential-validity checks via Heartbeat, DoubleLock for extra-sensitive secrets, and a discovery engine. It is known for fast, light deployment." />
+<Flashcard front="In Delinea Secret Server, what is the difference between RPC and Heartbeat?" back="Remote Password Changing (RPC) is the rotation engine — it generates a new strong password and pushes it to the remote target when a secret expires or is checked in. Heartbeat is the validity check — it periodically tries to authenticate with the stored credential and flags any mismatch, catching passwords changed outside Secret Server. RPC fixes drift; Heartbeat detects it." />
+<Flashcard front="What is the check-out / exclusive access model in a PAM vault?" back="A user reserves a credential exclusively for a bounded window; others cannot use it until check-in, and the secret is typically rotated automatically on check-in. This guarantees single-operator accountability and a fresh secret after every use — the right control for vendor access and the most sensitive accounts. Delinea calls its implementation Check Out." />
+<Flashcard front="What is the difference between PASM and PEDM?" back="PASM (Privileged Account/Session Management) vaults, rotates, and brokers/records sessions for shared privileged accounts — Password Safe and Secret Server live here. PEDM (Privilege Elevation and Delegation Management) removes standing local admin and elevates specific apps/actions on the endpoint by policy — EPM and Privilege Manager live here. They compose; mature programs run both." />
+<Flashcard front="In one line, how do CyberArk, BeyondTrust, and Delinea generally differ in market positioning?" back="CyberArk targets the largest, most-regulated estates (deep, heavy, examiner-familiar); BeyondTrust leads on a unified endpoint-privilege plus remote-access story; Delinea Secret Server is known for fast, lighter time-to-value, vault-first. This is general positioning to frame fit, not a benchmark or a claim of feature parity." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "04-pam/03-beyondtrust-delinea/q1",
+  prompt: "Delinea Secret Server is the modern brand for a product that originated with which company before the 2021 merger?",
+  options: [
+    "Centrify",
+    "Thycotic",
+    "BeyondTrust",
+    "CyberArk"
+  ],
+  correctIndex: 1,
+  explanation: "Delinea was formed from the 2021 merger of Thycotic and Centrify. Secret Server is the former Thycotic vault product; Centrify contributed privilege and identity capabilities that folded into the Delinea portfolio. Recognizing the lineage prevents confusion when you encounter older runbooks and RFPs that still say Thycotic or Centrify."
+}} />
+
+<Quiz question={{
+  id: "04-pam/03-beyondtrust-delinea/q2",
+  prompt: "A bank must give an external core-banking vendor temporary, recorded administrative access to internal servers without issuing the vendor a VPN account or a standing credential. Which BeyondTrust product is the best fit?",
+  options: [
+    "Endpoint Privilege Management",
+    "Password Safe",
+    "Privileged Remote Access (PRA)",
+    "Smart Rules"
+  ],
+  correctIndex: 2,
+  explanation: "Privileged Remote Access brokers and records third-party/vendor privileged sessions without a VPN or shared credentials, and it can auto-inject a vaulted, rotated credential at connect time so the vendor never holds the secret. Endpoint Privilege Management handles local-admin removal and elevation, Password Safe is the vault, and Smart Rules is a Password Safe automation feature for auto-onboarding accounts."
+}} />

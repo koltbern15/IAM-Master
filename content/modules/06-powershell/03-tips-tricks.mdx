@@ -269,6 +269,7 @@ The vendor was terminated. The bank now requires that all third-party PowerShell
 <Flashcard front="What is $PSDefaultParameterValues and how would you use it in a Graph script?" back="It is a preference hashtable that sets default values for cmdlet parameters, keyed by 'Cmdlet:Parameter'. For example $PSDefaultParameterValues['Export-Csv:NoTypeInformation'] = $true applies that flag to every Export-Csv call, reducing repetition and inconsistent options." />
 <Flashcard front="Why does server-side filtering matter for performance with Get-MgUser and Get-ADUser in large directories?" back="Client-side Where-Object downloads the entire dataset first — tens of MB of JSON in a 90,000-user tenant — then filters locally, which is slow and can time out. Server-side -Filter (Graph OData) or -LDAPFilter (AD) returns only matching records, turning a multi-minute or failing query into a fast one." />
 <Flashcard front="What does the Microsoft.PowerShell.SecretManagement vault provide for scheduled scripts on managed machines?" back="A provider-agnostic interface to retrieve secrets at runtime via Get-Secret -Name -Vault, backed by a registered vault such as Microsoft.PowerShell.SecretStore, Azure Key Vault, or others. The secret stays out of the script file, command history, and logs." />
+<Flashcard front="What two preference settings belong at the top of a production IAM script, and what does each do?" back="Set-StrictMode -Version Latest catches uninitialized variables, references to non-existent properties, and bad function-call syntax that would otherwise fail silently. $ErrorActionPreference = 'Stop' promotes non-terminating errors to terminating, so a failed cmdlet actually enters your try/catch instead of logging and continuing — critical in a scheduled task where nobody watches the output." />
 
 ## Drill
 
@@ -296,4 +297,17 @@ The vendor was terminated. The bank now requires that all third-party PowerShell
   ],
   correctIndex: 2,
   explanation: "For a script running on an Azure VM, Managed Identity (Connect-MgGraph -Identity) is the correct answer — no credential stored anywhere, Azure handles token issuance. Certificate-based auth is the correct alternative when Managed Identity is unavailable. Environment variables still contain plaintext at runtime. Rotating secrets more frequently reduces exposure window but does not eliminate the underlying credential-in-code problem."
+}} />
+
+<Quiz question={{
+  id: "06-powershell/03-tips-tricks/q3",
+  prompt: "You are hardening a script that bulk-disables accounts from a CSV. You add [CmdletBinding(SupportsShouldProcess)] to the script and wrap the disable call in if ($PSCmdlet.ShouldProcess($upn)) { ... }. What does this give you?",
+  options: [
+    "It automatically encrypts any credentials the script handles.",
+    "It enables -WhatIf and -Confirm on your script for free: -WhatIf prints what each account change WOULD do without making it, and -Confirm prompts per item before acting — the safe way to dry-run a destructive bulk change.",
+    "It forces the script to run only in PowerShell 7+ and blocks 5.1.",
+    "It makes all non-terminating errors terminating, replacing $ErrorActionPreference = 'Stop'."
+  ],
+  correctIndex: 1,
+  explanation: "Declaring SupportsShouldProcess and gating actions with $PSCmdlet.ShouldProcess() opts your script into the common risk-mitigation parameters -WhatIf and -Confirm. -WhatIf performs a dry run (each gated action reports what it would change), and -Confirm prompts before each action. This is the standard pattern for previewing a destructive bulk operation before it touches live accounts. It does not handle credentials, set a version floor (that is #Requires -Version), or change error action (that is $ErrorActionPreference)."
 }} />

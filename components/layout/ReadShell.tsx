@@ -1,5 +1,6 @@
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
+import { MobileNavTrigger } from './MobileNavTrigger'
 import { AskProfessorRail } from '@/components/jarvis/AskProfessorRail'
 
 interface ReadShellProps {
@@ -18,6 +19,7 @@ export function ReadShell({
   return (
     <div className="relative flex min-h-screen">
       <Sidebar />
+      <MobileNavTrigger />
       <div className="flex min-h-screen flex-1 flex-col">
         <Topbar />
         <main

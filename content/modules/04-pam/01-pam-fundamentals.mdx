@@ -1,0 +1,149 @@
+{/* Objectives current as of 2026-06-01. Re-verify product and framework citations before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **PAM fundamentals** — the privileged-account taxonomy and why these accounts are the prime target
+- **Secrets vs sessions** — the conceptual spine of the module: vaulting credentials vs brokering connections
+- **Session isolation** — Privileged Session Management (PSM), credential injection, recording, and termination
+- **Just-in-Time access** — standing privilege vs JIT, and the zero-standing-privilege (ZSP) end state
+- **Just Enough Administration (JEA)** — PowerShell constrained endpoints and how JIT and JEA compose
+- **Control frameworks** — NIST SP 800-53 Rev 5 (AC family), NIST SP 800-207 Zero Trust, FFIEC and PCI-DSS v4.0 banking hooks
+</HoloPanel>
+
+# Privileged Access Management: The Keys to the Kingdom
+
+Every breach you have ever read about ended in the same place: someone got privileged access they were not supposed to have. The initial foothold might have been a phished mailbox or an unpatched edge device, but the catastrophe — the encrypted servers, the exfiltrated database, the wire fraud — happened only after the attacker reached an account that could change the state of the systems. Privileged Access Management is the discipline of controlling those accounts. It is the single highest-leverage security control a bank, a hospital, or a defense network can deploy, because it sits on the chokepoint every serious attack must pass through. This section builds the vocabulary and the mental model for the rest of the module: what privileged access is, why it is the prime target, and the two complementary moves — vaulting secrets and brokering sessions — that every PAM platform is built around.
+
+## What it is
+
+Privileged access is any access that exceeds standard user rights and can alter the state of a system, its security posture, or the identity fabric itself. A standard user can read their own mailbox and edit their own documents. A privileged identity can reset another user's password, install software on a server, change a firewall rule, read every record in a database, or grant itself more privilege. The defining test is not "can this account do a lot" — it is "can this account change the rules." That is why PAM treats privileged accounts as a separate, higher-assurance population than ordinary users.
+
+<Definition term="privileged account">An account whose access exceeds standard user rights and can change system, security, or identity state — for example creating accounts, granting permissions, altering security configuration, or reading protected data at scale. NIST SP 800-53 Rev 5 frames this population through the Access Control (AC) family: AC-2 (Account Management), AC-5 (Separation of Duties), and AC-6 (Least Privilege), whose enhancement AC-6(5) explicitly restricts privileged accounts to defined personnel or roles.</Definition>
+
+The privileged-account taxonomy is worth memorizing, because a PAM program that misses a category misses an attack path:
+
+- **Local administrator accounts** — per-machine admin rights. The same local admin password reused across a fleet is the classic enabler of lateral movement.
+- **Domain admin, Enterprise Admin, and the built-in Administrator** — in Active Directory these are the control-plane accounts. Compromise here is game over for the directory.
+- **Service accounts** — non-interactive accounts that run applications, services, and scheduled tasks. They are numerous, often undocumented, and frequently have non-expiring passwords.
+- **Application and embedded credentials** — hardcoded secrets, connection strings, and API keys living inside code or config files. They are credentials no human ever logs in with, yet they hold real power.
+- **Cloud root and privileged cloud roles** — the AWS root user, Entra Global Administrator, GCP Organization Administrator. Tenant-level control planes with global blast radius.
+- **Emergency / break-glass accounts** — deliberately powerful accounts held in reserve for when normal access paths fail (covered in depth in section 06).
+- **Third-party and vendor privileged accounts** — the core-banking vendor, the managed-services provider, the contractor with admin rights. Access you do not fully control.
+- **DevOps and CI/CD machine identities** — pipeline service principals, build-agent tokens, and Kubernetes service accounts that deploy and configure production.
+
+Gartner's market framing organizes the PAM tooling that protects this population into a handful of pillars: Privileged Account and Session Management (PASM), which vaults credentials and brokers and records sessions; Privilege Elevation and Delegation Management (PEDM), which removes standing local admin and elevates specific actions on the endpoint; secrets management for the application-to-application world; and the cloud entitlements management discipline that governs privileged roles across cloud estates. Hold those pillars loosely — vendors and analysts shift the wording — but the shape is stable, and the next four sections map onto it directly.
+
+## Why it exists
+
+Privileged accounts exist as a category because some work genuinely requires elevated rights. PAM exists because attackers know it. Map any significant intrusion to the attack lifecycle and the role of privilege is obvious: an attacker gains an initial foothold, harvests credentials (MITRE ATT&CK tactic TA0006, Credential Access), escalates privilege (TA0004, Privilege Escalation), and then moves laterally until they reach domain dominance or the data they came for. Every stage after the foothold is, fundamentally, a privilege problem. The Verizon Data Breach Investigations Report has for years attributed a large and persistent share of breaches to the abuse of credentials and stolen access — the exact figure shifts year to year, so treat "credentials remain one of the most common paths into an environment" as the durable claim rather than quoting a specific percentage from memory.
+
+The economics are brutal for the defender. A standard user account that is phished gets the attacker one mailbox. A domain admin account that is phished gets the attacker the directory. The value of a credential is not proportional to its complexity — it is proportional to what it can change. That asymmetry is why a password policy, an MFA prompt, or "make the admins pick longer passwords" never solves the problem. Those controls make it harder to obtain the credential; they do nothing about the fact that, once obtained, the credential is a standing, reusable, often unmonitored key to the kingdom. PAM attacks the standing-key problem directly.
+
+There are two distinct moves available, and keeping them straight is the conceptual spine of this whole module. The first is to control the secret at rest — store it encrypted, hand it out only under policy, rotate it constantly so a stolen copy decays. The second is to control the connection — open the privileged session on the operator's behalf so the operator never holds the secret at all. The first is a vault. The second is a session broker. A serious PAM platform does both, and the rest of this section unpacks each.
+
+<Definition term="vault">A privileged credential vault is an encrypted store for secrets at rest that enforces role-based retrieval, produces a full audit trail of every access, and performs automatic credential rotation. It answers the question of where the secret lives and who may take it out. A vault still hands the secret to the requester; it does not, by itself, prevent the operator from seeing it.</Definition>
+
+A vault is necessary but not sufficient. Even a perfect vault, with flawless RBAC and instant rotation, still delivers the cleartext password to the operator's workstation at the moment of use. If that workstation is compromised — keylogger, memory scraper, malicious browser extension — the secret is captured the instant it is used. The vault protected the secret at rest and lost it in flight. Closing that gap is the job of session isolation.
+
+## How it works under the hood
+
+### The vault and credential rotation
+
+The vault is the floor of every PAM program. Its core functions are storage (every secret encrypted, ideally with per-object keys layered under a root key the vault needs to start), retrieval governed by role-based access so a given operator can only take out the specific secrets their role allows, immutable audit of every check-out, and rotation. Rotation is the property that makes a vault more than a fancy password manager: the vault changes the managed credential on its target system on a schedule, after every use, or on demand. A password that rotates every time it is checked out is worthless to an attacker who captured it yesterday. This discover-onboard-vault-rotate loop is the spine of the program lifecycle that section 06 builds out in full.
+
+### Session isolation and Privileged Session Management
+
+Privileged Session Management is the move that closes the in-flight gap the vault leaves open. Instead of handing the operator a password to type into a target, PSM puts a broker in the middle.
+
+<Definition term="Privileged Session Management (PSM)">A proxy or jump tier that opens the real privileged session to a target system on the operator's behalf. The operator connects to the PSM host; the PSM host connects to the target using the vaulted credential. The session is recorded — keystroke logging and full video capture — and can be monitored live and terminated mid-session. Because the broker holds the connection, the credential is never exposed to the operator's endpoint.</Definition>
+
+The recording and monitoring properties are what auditors and bank examiners care about. A PSM-brokered session produces a tamper-evident record of exactly what an administrator did on a production system, down to the keystroke and the video frame. Command filtering can block dangerous commands before they execute; live monitoring lets a security analyst watch a third-party engineer in real time; and live session termination lets that analyst cut the connection the instant something looks wrong. For a regulated institution, "we can show the examiner a video of every privileged session on the core-banking servers for the last twelve months" is a genuinely powerful sentence.
+
+### Credential injection
+
+The mechanism that makes session isolation meaningfully stronger than merely vaulting the password is credential injection. When the PSM host opens the session to the target, it injects the vaulted secret directly into the target protocol — RDP, SSH, or a web login — at connect time. The operator initiates the connection and lands in an authenticated session, but never sees, types, or learns the password. A keylogger on the operator's workstation captures nothing useful, because nothing secret ever transits the workstation. This is the property that defeats endpoint credential theft: you cannot steal a password the operator never possessed.
+
+<ProTip>
+The single most important framing in all of PAM is **secrets versus sessions**. A vault protects the secret at rest and at the moment of retrieval; a session broker with credential injection protects the secret in use by never letting the human hold it at all. When you evaluate any PAM control, capability, or exam question, first ask which of the two problems it solves. "Store it encrypted and rotate it" is a secrets answer. "Broker the connection so the password never touches the endpoint" is a sessions answer. The strongest posture uses both, and confusing the two is the most common conceptual mistake newcomers make.
+</ProTip>
+
+### Just-in-Time access and the war on standing privilege
+
+Even a vaulted, brokered, rotated credential has a weakness if the underlying right is permanent: the account is still privileged twenty-four hours a day, whether or not anyone is using it. That permanent grant is called standing privilege, and it is the attack surface that never sleeps.
+
+<Definition term="Just-in-Time (JIT) access">An access model in which privileged rights are granted only for a bounded window in response to a specific request, then automatically revoked. It is the opposite of standing privilege — permanent, always-on rights held at rest. JIT shrinks the window of exposure for any given privilege from "permanent" to the minutes or hours the operator actually needs it, so a compromised account is only dangerous during an active, justified activation.</Definition>
+
+JIT does not eliminate the risk that an account is compromised, but it collapses the time during which that compromise is useful. An attacker who steals the credentials for a JIT-governed admin account finds the account holds no privilege at rest; to do damage they must also pass the activation gate — typically MFA, a business justification, and sometimes a second-party approval — and even then the window closes on its own. Push this idea to its logical end and you arrive at the governance ideal.
+
+<Definition term="zero-standing-privilege">Zero-standing-privilege (ZSP), and its pragmatic cousin least-standing-privilege, is the target state in which no account holds privileged rights at rest. Every privileged action requires a fresh just-in-time, time-bound grant. It is the strongest practical expression of least privilege (NIST SP 800-53 Rev 5, AC-6), and it aligns with the per-session, per-request access decisions called for by the Zero Trust Architecture model in NIST SP 800-207.</Definition>
+
+ZSP is an aspiration most organizations reach asymptotically rather than absolutely, but it is the right north star: the lower your count of standing-privileged accounts, the smaller the surface an attacker can land on. Section 05 shows how cloud platforms make this concrete with role activation; section 06 shows how to measure progress toward it.
+
+### Just Enough Administration
+
+JIT governs *when* an operator may act. A complementary control governs *what* they may do once they are acting.
+
+<Definition term="Just Enough Administration (JEA)">A Microsoft PowerShell capability that exposes constrained endpoints — defined by role-capability files and session-configuration files — granting an operator only specific cmdlets and parameters through a temporary virtual privileged account. The operator's own account remains a standard, unprivileged user; the elevated context exists only inside the JEA session and only for the allowlisted commands.</Definition>
+
+JEA is the practical answer to a common over-grant: an operator needs to restart one service or rotate one set of logs, so they are made a full local or domain admin. With JEA, you instead publish a constrained endpoint that exposes exactly the `Restart-Service` cmdlet scoped to the one service, run under a virtual account, and the operator stays a standard user everywhere else. JIT and JEA compose cleanly: JEA limits the *scope* of what a privileged operator can do, JIT limits the *time* during which they can do it. Used together they enforce least privilege across both dimensions — a narrow set of allowed actions, available only in a justified, expiring window.
+
+### Privilege elevation on the endpoint (PEDM)
+
+The endpoint pillar deserves its own mention because it solves a different slice of the problem. Privilege Elevation and Delegation Management — endpoint privilege management — removes local administrator rights from workstations and servers entirely and instead elevates specific applications on demand according to policy. A user who needs to install an approved application gets that one action elevated; they never hold standing local admin. This directly serves NIST SP 800-53 AC-6 least privilege at the endpoint and shrinks the local-admin attack surface that ransomware and lateral movement depend on. Sections 02 through 04 show how each major vendor implements both the session/vault (PASM) and endpoint-elevation (PEDM) sides.
+
+### The banking and compliance frame
+
+For a regulated institution, PAM is not optional hygiene — it is examined. The FFIEC IT Examination Handbooks expect institutions to control and monitor privileged and administrative access. PCI-DSS v4.0 provides two concrete hooks an examiner reaches for: Requirement 7, Restrict Access to System Components and Cardholder Data by Business Need to Know, which is the least-privilege requirement; and Requirement 8, Identify Users and Authenticate Access to System Components, which demands unique identification and strong authentication for access. A PAM platform that vaults shared administrative credentials, brokers and records sessions, and ties every privileged action back to a uniquely identified human is precisely the control set those requirements ask for. When an examiner asks "show me who has privileged access, how it is controlled, and what they did with it," the PAM system is the answer.
+
+## War story
+
+<WarStory title="The Standing-Admin Sprawl Nobody Could Count">
+A regional bank, roughly 1,800 employees, came out of a merger with two Active Directory forests stapled together and a fresh examiner finding: "the institution cannot demonstrate control over privileged access." The security team's first task was simply to count the privileged accounts. They could not.
+
+The discovery scan ran for a weekend and came back with numbers nobody believed. Domain Admins had forty-one members across the two forests — far more than the handful of people who actually administered the directory. Local administrator rights on servers had been granted ad hoc for a decade; an old desktop-imaging service account turned out to be a member of Domain Admins because someone, years earlier, had found that easier than scoping its rights. There were over three hundred service accounts, most with passwords that had not changed since the systems were stood up, several with the password written into application config files in cleartext. And there were two "temporary" vendor accounts from a core-banking upgrade project that had ended eighteen months prior and were still active, still privileged, still capable of logging in from the vendor's network.
+
+None of this was the result of a breach. It was the result of standing privilege accumulating the way standing privilege always does — every grant easier to add than to remove, every "we will clean it up later" never reaching later. The attack surface was enormous and entirely self-inflicted.
+
+The remediation became the bank's first real PAM program, and it followed the loop this section describes. They onboarded the Domain Admin and crown-jewel service accounts into a vault first, sequencing by risk rather than trying to boil the ocean. They brokered and recorded all interactive administrative sessions to the core-banking servers through a session manager, so the examiner's "show me what privileged users did" question finally had an answer. They moved the directory toward eligible-only, just-in-time activation for the most powerful roles, driving the standing Domain Admin count from forty-one toward single digits. And they killed the two vendor accounts within the first week — the single highest-value, lowest-effort win in the entire engagement.
+
+The lesson is the one that opens every PAM project: you cannot protect what you have not discovered, and standing privilege is not a state you decide to be in — it is a state you drift into unless something actively pulls you back toward least privilege. The bank did not have a sophisticated attacker problem. It had a counting problem that had quietly become a control-plane problem, and PAM is the discipline that exists to keep that drift from becoming the next breach headline.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="What is privileged access?" back="Any access that exceeds standard user rights and can change system, security, or identity state — local and domain admin, service accounts, cloud root and admin roles, embedded application credentials, and break-glass accounts. NIST 800-53 Rev 5 frames it as the access governed by least privilege (AC-6), with AC-6(5) restricting privileged accounts to defined personnel or roles." />
+<Flashcard front="What is the difference between a credential vault and a session broker?" back="A vault stores and rotates the secret and hands it out under policy (secrets-at-rest); a session broker opens the privileged connection on the operator's behalf so the operator never sees the secret (session isolation). A serious PAM platform does both — vaulting and brokering — which is the secrets-versus-sessions spine of the whole module." />
+<Flashcard front="What is Privileged Session Management (PSM)?" back="A proxy or jump tier that opens the real session to a target on the admin's behalf, injects the vaulted credential without revealing it, and records the session with keystroke and video capture for audit, live monitoring, and live termination. The credential never reaches the operator's endpoint." />
+<Flashcard front="What is credential injection in PSM?" back="The session manager inserts the vaulted secret directly into the target protocol (RDP, SSH, or web) at connect time, so the operator lands in an authenticated session without ever seeing or typing the password. It defeats endpoint credential theft because the secret never transits the operator's workstation." />
+<Flashcard front="Define standing privilege versus just-in-time (JIT) access." back="Standing privilege is permanent, always-on rights held at rest twenty-four hours a day; JIT grants the rights only for a bounded window in response to a request and revokes them after. JIT shrinks the exposure window for any privilege from permanent to the minutes or hours actually needed." />
+<Flashcard front="What is zero-standing-privilege (ZSP) or least-standing-privilege?" back="The target state in which no account holds privileged rights at rest; every privileged action requires a fresh just-in-time, time-bound grant. It is the strongest practical expression of least privilege (NIST 800-53 AC-6) and aligns with the per-session, per-request access of Zero Trust (NIST 800-207)." />
+<Flashcard front="What is Just Enough Administration (JEA)?" back="A Microsoft PowerShell capability that exposes constrained endpoints — defined by role-capability and session-configuration files — granting only specific cmdlets and parameters through a temporary virtual privileged account, while the operator's own account stays a standard, unprivileged user." />
+<Flashcard front="How do JIT and JEA compose?" back="JEA limits WHAT a privileged operator can do by scoping the allowed cmdlets and parameters; JIT limits WHEN they can do it by granting rights only in a bounded, justified activation window. Used together they enforce least privilege across both scope and time." />
+<Flashcard front="Which NIST 800-53 Rev 5 controls anchor privileged-account management?" back="AC-2 (Account Management), AC-5 (Separation of Duties), and AC-6 (Least Privilege). Within AC-6, enhancement AC-6(2) requires non-privileged accounts for nonsecurity functions and AC-6(5) restricts privileged accounts to defined personnel or roles." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "04-pam/01-pam-fundamentals/q1",
+  prompt: "A bank wants to eliminate the risk of an operator's workstation being used to steal a domain-admin password during a maintenance session. Which PAM capability most directly addresses this?",
+  options: [
+    "Storing the password in an encrypted vault",
+    "Privileged Session Management with credential injection so the secret is never exposed to the endpoint",
+    "Multi-factor authentication on the admin account",
+    "A longer, more complex password policy"
+  ],
+  correctIndex: 1,
+  explanation: "A vault protects the secret at rest, but the operator still handles it during use, so a compromised workstation can capture it in flight. PSM with credential injection brokers the session and inserts the secret directly into the protocol so it never touches the endpoint, defeating endpoint credential theft and recording the session for audit. MFA and password complexity make the credential harder to obtain but do nothing about its exposure during a live session."
+}} />
+
+<Quiz question={{
+  id: "04-pam/01-pam-fundamentals/q2",
+  prompt: "An auditor asks how the bank enforces that administrators hold elevated rights only when actively performing privileged work. Which two concepts together best describe the target state?",
+  options: [
+    "Standing privilege and shared accounts",
+    "Just-in-Time activation and zero-standing-privilege",
+    "Password rotation and complexity",
+    "MFA and Conditional Access"
+  ],
+  correctIndex: 1,
+  explanation: "JIT grants rights only for a bounded window on request; zero-standing-privilege means no account holds privilege at rest. Together they are the strongest practical expression of least privilege (NIST 800-53 AC-6) and directly answer the auditor's question. Rotation, complexity, MFA, and Conditional Access are useful controls but none of them removes the standing grant the auditor is asking about."
+}} />

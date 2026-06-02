@@ -1,0 +1,162 @@
+{/* Product specifics current as of 2026-06-01. SailPoint renames and re-bundles fast — re-verify IIQ/ISC naming, connector behavior, and campaign-type names against current SailPoint docs before relying on this for an interview or RFP. */}
+
+<HoloPanel label="COVERS">
+- **IGA platform** SailPoint IdentityIQ (IIQ) vs Identity Security Cloud (ISC, formerly IdentityNow) — when each fits
+- **Core data model** Aggregation, correlation, the identity cube, and orphan/uncorrelated accounts
+- **Access modeling** Entitlements -> access profiles -> roles; business roles vs IT roles
+- **Governance** Certification campaigns, decision fulfilment, and SoD policy enforcement
+- **Career** The reference vocabulary for any enterprise IGA conversation, banking RFP, or consulting engagement
+</HoloPanel>
+
+# SailPoint: The IGA Market Leader
+
+If you walk into an enterprise identity governance conversation, SailPoint is the name in the room. It has been a recurring Leader in the Gartner Magic Quadrant for Identity Governance and Administration, and for most large, regulated, on-premises-heavy enterprises it is the reference platform that every other tool gets compared against. When a bank, a hospital system, or a defense contractor says "we run an IGA program," there is a very good chance SailPoint is the engine under it. This section teaches you the SailPoint mental model: how it ingests the messy reality of accounts scattered across dozens of systems, builds a single trustworthy picture of each person, and then governs that access through requests, certifications, and policy.
+
+The reason this matters for your career is concrete. You can read all the IGA theory in the previous section — request, approval, provisioning, certification, revocation, Joiner-Mover-Leaver — but theory does not get you through a SailPoint architecture review or a vendor bake-off. The vocabulary here (aggregation, correlation, identity cube, access profile, business role) is the language enterprise identity teams actually speak. Learn it once, properly, and the rest of the market's tools become easy to map back onto it.
+
+## What it is
+
+SailPoint sells two flavors of essentially the same governance ideas, and the first thing any practitioner has to get straight is which one a customer is running, because the deployment model changes everything downstream.
+
+<Definition term="SailPoint IdentityIQ (IIQ)">The on-premises, self-managed SailPoint platform — a Java application you deploy and run inside your own data center (or your own cloud tenancy). IIQ is prized for deep customization: much of its behavior is driven by configurable rules (historically written in BeanShell, a Java-scripting language), so a skilled team can model almost any governance requirement. The trade is that you own the operational burden — patching, scaling, database administration, upgrades — and customization can become technical debt if it is not disciplined.</Definition>
+
+<Definition term="SailPoint Identity Security Cloud (ISC)">SailPoint's multi-tenant SaaS platform, formerly branded IdentityNow and now delivered on SailPoint's cloud (Atlas) foundation. SailPoint operates the infrastructure; you consume the service. ISC trades some of IIQ's bespoke customization for faster time-to-value, vendor-managed upgrades, and lower operational overhead. It implements the same governance concepts as IIQ, but the modeling vocabulary differs in places (for example, ISC leans on access profiles as a first-class building block).</Definition>
+
+The decision axis between them is the single most important framing to carry into any SailPoint conversation. IIQ gives you maximum customization and on-prem control at the cost of a heavier operations burden and slower delivery. ISC gives you faster deployment and a managed service at the cost of some customization depth. Neither is "better" in the abstract — the right answer depends on how bespoke the organization's requirements are, how strong its operations team is, and how its compliance posture treats cloud-hosted identity data. A heavily customized legacy IIQ deployment at a large bank is not a sign anyone did anything wrong; it is often a sign the requirements genuinely needed that depth a decade ago.
+
+<ProTip>When someone says "we run SailPoint," your first clarifying question is always: IIQ or ISC? The answer tells you whether you are dealing with a self-managed, rule-heavy, on-prem platform or a vendor-managed SaaS tenant — and it changes how connectors, customization, and upgrades work. Never assume; the same brand covers two very different operating models.</ProTip>
+
+## Why it exists
+
+The problem SailPoint solves is not "let people log in" — that is the identity provider's job (Module 3's Entra ID, the next section's Okta). SailPoint exists because, in a real enterprise, access is scattered across hundreds of disconnected systems, each with its own notion of accounts and permissions, and no single system can answer the governance questions auditors and regulators ask: who has access to what, why do they have it, and should they still?
+
+Picture the actual mess. Active Directory has thousands of security groups. The HR system is the closest thing to a source of truth for who is an employee, but it knows nothing about application permissions. A core banking platform has its own account store. Dozens of SaaS apps each have their own user lists. Someone provisions access by hand, by ticket, by tribal knowledge — and over years, people change jobs, leave, and accumulate access nobody ever cleaned up. The result is exactly the orphaned-account and privilege-creep risk the previous section warned about, multiplied across every system.
+
+SailPoint's job is to be the governance brain that sits above all of those systems. It reaches into each one, pulls back what exists, ties it all to a single record per human, and then lets the organization apply policy — certifications, segregation of duties, automated provisioning and deprovisioning — across the whole estate at once. The identity provider answers "is this the right person right now"; SailPoint answers "should this person have this access at all, and can we prove we reviewed it." That distinction is worth internalizing, because in interviews it separates people who understand IGA from people who conflate it with single sign-on.
+
+## How it works under the hood
+
+### Aggregation: building the inventory of what exists
+
+Everything in SailPoint starts with getting data out of the connected systems. SailPoint models each connected system as a **source** (ISC term) or **application** (IIQ term), and it talks to that system through a **connector**.
+
+<Definition term="aggregation">The process by which SailPoint reads data out of a connected source through its connector. Account aggregation pulls in the accounts that exist on the source (every user record in Active Directory, every login in a SaaS app); entitlement (or group) aggregation pulls in the grantable permissions on that source (AD security groups, SaaS roles/permissions). Aggregation produces the raw inventory of what access exists — it does not yet say who owns it.</Definition>
+
+Aggregation runs on a schedule (and on demand). The key conceptual split is between **account aggregation** — the list of accounts — and **entitlement aggregation** — the catalog of grantable things those accounts can hold. You need both: accounts tell you who is on the system, entitlements tell you what they could be granted, and together they describe the access surface SailPoint will govern.
+
+Connectors come in two broad flavors that matter for governance. A **read/write (direct) connector** can both read from the source and write back to it — which means SailPoint can actually fulfil access changes automatically (create an account, add a group, disable a user). A **read-only connector** can only aggregate; any change SailPoint decides on has to be carried out by a human, because the connector cannot write. This distinction quietly determines whether your revocations happen automatically or land in someone's work queue, so it is worth confirming per source rather than assuming.
+
+In ISC specifically, connectivity to on-premises and firewalled systems is brokered by a **Virtual Appliance (VA)** — a Linux-based virtual machine you install inside your own network. The VA makes outbound-only calls to your SailPoint cloud tenant and executes work like aggregation and provisioning against local sources, so SailPoint never needs an inbound hole through your firewall. If you hear "we deployed a VA cluster near the data center," this is what they mean: the secure bridge between the SaaS tenant and the on-prem systems it has to reach.
+
+### Correlation: tying accounts to humans
+
+Aggregation alone gives you piles of accounts with no inherent connection to people. Correlation is the step that turns inventory into governance.
+
+<Definition term="correlation">The process of linking each aggregated account back to the identity it belongs to, using a correlation rule or configuration — for example, matching an account's employeeId attribute to the same attribute on an identity. Correlation is what lets SailPoint say "these seven accounts across five systems are all Jane Smith." Accounts that cannot be matched to any identity are flagged as orphan or uncorrelated.</Definition>
+
+<Definition term="identity cube">The SailPoint IdentityIQ term for the unified identity record — the aggregated, correlated, single view of one person across every connected source, including all their accounts, entitlements, and attributes. It is the object that certifications, policies, and analytics evaluate against. ISC expresses the same idea as an identity (built from an identity profile); the underlying concept — one governed record per human — is the same.</Definition>
+
+Correlation is where data quality bites. If the HR system uses one employee identifier and a legacy application uses another, the correlation rule may fail to match, and those accounts surface as **orphan or uncorrelated** accounts. That is not a bug — it is a feature. Uncorrelated accounts are exactly the standing access nobody is accountable for: former employees whose accounts were never disabled, service accounts that belong to no person, or simple key mismatches that hide real access from review. Every first SailPoint deployment turns up a pile of these, and working through them is one of the highest-value early wins in any program.
+
+<SailPointAggregationDiagram />
+
+The diagram above is the whole "how it works" story in one picture: connectors pull accounts and entitlements out of the sources (aggregation), those accounts get matched to identities to build the identity cube (correlation), the accounts that fail to match peel off as orphans for investigation, and the correlated picture feeds the certification and provisioning loop that closes governance. Click any step to inspect what happens at that stage. Notice that orphans are a first-class output, not an error state — surfacing them is the point.
+
+### Access modeling: entitlements, access profiles, and roles
+
+Once SailPoint knows what access exists and who holds it, the next problem is making access requestable and governable in business terms. Nobody wants to request "the FIN-GL-POST-7734 Active Directory group" by its raw name — they want to request "Accounts Payable Clerk access." SailPoint builds that abstraction in layers.
+
+<Definition term="entitlement">The lowest-level grantable unit of access on a single source — an Active Directory security group, a specific permission in a SaaS application, a role on a database. Entitlements are what aggregation pulls in and what everything else is ultimately built from; granting access always resolves down to granting entitlements on sources.</Definition>
+
+<Definition term="access profile">An ISC building block that bundles one or more entitlements from a single source into a requestable, grantable unit. Access profiles are the typical thing an end user requests in ISC — they hide raw entitlement names behind a meaningful package. Multiple access profiles, in turn, are bundled into roles.</Definition>
+
+<Definition term="role">A business-meaningful bundle of access. In ISC, a role bundles access profiles (which themselves bundle entitlements). In IdentityIQ, the model distinguishes business roles — which describe what a person is, aligned to job and organization — from IT roles, which describe what a person gets, bundling the actual entitlements; business roles require or permit IT roles. The two-tier split is what lets a job change cleanly swap one set of IT roles for another.</Definition>
+
+The ordering is the thing to lock in: an **entitlement** is one permission on one source; an **access profile** bundles entitlements from a single source; a **role** bundles access profiles (ISC) or entitlements and other roles (IIQ) into something a business person recognizes. That layering is what makes large-scale governance tractable — you certify and request at the role/profile level, while SailPoint tracks the underlying entitlements automatically.
+
+The IIQ distinction between **business roles** and **IT roles** deserves special attention because it is the cleanest defense against the role-explosion problem you will study in the SoD-and-RBAC section. A business role models the person ("Branch Teller," "Loan Officer") and is fairly stable; it requires or permits a set of IT roles, which bundle the concrete entitlements ("Teller App Access," "Branch AD Groups"). When someone changes jobs, you change their business role, and the IT roles — and therefore the entitlements — recalculate cleanly. Conflate the two layers and every small variation spawns a brand-new role until the model collapses under its own weight.
+
+<ProTip>Model business roles and IT roles as separate layers from day one. The business role answers "what is this person's job"; the IT role answers "what access does that job require." Keep them apart and a Mover event becomes a clean role swap that reshuffles entitlements automatically. Fuse them and you are on the road to role explosion — thousands of nearly identical roles nobody can audit.</ProTip>
+
+### Certification campaigns: proving access was reviewed
+
+Certifications are how SailPoint generates the audit evidence that regulators demand: proof that a responsible human looked at each person's access and affirmed or removed it.
+
+<Definition term="certification campaign">A SailPoint review cycle in which designated reviewers attest, item by item, whether each user's access is still appropriate — choosing to approve (affirm) or revoke it, and often able to reassign or delegate the decision to someone better placed to judge. Campaigns are generated against the correlated identity data, reviewers make decisions, and revocations are then fulfilled through provisioning. The campaign produces the dated, attributed record auditors rely on.</Definition>
+
+SailPoint supports several campaign types, framed by who does the reviewing. A **manager certification** asks each manager to review their direct reports' access — the classic SOX control where a manager attests to their team's entitlements. An **application or source owner certification** asks the owner of a system to review everyone who has access to it. **Entitlement-owner** and **role-membership** certifications target a specific entitlement or role and review who holds it. And **search-based or targeted** campaigns let you scope a review to exactly the population or access you care about (for example, only privileged entitlements on financially significant systems). The exact campaign-type names and options differ somewhat between IIQ and ISC, so confirm against the current docs for whichever platform you are working in.
+
+The decision side has three moves a reviewer can make: **approve** (this access is fine), **revoke** (remove it), or **reassign/delegate** (I am not the right judge — send it to someone who is). What happens after a revoke is the part people forget: the revoke decision becomes a provisioning action. If the source has a direct read/write connector, SailPoint can fulfil the revocation automatically. If it is read-only, SailPoint raises a **work item** — a task for a human fulfiller to make the change by hand. Either way, the loop is not closed until the access is actually gone; a "Revoke" that never gets fulfilled is a finding waiting to happen.
+
+### Policy: segregation of duties
+
+SailPoint also enforces segregation of duties, the control principle that no one person should hold a combination of access that lets them complete a sensitive process unchecked (the classic banking example: create a vendor and approve payments to it). SailPoint models these as **SoD policies** — rules that flag conflicting role or entitlement combinations. They can run **preventively**, blocking a request that would create a conflict before access is granted, and **detectively**, surfacing existing conflicts during certifications and scans. The deep modeling of SoD rulesets, toxic combinations, and mitigating controls is the subject of this module's final section; here, the point is simply that SailPoint is where those policies live and get enforced across the whole governed estate, not in any single application.
+
+## War story
+
+<WarStory title="The First Certification That Found 600 Ghosts">
+A regional bank — roughly 1,800 employees, decades of accumulated systems — stood up its first SailPoint deployment with a confident plan: connect every source, then run one big "certify everyone's access" campaign to satisfy the examiners. The aggregation phase went smoothly enough. Connectors were configured, account and entitlement aggregation ran, and the dashboards filled with data. The team was feeling good.
+
+Then correlation ran. Of the accounts pulled from the legacy core-banking platform and a tangle of older internal apps, about 600 would not correlate to any active identity. The HR system keyed people by employee ID; several of the older applications had been provisioned by hand years ago using inconsistent usernames, and nobody had ever maintained a mapping. Those 600 uncorrelated accounts were a genuine governance horror show: a mix of long-departed employees whose access had never been disabled, shared and service accounts owned by no living person, and real active users hidden behind a key mismatch. Standing access, unowned, unreviewed, sitting on systems that moved money.
+
+The bigger mistake was the campaign design. The team scoped the first certification as a single all-employees, all-access review — tens of thousands of line items dropped on managers who had a week to respond. The result was predictable: managers bulk-approved everything to clear the queue. The campaign "completed" with a 98% approval rate and produced a tidy audit artifact that proved almost nothing. The examiner who reviewed it asked one question — "how many items did the average reviewer actually spend more than a few seconds on?" — and the rubber-stamping was obvious.
+
+The reset took a quarter. First, the team worked the 600 uncorrelated accounts as a dedicated remediation: each was investigated and either correlated to its real owner, claimed and converted to a properly owned service account, or deprovisioned. That single exercise closed more real risk than the entire first campaign had. Then they rebuilt the certification strategy around scope and risk: instead of boil-the-ocean, they ran a tightly scoped, search-based campaign covering only privileged and SoD-sensitive entitlements on the financially significant systems, with far fewer items per reviewer and a real expectation of scrutiny. Revoke decisions on direct-connector sources fulfilled automatically; the read-only legacy platform generated work items the operations team worked down. The follow-on examiner review went quietly, which is exactly how you want examiner reviews to go.
+
+The lesson generalizes well beyond banking. The same pattern — correlation surfacing a wall of orphans, and an over-broad first campaign collapsing into rubber-stamping — shows up in hospital systems, manufacturers, and government agencies on their first IGA deployment. Aggregation is the easy, satisfying part. Correlation is where the truth comes out, and certification design is where governance succeeds or theaters. Scope narrow, target risk, and fix your orphans before you ask anyone to certify anything.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="IdentityIQ vs Identity Security Cloud (formerly IdentityNow) — the core difference?" back="IdentityIQ (IIQ) is the on-premises, self-managed, highly customizable Java platform you run in your own data center. Identity Security Cloud (ISC), formerly branded IdentityNow, is the multi-tenant SaaS platform SailPoint operates for you on its cloud foundation. IIQ trades customization and control for a heavier ops burden; ISC trades some customization depth for faster time-to-value and vendor-managed upgrades." />
+<Flashcard front="What is aggregation in SailPoint?" back="Reading data out of a connected source through its connector to build the inventory of what access exists. Account aggregation pulls in the accounts on the source; entitlement (or group) aggregation pulls in the grantable permissions. Together they describe the access surface SailPoint will govern, before anything is tied to a person." />
+<Flashcard front="What is correlation in SailPoint, and what happens to accounts that fail it?" back="Correlation links each aggregated account back to the identity it belongs to, using a correlation rule (for example, matching an account's employeeId to an identity attribute). It is what lets SailPoint say multiple accounts across systems are the same person. Accounts that cannot be matched surface as orphan or uncorrelated accounts — a key governance finding to investigate." />
+<Flashcard front="What is the identity cube?" back="SailPoint IdentityIQ's unified identity record — the aggregated, correlated, single view of one person across every connected source, including all their accounts, entitlements, and attributes. Certifications, policies, and analytics evaluate against it. ISC expresses the same idea as an identity built from an identity profile." />
+<Flashcard front="Order these from smallest to largest grantable unit in ISC: role, entitlement, access profile." back="Entitlement (one permission on a single source) is smallest, then access profile (a bundle of entitlements from a single source), then role (a business-meaningful bundle of access profiles). You request and certify at the role or profile level while SailPoint tracks the underlying entitlements automatically." />
+<Flashcard front="Business role vs IT role in IdentityIQ?" back="A business role models what a person is — aligned to job and organization (for example, Branch Teller) — and requires or permits IT roles. An IT role bundles the actual entitlements a person gets. Keeping them as separate layers means a job change is a clean business-role swap that recalculates the underlying IT roles and entitlements, which guards against role explosion." />
+<Flashcard front="Name three SailPoint certification campaign types." back="Manager certification (a manager reviews their direct reports' access), application or source owner certification (the system owner reviews everyone with access), and entitlement-owner or role-membership certification (review who holds a specific entitlement or role). Search-based or targeted campaigns scope a review to a chosen population or access set. Exact names vary between IIQ and ISC." />
+<Flashcard front="What three decisions can a reviewer make on a certification item, and what happens after a revoke?" back="Approve (affirm the access), revoke (remove it), or reassign/delegate the decision to a better-placed reviewer. A revoke becomes a provisioning action: it fulfils automatically through a direct read/write connector, or it raises a work item for a human fulfiller on a read-only source. The loop is not closed until the access is actually removed." />
+<Flashcard front="What does a SailPoint connector being direct (read/write) vs read-only mean for governance?" back="A direct read/write connector can both aggregate from and write back to the source, so SailPoint can fulfil access changes automatically (create accounts, add or remove entitlements). A read-only connector can only aggregate, so any change has to be carried out by a human via a work item. This decides per source whether revocations happen automatically or land in someone's queue." />
+<Flashcard front="In ISC, what is the Virtual Appliance (VA) for?" back="The VA is a Linux-based virtual machine you install inside your own network that brokers connectivity between the SailPoint SaaS tenant and on-premises or firewalled sources. It makes outbound-only calls to your cloud tenant and executes work like aggregation and provisioning locally, so SailPoint never needs an inbound opening through your firewall." />
+<Flashcard front="How does SailPoint enforce segregation of duties (SoD)?" back="Through SoD policies — rules that flag conflicting role or entitlement combinations. They run preventively, blocking a request that would create a conflict before access is granted, and detectively, surfacing existing conflicts during certifications and scans. SoD policy lives in SailPoint and is enforced across the whole governed estate, not inside any single application." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "05-iga/02-sailpoint/q1",
+  prompt: "During the first SailPoint aggregation of a legacy HR app, 1,400 accounts are pulled but only 1,180 link to identities; 220 cannot be matched. What are the 220 called, and what most likely caused it?",
+  options: [
+    "Entitlements — the connector pulled groups instead of accounts.",
+    "Orphan/uncorrelated accounts — the correlation rule could not match them to an identity (for example, a missing or mismatched employeeId), and they need investigation and remediation.",
+    "Birthright accounts — they will auto-resolve on the next aggregation.",
+    "Provisioning errors — the write-back to the source failed."
+  ],
+  correctIndex: 1,
+  explanation: "Aggregation inventories the accounts that exist; correlation links them to identities. Accounts that fail correlation are orphan/uncorrelated and are a governance finding, not a routine error — they may be former employees, service accounts owned by no person, or a data-quality key mismatch. They get reviewed and then correlated, claimed, or deprovisioned. They are not entitlements, they do not self-resolve, and this is a read step, not a failed write."
+}} />
+
+<Quiz question={{
+  id: "05-iga/02-sailpoint/q2",
+  prompt: "An organization wants a maximally customized IGA deployment hosted in its own data center, with rule-based customization, and accepts a heavier operations burden in exchange. Which SailPoint product fits, and what is the SaaS alternative it would forgo?",
+  options: [
+    "Identity Security Cloud; it forgoes IdentityIQ.",
+    "IdentityIQ (IIQ), self-managed on-premises; the SaaS alternative it forgoes is Identity Security Cloud (formerly IdentityNow).",
+    "Both products are SaaS; SailPoint offers no on-premises option.",
+    "Access profiles; it forgoes roles."
+  ],
+  correctIndex: 1,
+  explanation: "IdentityIQ is the on-premises, self-managed, highly customizable Java platform you run yourself. Identity Security Cloud (formerly IdentityNow) is the vendor-managed multi-tenant SaaS. The trade is customization and on-prem control versus operations burden and time-to-value. Access profiles and roles are modeling constructs, not deployment models, so option D confuses two different ideas."
+}} />
+
+<Quiz question={{
+  id: "05-iga/02-sailpoint/q3",
+  prompt: "A bank must run a quarterly review where each manager attests to their direct reports' access for a SOX-significant application, and any Revoke decision must actually remove the access. Which SailPoint construct and fulfilment path is correct?",
+  options: [
+    "An SoD policy evaluated at request time only.",
+    "A manager certification campaign whose Revoke decisions are fulfilled via provisioning — automatically through a direct connector, or as a work item for a read-only source.",
+    "An account aggregation job.",
+    "A role-mining run."
+  ],
+  correctIndex: 1,
+  explanation: "A manager certification campaign produces the per-report attestation SOX expects, and Revoke decisions are routed to fulfilment so the access is actually removed: automatically via a direct read/write connector, or as a work item to a human fulfiller on a read-only source. An SoD policy enforces conflict rules rather than attesting access; aggregation reads data in; role mining discovers candidate roles. None of those produce the manager attestation with enforced revocation."
+}} />

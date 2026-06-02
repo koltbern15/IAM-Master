@@ -323,6 +323,8 @@ The fix is Recipe 1 of this cookbook. The lesson is that your provisioning scrip
 <Flashcard front="Which cmdlet lists active (permanent) directory role assignments, and how do you include the principal details?" back="Get-MgRoleManagementDirectoryRoleAssignment returns active assignments. Add -ExpandProperty principal,roleDefinition to pull the assigned principal's displayName and UPN and the role name in one call, and -Filter to target a specific roleDefinitionId." />
 <Flashcard front="In the on-prem ActiveDirectory module, what does Search-ADAccount -AccountInactive -TimeSpan do?" back="It returns enabled accounts that have not authenticated within the given TimeSpan — a built-in stale-account finder that does not require hand-rolling a LastLogonDate filter. Add -UsersOnly to exclude computer accounts." />
 <Flashcard front="What does the -WhatIf parameter do, and why use it before a bulk write against Entra ID or AD?" back="-WhatIf performs a dry run: each supporting cmdlet reports what it would change without making the change. Run a bulk Update-MgUser, Remove-MgUser, or Disable-ADAccount with -WhatIf first to confirm the target set before touching live accounts." />
+<Flashcard front="Which cmdlets show what application permissions an app or service principal holds, for an OAuth consent audit?" back="Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId lists the app-role (application) permissions a service principal has been granted, and Get-MgServicePrincipalOauth2PermissionGrant lists its delegated permission grants. Get-MgUserAppRoleAssignment shows app roles assigned to a user. Together they answer who-can-call-what for the OAuth app-consent attack surface." />
+<Flashcard front="How does Update-MgUser apply changes — full replace or partial — and how do you pass the body?" back="Update-MgUser issues a Graph PATCH, so it updates only the properties you supply and leaves the rest untouched (partial update). Pass them as parameters (Update-MgUser -UserId x -Department Finance) or splat a hashtable: $body = @{ Department = 'Finance'; JobTitle = 'Analyst' }; Update-MgUser -UserId x @body. Navigation properties like manager are set separately via their own -ByRef cmdlets." />
 
 ## Drill
 
@@ -350,4 +352,17 @@ The fix is Recipe 1 of this cookbook. The lesson is that your provisioning scrip
   ],
   correctIndex: 1,
   explanation: "ConvertTo-SecureString -AsPlainText -Force wraps a plaintext string in a SecureString object but does not encrypt it. The original value is recoverable and is present in any script file, log, or repository where the script lives. Using a static default password means every provisioned account shares the same credential until each user individually changes it — which, as the war story demonstrates, does not always happen."
+}} />
+
+<Quiz question={{
+  id: "06-powershell/02-cookbook/q3",
+  prompt: "You need a quarterly report of accounts that have not signed in for 90+ days, across both on-prem AD and Entra ID. A teammate filters AD on the LastLogon attribute and Entra on a cached property. What is the correct, accurate source for each side?",
+  options: [
+    "Use LastLogon in AD (it is replicated to every DC) and the user's whenCreated date in Entra ID.",
+    "Use LastLogonDate / LastLogonTimestamp in AD (replicated, ~14-day latency) or Search-ADAccount -AccountInactive, and signInActivity.LastSignInDateTime in Entra ID via Get-MgUser, which requires Entra ID P1/P2 and AuditLog.Read.All.",
+    "Use LastLogon in AD and signInActivity in Entra ID; both are real-time and need no special licensing.",
+    "Use pwdLastSet in AD and lastPasswordChangeDateTime in Entra ID, since password age is the best proxy for inactivity."
+  ],
+  correctIndex: 1,
+  explanation: "LastLogon is per-DC and NOT replicated, so it is wrong for a domain-wide report; use the replicated LastLogonDate/LastLogonTimestamp (note its ~14-day replication latency) or the purpose-built Search-ADAccount -AccountInactive. In Entra ID, signInActivity.LastSignInDateTime is the correct sign-in source but it requires a Microsoft Entra ID P1/P2 license and the AuditLog.Read.All permission. Password age (pwdLastSet) measures a different thing entirely."
 }} />

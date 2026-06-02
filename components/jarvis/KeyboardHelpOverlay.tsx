@@ -10,8 +10,10 @@ interface KeyboardHelpOverlayProps {
 
 const SHORTCUTS: Array<{ keys: string; description: string }> = [
   { keys: 'Cmd+K', description: 'Open command palette' },
+  { keys: 'J / K', description: 'Previous / next section' },
   { keys: 'Space', description: 'Flip flashcard' },
-  { keys: '1 / 2 / 3', description: 'Flashcard demote / repeat / promote' },
+  { keys: '1 / 2', description: 'Flashcard: Missed / Got it' },
+  { keys: '1 – 4', description: 'Answer quiz (A–D)' },
   { keys: 'Esc', description: 'Close any overlay' },
   { keys: '?', description: 'Open this shortcut help' }
 ]
