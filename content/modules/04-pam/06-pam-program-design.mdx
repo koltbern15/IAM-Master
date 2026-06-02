@@ -1,0 +1,131 @@
+{/* Objectives current as of 2026-06-01. Re-verify framework names and control mappings before a cert sitting or examiner deliverable. */}
+
+<HoloPanel label="COVERS">
+- **PAM program lifecycle** — discover, assess, onboard, enforce, monitor, recertify, mature
+- **Privileged account discovery** — finding every account, local admin, service account, SSH key, and hardcoded secret before applying any control
+- **Risk-based onboarding & rollout sequencing** — Tier 0 first, pilot before enforce, never boil the ocean
+- **Break-glass / emergency access design** — the recovery path for the PAM system and the directory itself
+- **Microsoft Enterprise Access Model** — the current privileged-access tiering guidance (successor to the legacy Tier 0/1/2 model)
+- **Service-account remediation** — discover, classify, convert to gMSA/managed identity, vault and rotate the rest
+- **Metrics & audit evidence** — the numbers an FFIEC/PCI/SOX examiner asks for, mapped to PCI-DSS Req 7/8 and SOX 404 ITGC
+- **NIST SP 800-53** AC (Access Control) and CP (Contingency Planning) control families as the program's backbone
+</HoloPanel>
+
+# Designing a PAM Program
+
+Everything in this module up to now has been about capabilities — vaults, session brokers, dynamic secrets, just-in-time elevation, the four vendor platforms that package those capabilities into products. This section is about the thing that makes those capabilities actually reduce risk: the program. A PAM tool is a deployment. A PAM program is a discipline. The difference between the two is the difference between a bank that bought CyberArk and a bank that controls its privileged access. Plenty of organizations have the first and not the second.
+
+A program is the lifecycle, the sequencing, the governance, the metrics, and the failure-mode awareness that turns a pile of licenses into a measurable, defensible, examiner-ready control. It is also the part most likely to go sideways, because it touches every team, every legacy service account, and every operational dependency that nobody fully documented. This is the capstone of the module, and it deliberately reaches back to the war stories you have already read — every one of them was a program failure dressed up as a technical incident.
+
+## What it is
+
+A PAM program is the end-to-end operating model for governing privileged access across the entire estate over time. It has a lifecycle, and the lifecycle is the spine of everything that follows.
+
+<Definition term="privileged account discovery">The continuous process of enumerating every account, credential, key, and secret in the environment that can alter system, security, or identity state — before any control is applied to it. Discovery spans Active Directory privileged groups, local administrator accounts on every server and workstation, service accounts (interactive and non-interactive), service principal names (SPNs), SSH keys and authorized_keys files, database accounts, network-device credentials, cloud root and privileged roles, SaaS admin accounts, and credentials hardcoded into application code and configuration. The governing principle: you cannot vault, rotate, broker, or monitor what you have not found.</Definition>
+
+The lifecycle stages, in order: **Discover → Assess/prioritize → Onboard → Enforce (vault / rotate / broker session) → Monitor → Review/recertify → Mature.** Each stage feeds the next, and the loop never closes — discovery is continuous because new privileged accounts are created every day, and recertification is recurring because access that was appropriate last quarter may not be appropriate this quarter.
+
+The stages map cleanly to NIST SP 800-53 Access Control family controls. AC-2 (Account Management) governs the full account lifecycle including provisioning and deprovisioning. AC-6 (Least Privilege) and its privileged-account enhancements are the policy you are enforcing. AC-5 (Separation of Duties) shapes who can approve versus who can use. The Contingency Planning (CP) family informs break-glass design. Anchoring the program to a recognized control catalog matters for two reasons: it gives you a defensible structure, and it gives an examiner a familiar map to audit against.
+
+A maturity model sits alongside the lifecycle to answer the question every steering committee asks: how far along are we? The recognized PAM maturity progression moves through roughly four stages — **Ad hoc** (privileged access is uncontrolled and undocumented), **Foundational** (the crown-jewel accounts are vaulted and rotated), **Mature** (session brokering and recording are pervasive, onboarding is automated), and **Optimized** (just-in-time and least-standing-privilege are the default, with continuous discovery and recertification). The exact stage names vary by framework, and you should cite whichever model you actually adopt rather than over-claiming a specific vendor's trademarked blueprint. The point of the model is not the labels; it is giving leadership a north star and a way to measure year-over-year progress.
+
+## Why it exists
+
+The reason a program exists rather than just a tool is that privileged access is not a product you install — it is a property of the entire environment that erodes constantly. Three forces make the program necessary.
+
+First, **sprawl is the default state.** Privileged accounts multiply through normal operations: every new server ships with a local administrator account, every application install creates a service account, every vendor engagement spawns a privileged remote-access account, every developer who needs to debug production accumulates standing rights. Left alone, the count of privileged accounts grows monotonically. Discovery is not a one-time project; it is a standing capability, because the moment you stop looking, the inventory drifts out of date.
+
+Second, **the hardest problems are organizational, not technical.** Vaulting a domain-admin account is easy. Discovering that a 14-year-old batch job authenticates as a service account whose password is hardcoded in a scheduled task on a server nobody remembers owning — and then changing that password without breaking the batch job that processes overnight ACH files — is hard. The technical capability (rotation) existed all along. The program is what surfaces the dependency, identifies the owner, schedules the change, and tests the back-out. No tool does that for you.
+
+Third, **regulators require the program, not the tool.** An FFIEC examiner does not ask whether you bought a PAM platform. They ask what percentage of your privileged accounts are under management, how you enforce least privilege, how you recertify access, and how you prove privileged actions are logged and reviewed. PCI-DSS v4.0 Requirement 7 — "Restrict Access to System Components and Cardholder Data by Business Need to Know" — and Requirement 8 — "Identify Users and Authenticate Access to System Components" — are the relevant hooks for a card-handling environment, and both are answered by program evidence, not product brochures. SOX 404 IT general controls (ITGC) around access management ask the same kind of question for financial-reporting systems. The deliverable an examiner wants is a metric, a process, and a population — which only a program produces.
+
+## How it works under the hood
+
+### Discovery — you cannot protect what you have not found
+
+Discovery is the foundation, and it runs against every surface where privilege can hide. The vendor platforms each ship a discovery engine — CyberArk Accounts Discovery, BeyondTrust's Smart Rules-driven discovery, Delinea's Discovery engine — and these scan AD, scan subnets, query target systems, and surface unmanaged accounts. They are complemented by native tooling: `Get-LocalGroupMember -Group Administrators` enumerates local admins per host, AD queries surface privileged group membership and SPNs, and scripted sweeps find SSH keys and `authorized_keys` files across Unix fleets.
+
+The categories discovery must cover, drawn from the taxonomy taught in section 01: local admin accounts, domain/Enterprise/built-in administrators, service accounts (both interactive and non-interactive), application and embedded credentials, cloud root and privileged roles, emergency/break-glass accounts, third-party/vendor accounts, and DevOps/CI-CD machine identities. The output of discovery is an inventory with an owner, a risk rating, and a current state (managed / unmanaged) for every privileged credential. That inventory is the input to every subsequent stage.
+
+### Risk-based onboarding and rollout sequencing
+
+<Definition term="Enterprise Access Model (tiering)">Microsoft's current privileged-access architecture guidance, which supersedes the legacy Tier 0/1/2 administrative tiering model. It isolates control planes by sensitivity so that compromise of a lower-sensitivity asset cannot escalate to control-plane (the most sensitive, identity-and-infrastructure-control) assets. The model spans on-premises and multiple clouds and adds a management plane and a data/workload plane to accommodate modern DevOps roles, rather than focusing only on classic on-prem infrastructure tiers. The legacy shorthand of Tier 0 (identity/control plane), Tier 1 (servers/applications), and Tier 2 (workstations) is still useful vocabulary, but the Enterprise Access Model is the framework Microsoft now points you to.</Definition>
+
+Onboarding brings discovered accounts under management: assign them to safes or folders with role-based access, attach a rotation platform and policy, enable session brokering where appropriate, and decide per account whether the model is check-out/exclusive or always-rotate. The non-negotiable rule is **sequence by risk.** You start with the assets whose compromise ends the organization — control-plane identity (Tier 0): domain admins, Enterprise Admins, Global Administrators, and the crown-jewel service accounts that run the core-banking platform, the domain controllers, and the backup infrastructure. Then Tier 1 servers and applications. Then Tier 2 workstations. The Enterprise Access Model is the architecture that justifies this ordering: protect the control plane first, because a compromise there is unrecoverable.
+
+The rollout pattern within each tier is **pilot → expand → enforce**, wrapped in change control with a documented back-out plan. You pilot against a small, well-understood population, you expand once the pilot is clean, and only then do you flip from observe to enforce. This is the same report-only-first discipline you saw save (and its absence sink) the Conditional Access rollouts in Module 3.
+
+<ProTip>
+Sequence by risk, and never boil the ocean. The single most common way a first PAM phase fails is scoping it too broadly — trying to onboard and enforce rotation on every privileged account across the whole estate in one cutover. The correct first phase is narrow and high-value: the Tier 0 control-plane accounts, piloted on a handful, then expanded, then enforced, with a tested back-out for every rotation. A small, clean, completed phase that proves the model builds the political capital for the next phase. A big-bang phase that breaks a service account at 2am builds nothing but resistance.
+</ProTip>
+
+### Break-glass / emergency access design
+
+A PAM program centralizes privileged access — which means it also centralizes the risk of locking yourself out. If the PAM system is down, or a misconfigured policy blocks every admin, or the directory federation breaks, you need a recovery path that does not depend on the thing that just failed.
+
+<Definition term="break-glass account">A highly privileged emergency-access account, deliberately held outside the normal access controls, used only when the standard privileged-access path is unavailable — for example when a misconfigured Conditional Access policy or a federation outage locks out every routine administrator. Design requirements: at least two such accounts (so a single account problem does not eliminate the recovery path), cloud-only and not synced from on-prem, excluded from Conditional Access policies (cross-reference Module 3 §02-entra-id, which makes the same point), credentials that are long and split/sealed under dual control, monitoring and alerting on any use, and periodic testing so the path is known to work before the emergency.</Definition>
+
+The same principle applies to the PAM system itself and to the directory. Design an offline, sealed, monitored emergency path: split the credentials so no single person can use them alone (dual control), seal them physically or in an independent escrow, alert on any retrieval, and — the step everyone skips — test the path on a schedule so you discover the broken assumption during a drill rather than during a real outage. NIST SP 800-53 CP (Contingency Planning) and AC (Access Control) families inform this design, and Microsoft publishes specific emergency-access-account guidance for Entra ID that mirrors these requirements.
+
+### Service accounts and secrets — the hardest part
+
+Service accounts are where PAM programs go to die, and they deserve their own discipline. They are numerous, frequently undocumented, often have hardcoded or non-rotating credentials, and they break applications if rotated carelessly. The remediation pattern is a pipeline: **discover** every service account, **classify** it (interactive versus non-interactive, what depends on it, how its credential is consumed), **convert** it to a managed identity where possible, and **vault and rotate** the remainder.
+
+Conversion is the highest-leverage move. On Windows, a group Managed Service Account (gMSA) lets Active Directory own and automatically rotate the password so no human or config file ever holds it. In Azure, a managed identity removes the stored secret entirely — the platform issues and rotates the credential (cross-reference Module 3 and Module 5). For accounts that cannot be converted, eliminate the hardcoded secret by having the application fetch its credential at runtime through CyberArk's Credential Provider/CCP, Conjur, or HashiCorp Vault — the app-to-app patterns from sections 02 and 04. What you do not do is leave a static password in a config file and call it managed because you also stored a copy in the vault.
+
+### Monitoring, recertification, metrics, and audit evidence
+
+Onboarding is not the finish line; the program runs continuously. Monitoring means session recording coverage and behavioral analytics (CyberArk PTA, Delinea's analytics) watching for anomalous privileged activity. Recertification means recurring attestation campaigns — a reviewer confirms that each privileged grant is still needed, and unreviewed access is removed. Maturation means driving toward least-standing-privilege: measuring and shrinking the count of accounts that hold privilege at rest, moving from standing assignment to just-in-time activation wherever the platform supports it.
+
+<Definition term="least-standing-privilege">The program end-state in which the number of accounts holding privileged rights at rest is driven as close to zero as the environment allows, with privileged actions instead granted just-in-time for a bounded window on request. It is the operational expression of the zero-standing-privilege ideal from section 01, measured over time as a falling count of standing-admin accounts. A maturing program reports this number quarter over quarter as its headline risk-reduction metric.</Definition>
+
+The metrics are the program's currency with leadership and examiners alike. The ones that matter: percentage of privileged accounts under management, percentage with automatic rotation, the count of remaining standing-admin accounts (trending down), session-recording coverage, recertification completion rate, and time-to-onboard a newly discovered account. These map to the compliance frameworks a bank lives under — PCI-DSS v4.0 Requirement 7 (restrict access by business need to know) and Requirement 8 (identify and authenticate users), and SOX 404 ITGC access controls. When an examiner asks "how do you control privileged access," the answer is a dashboard of these numbers plus the process documentation behind them, not a screenshot of the vault login page.
+
+A small phase model keeps the program legible to a steering committee:
+
+| Phase | Focus | Exit criterion |
+|---|---|---|
+| Discover | Enumerate all privileged accounts/secrets across the estate | Inventory with owner + risk rating for every credential |
+| Onboard (Tier 0) | Vault and rotate control-plane and crown-jewel accounts | 100% of Tier 0 under management, piloted then enforced |
+| Enforce sessions | Broker and record privileged sessions for onboarded accounts | Session-recording coverage target met |
+| Recertify & mature | Recurring attestation; drive toward JIT/least-standing-privilege | Falling standing-admin count, completed recert campaigns |
+
+## War story
+
+<WarStory title="The Service Account That Took Down ACH Processing">
+A regional bank, roughly 2,000 employees, was eighteen months into a CyberArk program that the board considered a success. Tier 0 was fully onboarded — every domain admin vaulted, every Global Admin on just-in-time activation, session recording on the domain controllers. The metrics looked great in the quarterly steering deck. The program team, riding that momentum, decided to accelerate the service-account phase and onboard a large batch of discovered service accounts to automatic rotation in a single change window.
+
+Among the batch was an account named `svc_ach_batch`. Discovery had found it. It was a member of a privileged group, so it scored as high-risk, so it was prioritized into the batch. What discovery had not captured — because nobody had done the classification step properly — was that this account's password was also hardcoded into a SQL Server Agent job and into a connection string inside a legacy file-transfer utility that submitted the nightly ACH file to the Federal Reserve. The account was onboarded, CyberArk's CPM rotated the password to a strong random value at 6pm, and the vault was now the only place that password existed in cleartext.
+
+At 2:00am the SQL Agent job fired with the old hardcoded password. Authentication failed. The job that built and transmitted the ACH origination file did not run. The failure was silent — the job logged an error to a table nobody monitored overnight, and the file-transfer utility, also using the stale credential, never even attempted the upload. The bank missed its Fed submission window. The first anyone knew of it was 7:30am when a treasury-operations manager could not find the confirmation receipt.
+
+Emergency response: the program team broke glass, pulled the new password from the vault, and manually re-keyed both the SQL Agent job and the file-transfer config, then resubmitted the ACH file under a late-submission exception with the Fed. Customer-facing impact was a half-day delay on a batch of originated payments — recoverable, but a reportable operational incident, and exactly the kind of thing that draws an examiner's attention at the next exam.
+
+The remediation reshaped the program. Service-account onboarding was split out of the bulk pipeline entirely. Every service account now goes through mandatory classification before rotation: identify every consumer of the credential (scheduled tasks, agent jobs, connection strings, app configs), document the owner, and convert to a gMSA where the consumer supports it. For accounts that must keep a fetched secret, the credential moves to CCP so the consuming job retrieves it at runtime rather than holding a hardcoded copy — and rotation only enables after the fetch path is proven. Critically, the team added a back-out test: rotate in a maintenance window, confirm the dependent job runs, and only then mark the account enforced.
+
+The lesson is the one the whole module has been building toward. The technical capability — rotation — was never the hard part; CyberArk did exactly what it was told. The hard part was the program discipline: classification before onboarding, dependency mapping, sequencing, and a tested back-out. Skip the classification step and a high-risk service account is precisely the one most likely to be load-bearing for something nobody documented. In a healthcare setting the equivalent is an HL7 interface engine service account; in a defense environment it is a batch account feeding a classified replication job. Same failure mode, same fix: discover, classify, convert or vault, test, then enforce — in that order, every time.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="Why is discovery the first step of a PAM program?" back="You cannot vault, rotate, or monitor what you have not found. Discovery enumerates every privileged account, local admin, service account, SSH key, SPN, and hardcoded secret across AD, servers, databases, network gear, SaaS, and cloud before any control is applied. It is a continuous capability, not a one-time project, because new privileged accounts are created constantly and the inventory drifts the moment you stop looking." />
+<Flashcard front="How should you sequence PAM onboarding, and why?" back="Sequence by risk: highest-impact accounts first — Tier 0 domain/Enterprise/Global admins and crown-jewel service accounts — then Tier 1 servers, then Tier 2 workstations, piloting and expanding rather than boiling the ocean. The Enterprise Access Model justifies protecting the control plane first because a compromise there is unrecoverable. Within each tier the pattern is pilot, then expand, then enforce, with a documented back-out plan." />
+<Flashcard front="What are the design requirements for break-glass (emergency access) accounts?" back="At least two accounts, cloud-only and not synced from on-prem, excluded from Conditional Access, with long credentials split and sealed under dual control, alerting on any use, and periodic testing of the recovery path. The goal is that an outage, a misconfigured policy, or a federation failure can never fully lock out every administrator, and the recovery path is known to work before the emergency arrives." />
+<Flashcard front="What is Microsoft's Enterprise Access Model and what did it replace?" back="It is Microsoft's current privileged-access architecture guidance, which supersedes the legacy Tier 0/1/2 administrative tiering model. It isolates control planes by sensitivity so a lower-sensitivity compromise cannot escalate to the control plane, spans on-premises and multiple clouds, and adds management and data/workload planes to accommodate modern DevOps roles. The Tier 0/1/2 shorthand is still useful vocabulary, but the Enterprise Access Model is the framework Microsoft now points to." />
+<Flashcard front="Why are service accounts the hardest part of a PAM program, and what is the remediation pattern?" back="They are numerous, frequently undocumented, often carry hardcoded or non-rotating credentials, and break applications if rotated carelessly. The remediation pipeline is discover, classify (interactive vs non-interactive, and every consumer of the credential), convert to gMSA or managed identity where possible, and vault-and-rotate the rest while eliminating hardcoded secrets via CCP, Conjur, or Vault runtime fetch. Classification before rotation is the step that prevents breaking a load-bearing account." />
+<Flashcard front="Name several PAM program metrics an FFIEC, PCI, or SOX examiner would ask for." back="Percentage of privileged accounts under management, percentage with automatic rotation, the count of remaining standing-admin accounts (trending down), session-recording coverage, recertification completion rate, and time-to-onboard a newly discovered account. These map to PCI-DSS v4.0 Requirement 7 (restrict access by business need to know) and Requirement 8 (identify and authenticate users), and to SOX 404 IT general controls for access management." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "04-pam/06-pam-program-design/q1",
+  prompt: "A bank is launching its first PAM program. Which sequencing approach best balances risk reduction and operational safety?",
+  options: [
+    "Onboard and enforce rotation on all privileged accounts simultaneously in one weekend cutover.",
+    "Discover everything first, then onboard by risk starting with Tier 0 domain/Global admins and crown-jewel service accounts, piloting before enforcing.",
+    "Start with low-risk workstation local-admin accounts and never touch service accounts at all.",
+    "Deploy the PAM tool and let each team self-onboard whatever accounts they want, with no discovery phase."
+  ],
+  correctIndex: 1,
+  explanation: "A PAM program must begin with discovery — you cannot protect what you have not found — and then onboard by risk, highest-impact accounts first (Tier 0 control-plane and crown-jewel service accounts), piloting before enforcement to avoid breaking critical dependencies. Big-bang enforcement across the whole estate in one cutover is the classic failure mode; it is exactly how a load-bearing service account gets its credential rotated out from under an undocumented batch job. Skipping discovery, or starting only with the lowest-risk accounts while leaving service accounts untouched, leaves the crown jewels exposed."
+}} />

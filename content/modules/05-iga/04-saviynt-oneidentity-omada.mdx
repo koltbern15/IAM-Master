@@ -1,0 +1,111 @@
+{/* Vendor product specifics (module names, deployment models, framework branding) current as of 2026-06-01. Re-verify against vendor docs before quoting in an RFP or proposal — IGA vendors rebrand and re-bundle aggressively. */}
+
+<HoloPanel label="COVERS">
+- **IGA platform fluency** — the major IGA platforms beyond the two market leaders: Saviynt, One Identity, and Omada
+- **Saviynt Enterprise Identity Cloud (EIC)** — the converged IGA + application access governance + CIEM pitch
+- **One Identity Manager** — on-prem/hybrid IGA with deep SAP and enterprise governance lineage
+- **Omada Identity** — configuration-over-customization IGA with a best-practice process framework
+- **CISSP** Domain 5 (Identity and Access Management) — provisioning lifecycle, identity-as-a-service vendor landscape
+- **Consulting / RFP fluency** — the vocabulary to compare platforms and run a defensible selection, not pick a winner from a feature checklist
+</HoloPanel>
+
+# Challenger Platforms: Saviynt, One Identity, Omada
+
+The two previous sections covered the platforms that show up in nearly every enterprise IGA shortlist — SailPoint and Okta. But a shortlist is rarely just two names. Walk into a banking IGA procurement, a regulated healthcare RFP, or a consulting engagement where the client has already half-decided, and you will meet a handful of other serious platforms. You need to be able to speak about them credibly: what each one is, where it genuinely wins, and where it is the wrong tool. This section is a survey — the goal is fluency, not a recommendation. By the end you should be able to sit in a vendor bake-off, hear "we are looking at Saviynt and Omada," and know exactly what that sentence implies about the organization and its priorities.
+
+## What they are
+
+Three platforms deserve a focused profile: **Saviynt**, **One Identity**, and **Omada**. Each occupies a distinct position in the market, and that position is not random — it reflects each vendor's history, its deployment philosophy, and the kind of customer it was built to serve.
+
+<Definition term="Saviynt EIC">Saviynt's flagship platform, the Enterprise Identity Cloud, is a cloud-native, converged identity security platform. Rather than shipping IGA as a standalone product, Saviynt bundles identity governance with adjacent capabilities — application access governance, cloud infrastructure entitlement management (CIEM), privileged access, and data access governance — on a single SaaS architecture. The pitch is convergence: one platform, one identity store, one analytics layer, instead of stitching together a separate IGA tool, a separate cloud-security tool, and a separate PAM tool.</Definition>
+
+Saviynt's distinctive strength is **fine-grained entitlement governance**, especially for ERP systems like SAP, Workday, and Oracle, paired with an analytics and intelligence layer that scores risk and surfaces peer-group and usage anomalies. When an organization's hardest governance problem is "who can do what inside SAP, down to the transaction-code level," Saviynt is built for that question. Its Application Access Governance module specializes in exactly this kind of deep, in-application separation-of-duties analysis.
+
+<Definition term="One Identity Manager">One Identity Manager is an enterprise IGA platform with a long, complex lineage — it passed through the Quest and Dell portfolios before landing under the One Identity brand. It is strongest in large, complex enterprises with heavy SAP governance needs, deep attestation requirements, and a broad catalog of connectors to legacy and on-prem systems. It is typically deployed on-premises or in a hybrid model rather than as a pure SaaS service. The broader One Identity portfolio extends beyond IGA into privileged access management (the Safeguard product line) and an identity provider (OneLogin), so One Identity can show up as a one-vendor answer to multiple IAM domains.</Definition>
+
+<Definition term="Omada Identity">Omada is a Danish IGA specialist — it does identity governance and very little else, which is itself a positioning choice. Omada is best known for fast, predictable deployments driven by a best-practice process framework rather than open-ended custom development. Its philosophy is configuration over customization: you adopt proven, pre-modeled governance processes and configure them, instead of coding bespoke logic from a blank slate. Omada has strong alignment with the Microsoft and Entra ecosystem, which makes it a natural fit for Microsoft-centric organizations that want a dedicated governance layer on top of their existing identity estate.</Definition>
+
+The fourth concept worth defining here is one that cuts across all three — and especially Saviynt's pitch.
+
+<Definition term="cloud infrastructure entitlement management (CIEM)">CIEM is the discipline of governing the entitlements that identities (human and machine) hold inside cloud infrastructure — the IAM roles, policies, and permissions in AWS, Azure, and GCP. Traditional IGA was built to govern access to applications; CIEM extends that governance to the cloud control plane itself, where an over-permissioned service principal or an unused admin role is a direct breach risk. Saviynt converges CIEM into its IGA platform; standalone CIEM tools also exist. The core CIEM finding is the same one IGA chases everywhere: standing, excessive, and unused permissions that nobody is reviewing.</Definition>
+
+## Why they exist (and where each one fits)
+
+If SailPoint and Okta cover the broad middle of the market, why do these platforms have a business at all? Because the IGA market is not one market — it is several, segmented by deployment model, by the systems being governed, and by how much the buyer values speed versus depth.
+
+**Saviynt exists for the converged-security buyer.** The conventional IGA stack treats application access governance, cloud entitlements, and privileged access as three separate products from three vendors. Saviynt's bet is that a meaningful slice of the market would rather buy one platform that does all of it, sharing a single identity warehouse and a single analytics engine. For an organization that is simultaneously trying to clean up SAP access, govern AWS IAM sprawl, and stand up access reviews, the convergence story is genuinely compelling — one place to ask "what does this identity have, everywhere?" That same convergence is also Saviynt's watch-out: a converged platform is a larger commitment, and an organization that only needs classic IGA may be buying more surface area than it can operate.
+
+**One Identity exists for the deep, complex, on-prem-heavy enterprise.** Some organizations — large manufacturers, established financial institutions, government agencies — have decades of accumulated systems, a massive SAP footprint, and governance requirements (attestation, fine-grained SAP role analysis, connector breadth into systems nobody else integrates with) that reward a platform built for that complexity. One Identity Manager's heritage is exactly this world. Its watch-out is the flip side: it is heavier to deploy and operate than a SaaS-first tool, and a Microsoft-centric mid-market shop will find it more platform than it needs.
+
+**Omada exists for the buyer who values time-to-value and fit over a feature checklist.** Many IGA programs fail not because the tool lacked a feature, but because the deployment ran long, customization ballooned, and the team could never operate what was built. Omada's entire pitch is the antidote: adopt a best-practice process framework, configure rather than code, and go live faster with less bespoke risk. Omada's <Definition term="IdentityPROCESS+">Omada's best-practice framework — a library of pre-modeled, proven IGA processes covering the identity lifecycle, access management, governance, certification, and administration. The framework lets an organization deploy on top of established best practices instead of designing every workflow from scratch, which is the operational core of Omada's configuration-over-customization philosophy. It is both a product accelerator and a methodology: adopt the standard process, configure the parts that are genuinely specific to you, and resist the urge to customize what does not need it.</Definition> framework is the embodiment of that approach. The watch-out is the mirror image of the strength: an organization with genuinely unusual, deeply customized governance requirements may find a configuration-first platform constraining.
+
+<ProTip>When you evaluate these platforms, weight two things most heavily: connector coverage for your actual source systems, and realistic time-to-value with your actual team. The richest feature matrix on paper loses every time to the platform that can integrate the systems you already run and that your team can stand up and operate. A feature you cannot deploy is worth zero; a connector you do not have is a manual provisioning process forever.</ProTip>
+
+## How they compare
+
+The fastest way to hold these platforms in your head — including the two leaders from the previous sections — is a single comparison matrix. Read it as a map of sweet spots, not a scorecard. Every one of these platforms can technically do the core IGA job; the question is which one fits a given organization's deployment model, source systems, and team.
+
+| Platform | Deployment | Sweet spot | Notable strength | Watch-out |
+| --- | --- | --- | --- | --- |
+| SailPoint ISC / IIQ | SaaS (ISC) or on-prem (IIQ) | Large, complex enterprise IGA | Deep role modeling, mature certification, customization (IIQ) | Heavier to deploy and operate; IIQ carries an on-prem ops burden |
+| Okta OIG | SaaS | Okta-centric, SaaS-heavy estates | Tight IdP integration, fast SCIM-based provisioning | Lighter on deep role/SoD modeling than the IGA specialists |
+| Saviynt EIC | SaaS (cloud-native) | Converged IGA + cloud security + ERP | Fine-grained ERP (SAP) entitlement governance; CIEM convergence | Broad platform surface; more than a classic-IGA-only buyer needs |
+| One Identity Manager | On-prem / hybrid | Complex, on-prem-heavy enterprises | Deep SAP governance, attestation, broad connector catalog | Heavier deployment; not a SaaS-first or mid-market fit |
+| Omada Identity | SaaS or on-prem | Microsoft-centric mid-market | Fast, framework-driven deployment; strong Entra fit | Configuration-first model can constrain highly bespoke needs |
+
+A few honest caveats about a matrix like this. First, market positions move — vendors rebrand products, acquire capabilities, and re-bundle SKUs constantly, so treat any single cell as a starting point to verify against current vendor documentation, not a permanent truth. Second, "sweet spot" is not "only spot" — Saviynt absolutely does classic IGA, Omada can handle complex environments, and One Identity has cloud options. The matrix captures where each platform's design and history point it, which is the useful signal when you are reasoning about fit. Third, the watch-outs are not disqualifiers; they are the trade-off you accept in exchange for the strength in the same row.
+
+<Definition term="attestation">Attestation is the formal act of a reviewer affirming, on the record, that a given user's access is still appropriate — the output of a certification campaign. The term emphasizes the accountability and audit-evidence dimension: an attestation is a signed statement a reviewer is answerable for, which is why auditors care less about whether a review happened and more about whether the attester actually scrutinized the access versus rubber-stamping it. One Identity and Omada both market strong attestation capabilities because, for regulated buyers, the attestation trail is the compliance deliverable.</Definition>
+
+### A consulting selection lens
+
+When a client asks "which platform should we pick," the credible answer is never a single product name delivered cold. It is a short decision tree that maps their context to a sensible shortlist:
+
+- **Microsoft-centric mid-market, wants speed:** Omada or Microsoft Entra ID Governance itself (covered in the next section). Both lean into the Microsoft ecosystem and favor configuration over heavy customization.
+- **SaaS-first, already runs Okta as the IdP:** Okta Identity Governance, for the tight integration and fast SCIM provisioning.
+- **SAP- or ERP-heavy regulated enterprise needing deep entitlement governance:** SailPoint, Saviynt, or One Identity — the platforms built for fine-grained, in-application SoD and broad connector reach.
+- **Ambition to converge IGA with cloud security (CIEM) and privileged access:** Saviynt, whose entire pitch is the converged platform.
+- **Maximum customization, on-prem control, willing to carry the ops burden:** SailPoint IdentityIQ or One Identity Manager.
+
+Frame this as a decision tree, not a verdict. Your job in a selection is to surface the trade-offs the client is actually making — speed versus depth, convergence versus best-of-breed, SaaS versus on-prem control — and let the organization's real constraints (existing IdP, source systems, team capacity, regulatory load) pick the branch. The platform that fits the team and the estate almost always beats the platform that wins the feature spreadsheet.
+
+## War story
+
+<WarStory title="The Bake-Off the Best Tool Lost">
+A regional bank, roughly 2,800 employees, ran a formal IGA platform selection. The trigger was a brutal audit cycle: orphaned accounts, no real certification program, and a maker/checker SoD policy that existed on paper but was enforced by nobody. The board wanted a tool. The security architect ran a proper bake-off — three finalists, a weighted scoring matrix, proof-of-concept for each.
+
+On the spreadsheet, one platform won decisively. It had the deepest role-modeling engine, the most granular SoD analytics, and a customization story that could model anything the bank could dream up. The architect, who had come from a much larger enterprise, loved it. It scored highest on features and was the team's technical favorite going in.
+
+The proof-of-concept told a different story. The deep, customizable platform required a level of in-house modeling expertise the bank simply did not have — a four-person IAM team, two of whom also ran the helpdesk. The POC for the "winning" tool stalled: every workflow needed bespoke design, the connector to the bank's core-banking platform required custom development, and the vendor's implementation estimate was three quarters and a six-figure professional-services line. Meanwhile the configuration-first finalist — less flexible on paper, lower on the feature score — stood up birthright provisioning, a manager certification campaign, and a basic SoD ruleset in the POC window using its out-of-box process framework, with connectors that already covered the bank's Microsoft estate.
+
+The bank picked the platform that scored second. The architect's first instinct — buy the most powerful tool — would have bought a Ferrari for a team that needed a reliable commuter they could actually drive. Eighteen months later the bank had a live certification program, automated leaver deprovisioning, and a passing audit. The deep-customization platform would very likely still have been in implementation.
+
+The lesson is the one every seasoned IGA practitioner learns the hard way: the platform you can actually deploy and operate beats the platform with the best features every time. A capability you never get to production is worth nothing. When you run a selection, score time-to-value and team fit as heavily as the feature matrix — and be honest about the team you have, not the team you wish you had. In a defense or government context the same dynamic plays out around accreditation and connector certification rather than raw features; in healthcare it plays out around the depth of clinical-system integration. The constant across all three: fit beats firepower.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="What is Saviynt EIC and what makes it distinctive?" back="Saviynt Enterprise Identity Cloud (EIC) is a cloud-native platform that converges IGA with adjacent identity security capabilities — application access governance, cloud infrastructure entitlement management (CIEM), privileged access, and data access governance — on one SaaS architecture. Its distinctive strengths are fine-grained entitlement governance for ERP systems like SAP and a usage/peer analytics layer. The pitch is convergence: one platform and one identity store instead of separate IGA and cloud-security tools." />
+<Flashcard front="What is One Identity Manager known for?" back="One Identity Manager is an on-prem/hybrid IGA platform (with a Quest/Dell lineage) strong in large, complex enterprises — deep SAP governance, robust attestation, and a broad catalog of connectors to legacy and on-prem systems. The wider One Identity portfolio also includes Safeguard (privileged access management) and OneLogin (an identity provider), so the vendor can answer multiple IAM domains." />
+<Flashcard front="What is Omada Identity's deployment philosophy?" back="Configuration over customization: adopt proven, pre-modeled governance processes and configure them rather than coding bespoke logic from scratch. Omada drives fast, predictable deployments through its IdentityPROCESS+ best-practice framework and has strong alignment with the Microsoft and Entra ecosystem, making it a natural fit for Microsoft-centric organizations." />
+<Flashcard front="What is the IdentityPROCESS+ framework?" back="Omada's best-practice framework — a library of pre-modeled, proven IGA processes covering the identity lifecycle, access management, governance, certification, and administration. It lets an organization deploy on established best practices instead of designing every workflow from a blank slate, and it is the operational core of Omada's configuration-over-customization approach." />
+<Flashcard front="Which platforms best fit an SAP- or ERP-heavy regulated enterprise needing deep entitlement governance?" back="SailPoint, Saviynt, or One Identity — all are strong in fine-grained, in-application SAP/ERP entitlement and separation-of-duties governance, with the connector breadth and role-modeling depth that complex regulated enterprises require." />
+<Flashcard front="Which platform best fits a Microsoft/Entra-centric mid-market organization that wants fast deployment?" back="Omada Identity (or Microsoft Entra ID Governance itself). Omada's configuration-driven, framework-based model and strong Microsoft ecosystem alignment make it well suited to a mid-market org that values time-to-value over deep customization." />
+<Flashcard front="What does converged platform mean in Saviynt's pitch?" back="Delivering IGA together with cloud infrastructure entitlement management (CIEM), application access governance, and privileged/cloud security in one platform sharing a single identity store and analytics layer — rather than stitching together separate IGA, cloud-security, and PAM tools from different vendors." />
+<Flashcard front="In an IGA platform bake-off, what often beats raw feature count?" back="Connector coverage for your actual source systems and realistic time-to-value/fit with your actual team. The platform with the best feature matrix on paper loses if it cannot integrate your estate or if your team cannot deploy and operate it. A feature you never get to production is worth nothing." />
+<Flashcard front="Name three IGA platforms outside the two market leaders that a banking RFP might include." back="Saviynt (Enterprise Identity Cloud), One Identity (Identity Manager), and Omada (Identity / Identity Cloud). These are the most common challenger platforms a regulated buyer evaluates alongside SailPoint and Okta." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "05-iga/04-saviynt-oneidentity-omada/q1",
+  prompt: "A mid-size, Microsoft- and Entra-centric bank wants an IGA deployment that is fast to stand up using best-practice processes, with strong Entra integration and minimal custom code. Which platform's philosophy best matches?",
+  options: [
+    "SailPoint IdentityIQ, for maximum customization and on-prem control.",
+    "Saviynt EIC, for converged cloud security across IGA, CIEM, and PAM.",
+    "Omada Identity — configuration over customization, with a framework-driven (IdentityPROCESS+) deployment and strong Microsoft ecosystem fit.",
+    "One Identity Manager, for heavy SAP governance in a complex on-prem enterprise."
+  ],
+  correctIndex: 2,
+  explanation: "Omada's entire philosophy is configuration over customization, driven by its IdentityPROCESS+ best-practice framework for fast, predictable time-to-value, with strong Microsoft/Entra alignment — exactly the match for a Microsoft-centric mid-market bank that wants speed and minimal custom code. SailPoint IIQ targets maximum customization and on-prem control; Saviynt targets converged cloud security; One Identity Manager targets deep SAP governance in heavy on-prem enterprises. Each of those is a poor fit for a buyer prioritizing fast, low-code Entra-aligned deployment."
+}} />

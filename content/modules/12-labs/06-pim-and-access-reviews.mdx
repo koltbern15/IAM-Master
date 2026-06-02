@@ -1,0 +1,265 @@
+{/* Lab procedures current as of 2026-06-01. PIM and Access Reviews require Microsoft Entra ID P2 (or Entra ID Governance / EMS E5). Re-verify cmdlet bodies against MS Learn before running against any live tenant. */}
+
+<HoloPanel label="COVERS">
+- Aligns with **SC-300: Plan and implement privileged access** — Privileged Identity Management (PIM) for Entra roles, just-in-time activation, and approval/MFA settings
+- Aligns with **SC-300: Plan, implement, and manage access reviews** — recurring recertification of group and role membership with auto-apply
+- **Security+ SY0-701** Objective 4.6 — Implement and maintain identity and access management (privileged access management, least privilege)
+- **CISSP** Domain 5.4 — Implement and manage authorization mechanisms (least privilege, just-in-time access, periodic access review)
+- **Builds on:** Lab 02 (Entra Connect — you need the synced admins to put under PIM) and Module 3 §02 Entra ID (PIM and Entra ID Governance). It is also the cloud-native counterpart to Module 4 §05 cloud-native PAM, and it operationalizes the eligible-vs-active distinction from Module 6 Recipe 4.
+</HoloPanel>
+
+# Privileged Identity Management + Access Reviews <SC300Badge />
+
+## Objective
+
+When you finish this lab you will have converted a standing administrative role assignment into **eligible** (just-in-time) access in a dev Entra tenant, configured that eligible role to require MFA, justification, and approval on activation, activated it as the eligible user to watch the time-bound assignment appear and then expire, and run a recurring **access review** that recertifies the membership of a privileged group and auto-applies the reviewers' decisions. By the end, the test role has zero standing assignments — the privilege is dormant until someone deliberately turns it on for a bounded window, and someone is forced to re-attest to that access on a schedule.
+
+This is the lab that maps most directly onto the questions a bank auditor asks first. Standing administrative access is the single largest blast radius in any tenant: a compromised credential on a permanently-assigned Global Administrator is a tenant takeover. PIM shrinks that blast radius by keeping privilege off until it is needed and recording every activation. Access reviews answer the other auditor question — not just who *can* be an admin, but who has confirmed, in writing, that each admin still needs it this quarter. SOX and FFIEC examiners want evidence of both least privilege and periodic recertification, and this lab produces both as artifacts you can hand to them.
+
+## Prerequisites
+
+- A **dev Entra tenant** with the synced admins from Lab 02. Do not run this against a production tenant — eligibility and review changes touch real role assignments.
+- **Microsoft Entra ID P2** (or a license that includes the governance features, such as Microsoft Entra ID Governance or EMS E5). PIM just-in-time roles and Access Reviews are governance capabilities — they are not in the free tier and not in P1, which only covers Conditional Access. State this clearly to anyone you onboard: P1 buys you Conditional Access, P2-or-Governance buys you PIM and Access Reviews.
+- The **Microsoft.Graph** PowerShell module installed, including the `Microsoft.Graph.Identity.Governance` sub-module, and a sign-in with at least Privileged Role Administrator (or Global Administrator) rights to manage role assignments and PIM settings.
+- The Graph scopes `RoleManagement.ReadWrite.Directory` (to create eligibility), `RoleEligibilitySchedule.ReadWrite.Directory`, `RoleManagementPolicy.ReadWrite.Directory` (to set activation requirements), and `AccessReview.ReadWrite.All` (to create the review).
+- A test user (a synced user from Lab 02) who will become *eligible* for a privileged role, and a privileged group with at least one member to point the access review at.
+
+<ProTip>
+**The lab safety rules from Lab 01 apply here too.** Every change in this lab is reversible, but the order matters. Do not remove a standing assignment until the eligibility schedule that replaces it is confirmed in place — otherwise you create a window where the admin has neither active nor eligible access and cannot do their job. Run the eligibility creation, verify it with a read, and only then strip the permanent assignment. As always, work in a dev tenant and verify each step with a query before moving on.
+</ProTip>
+
+<Definition term="just-in-time (JIT) access">
+An access model in which a user holds no standing privilege and instead **activates** a role only for the limited window they actually need it, after satisfying controls such as MFA, a written justification, and approval. The privilege is dormant by default and self-expires when the activation window ends. In Entra this is implemented by Privileged Identity Management: a user is made *eligible* for a role rather than permanently *assigned* to it, and activation produces a time-bound active assignment that PIM removes automatically when it expires. JIT access is the practical form of least privilege over time — it limits not just *who* has privilege but *how long* they have it.
+</Definition>
+
+## Lab steps
+
+### Step 1: Make a test user eligible for a privileged role <SC300Badge />
+
+The core move of PIM is replacing a permanent assignment with an *eligible* one. Instead of the test user always holding User Administrator, they become eligible to activate it on demand. You can do this in the portal (Entra admin center → Identity governance → Privileged Identity Management → Microsoft Entra roles → Roles → pick the role → Add assignments → set assignment type to **Eligible**) and you should know that flow for the exam. The Graph version below is the repeatable, reviewable way.
+
+The cmdlet is `New-MgRoleManagementDirectoryRoleEligibilityScheduleRequest`, confirmed against MS Learn. Its body is verbose: an `Action` of `adminAssign`, the `PrincipalId` (the user), the `RoleDefinitionId` (the role), a `DirectoryScopeId` of `/` for tenant-wide, a `Justification`, and a `ScheduleInfo` object that sets when eligibility starts and how long it lasts.
+
+<PowerShellBlock title="Create an eligible role assignment via PIM">{`Connect-MgGraph -Scopes "RoleManagement.ReadWrite.Directory","RoleEligibilitySchedule.ReadWrite.Directory"
+
+# The test user who will become ELIGIBLE (not permanently assigned)
+$user = Get-MgUser -UserId "test.admin@yourtenant.onmicrosoft.com"
+
+# User Administrator role (well-known template ID, stable across tenants)
+$roleDefinitionId = "fe930be7-5e62-47db-91af-98c3a49a38b1"
+
+$body = @{
+  Action           = "adminAssign"
+  PrincipalId      = $user.Id
+  RoleDefinitionId = $roleDefinitionId
+  DirectoryScopeId = "/"                 # "/" = tenant-wide scope
+  Justification    = "JIT eligibility per least-privilege policy"
+  ScheduleInfo     = @{
+    StartDateTime = (Get-Date)
+    Expiration    = @{
+      Type = "NoExpiration"              # eligibility persists; ACTIVATION is what is time-bound
+    }
+  }
+}
+
+New-MgRoleManagementDirectoryRoleEligibilityScheduleRequest -BodyParameter $body`}</PowerShellBlock>
+
+The distinction to hold onto: the *eligibility* here has no expiration (the user stays eligible indefinitely), but that is not the same as having the role. Eligibility is permission to *request* the role. The thing that is short-lived is the **activation** in Step 3, which produces a time-bound active assignment. Eligible is the dormant state; active is the live state.
+
+### Step 2: Set activation requirements — MFA, justification, approval <SC300Badge />
+
+Making a user eligible is only half the control. The other half is what they must satisfy to activate. The defaults are weak; you want activation gated on MFA, a written justification, and approval by a named approver, with a short maximum activation duration so an activated role does not linger all day.
+
+These settings live on the **role management policy** that governs the role, expressed as a set of rules (an `unifiedRoleManagementPolicyRule` for each: the enablement rule that turns on MFA and justification, the approval rule, and the expiration rule that caps activation duration). The policy object model is genuinely intricate — in practice many teams configure these in the portal (PIM → Microsoft Entra roles → Settings → pick the role) because the rule IDs and payloads are easy to get wrong by hand. Know that the Graph surface is `Get-MgPolicyRoleManagementPolicy` / `Get-MgPolicyRoleManagementPolicyRule` and `Update-MgPolicyRoleManagementPolicyRule`, and confirm the exact rule payloads against MS Learn before scripting them.
+
+<PowerShellBlock title="Inspect the role management policy rules for the role">{`Connect-MgGraph -Scopes "RoleManagementPolicy.Read.AzureADGroup","RoleManagement.Read.Directory"
+
+# Find the policy that governs Entra-role assignments at tenant scope, then list its rules.
+# (The policy assignment ties a roleDefinitionId to a policyId at a given scope.)
+$assignment = Get-MgPolicyRoleManagementPolicyAssignment \`
+  -Filter "scopeId eq '/' and scopeType eq 'DirectoryRole' and roleDefinitionId eq '$($roleDefinitionId)'"
+
+$rules = Get-MgPolicyRoleManagementPolicyRule -UnifiedRoleManagementPolicyId $assignment.PolicyId
+
+# Surface the rules so you can see which ones control MFA, justification, approval, and duration.
+$rules | Select-Object Id, @{ n='Type'; e={ $_.AdditionalProperties['@odata.type'] } } | Format-Table -AutoSize`}</PowerShellBlock>
+
+In the portal, the equivalent is four checkboxes and a duration field on the role's PIM settings page: **Require multifactor authentication on activation**, **Require justification on activation**, **Require approval to activate** (with a named approver), and a **maximum activation duration** (commonly one to four hours for a privileged role). Set all four. The combination is what turns "eligible" from a paperwork exercise into an actual control — without MFA and approval, an attacker who phishes the eligible user's password can simply activate the role themselves.
+
+### Step 3: Activate the role as the eligible user
+
+Now switch hats. Sign in as the test user — the eligible one — and request activation. In the portal this is PIM → My roles → Microsoft Entra roles → Activate, where the user provides the justification, completes MFA, and (if approval is required) waits for the approver to approve. The Graph equivalent is a *self-activate* request: the same eligibility-schedule-request cmdlet, but with `Action = "selfActivate"` and a bounded duration.
+
+<PowerShellBlock title="Self-activate the eligible role for a bounded window">{`# Run this signed in AS the eligible test user.
+Connect-MgGraph -Scopes "RoleAssignmentSchedule.ReadWrite.Directory"
+
+$me = Get-MgUser -UserId "test.admin@yourtenant.onmicrosoft.com"
+
+$activation = @{
+  Action           = "selfActivate"
+  PrincipalId      = $me.Id
+  RoleDefinitionId = $roleDefinitionId
+  DirectoryScopeId = "/"
+  Justification    = "Resetting a locked-out user account per ticket INC-1234"
+  ScheduleInfo     = @{
+    StartDateTime = (Get-Date)
+    Expiration    = @{
+      Type     = "AfterDuration"
+      Duration = "PT2H"                  # ISO 8601: activate for 2 hours, then auto-expire
+    }
+  }
+}
+
+New-MgRoleManagementDirectoryRoleAssignmentScheduleRequest -BodyParameter $activation`}</PowerShellBlock>
+
+The `Duration` is an ISO 8601 duration string — `PT2H` is two hours. When that window elapses, PIM removes the active assignment automatically; you do not have to remember to deactivate. If approval is required, the request sits in a pending state until the approver acts, and the role does not become active until then. That is the whole loop you are demonstrating: a privilege that does not exist until requested, is gated on MFA and approval, and disappears on its own.
+
+### Step 4: Audit eligible versus active
+
+This is the step that hammers home the eligible-vs-active distinction — the same distinction Module 6 Recipe 4 surfaces in an audit report. Two different schedules answer two different questions: who is *eligible* to activate a role, and who currently has it *active*. An auditor who only reads active assignments and concludes "this tenant has no standing admins" without checking eligibilities has missed half the picture.
+
+<PowerShellBlock title="List eligible vs active role assignments">{`Connect-MgGraph -Scopes "RoleManagement.Read.Directory"
+
+# ELIGIBLE: who can activate a role on demand (dormant privilege)
+$eligible = Get-MgRoleManagementDirectoryRoleEligibilitySchedule -All -ExpandProperty "principal,roleDefinition"
+
+$eligible | ForEach-Object {
+  [PSCustomObject]@{
+    State         = "Eligible"
+    RoleName      = $_.RoleDefinition.DisplayName
+    PrincipalName = $_.Principal.AdditionalProperties['displayName']
+    ScopeId       = $_.DirectoryScopeId
+  }
+}
+
+# ACTIVE: who currently holds a role right now (standing OR a live activation)
+$active = Get-MgRoleManagementDirectoryRoleAssignmentSchedule -All -ExpandProperty "principal,roleDefinition"
+
+$active | ForEach-Object {
+  [PSCustomObject]@{
+    State         = "Active"
+    RoleName      = $_.RoleDefinition.DisplayName
+    PrincipalName = $_.Principal.AdditionalProperties['displayName']
+    ScopeId       = $_.DirectoryScopeId
+  }
+} | Format-Table -AutoSize`}</PowerShellBlock>
+
+After Step 1 (and after you remove the old permanent assignment), the test user should appear in the **eligible** list and *not* in the active list — until you activate in Step 3, during which they appear in active for the duration of the window, then drop back out. Run this query before and after an activation to watch the active entry come and go. That transient active assignment, born from an eligible one, is the visible proof that JIT is working.
+
+<ProTip>
+**Eligible is not active — that dormancy is the entire point of PIM.** A user who is eligible for a role has *no* privilege right now. They have permission to *request* the privilege, subject to MFA, justification, and approval, for a bounded window. Do not "fix" an eligible-but-not-active user by re-granting a permanent assignment when they say they cannot do an admin task — that throws away the control. The correct answer is: they activate. If they need it constantly with no friction, that is a conversation about whether the role should be eligible at all, not a reason to make it standing. Standing privilege is the thing PIM exists to eliminate.
+</ProTip>
+
+### Step 5: Create an access review for a privileged group
+
+PIM controls *when* privilege is live. Access reviews control *whether it should still exist at all*. An access review periodically asks a reviewer — typically the group owner, the resource owner, or the users themselves — to attest that each member still needs the access, and can automatically remove anyone who is denied or not reviewed. Point one at a privileged group and you have a recurring recertification of who belongs in it.
+
+The cmdlet is `New-MgIdentityGovernanceAccessReviewDefinition`, confirmed against MS Learn (module `Microsoft.Graph.Identity.Governance`). The body defines the scope (what is reviewed), the reviewers, the recurrence schedule, and the settings — including auto-apply and what to do for members nobody reviews.
+
+<PowerShellBlock title="Create a quarterly access review of a privileged group">{`Connect-MgGraph -Scopes "AccessReview.ReadWrite.All"
+
+$groupId = (Get-MgGroup -Filter "displayName eq 'Privileged Operators'").Id
+
+$definition = @{
+  DisplayName        = "Quarterly recert - Privileged Operators"
+  DescriptionForAdmins = "Recurring recertification of privileged group membership"
+  Scope = @{
+    "@odata.type" = "#microsoft.graph.accessReviewQueryScope"
+    Query         = "/groups/$($groupId)/transitiveMembers"
+    QueryType     = "MicrosoftGraph"
+  }
+  Reviewers = @(
+    @{ Query = "/groups/$($groupId)/owners"; QueryType = "MicrosoftGraph" }
+  )
+  Settings = @{
+    RecurrenceSettings = @{
+      RecurrenceType = "quarterly"
+      RecurrenceEndType = "never"
+    }
+    DefaultDecisionEnabled = $true
+    DefaultDecision        = "Deny"      # if a member is not reviewed, default to removing access
+    AutoApplyDecisionsEnabled = $true     # apply decisions automatically when the review closes
+    JustificationRequiredOnApproval = $true
+  }
+}
+
+New-MgIdentityGovernanceAccessReviewDefinition -BodyParameter $definition`}</PowerShellBlock>
+
+The two settings that make this an enforcement control rather than a survey are `AutoApplyDecisionsEnabled = $true` (decisions are applied to the directory when the review closes, not just recorded) and `DefaultDecision = "Deny"` with `DefaultDecisionEnabled = $true` (a member nobody bothers to review loses access by default — "remove access if not reviewed"). Without auto-apply, a review produces a report that someone still has to act on manually, which is exactly the kind of gap an auditor flags.
+
+### Step 6: Perform a review decision and let auto-apply remove a member
+
+With the review running, the assigned reviewers (the group owners) see a list of members in the My Access portal (`https://myaccess.microsoft.com`) and decide approve or deny for each, with a justification. To demonstrate the loop, have a reviewer **deny** one member who should not be in the privileged group. When the review instance closes — or immediately, depending on the configuration — auto-apply removes that denied member from the group.
+
+You can confirm the removal with a membership query after the review applies its decisions.
+
+<PowerShellBlock title="Confirm a denied member was removed after auto-apply">{`Connect-MgGraph -Scopes "GroupMember.Read.All","AccessReview.Read.All"
+
+# Membership after the review applied decisions — the denied member should be gone.
+$groupId = (Get-MgGroup -Filter "displayName eq 'Privileged Operators'").Id
+Get-MgGroupMember -GroupId $groupId -All |
+  ForEach-Object { $_.AdditionalProperties['displayName'] }
+
+# Optional: read the review instances and their decisions for the audit trail.
+$def = Get-MgIdentityGovernanceAccessReviewDefinition -Filter "displayName eq 'Quarterly recert - Privileged Operators'"
+Get-MgIdentityGovernanceAccessReviewDefinitionInstance -AccessReviewScheduleDefinitionId $def.Id`}</PowerShellBlock>
+
+The denied member should no longer appear in the group membership, and the review instance retains a record of who decided what and why — that record is the exportable evidence an examiner wants. A review that removes access *and* documents the decision is doing the full job; one that only documents is only half a control.
+
+## Validation
+
+Prove the lab worked end to end:
+
+- **Standing assignments are gone.** After removing the old permanent assignment and creating eligibility, the test user appears in the **eligible** list (`Get-MgRoleManagementDirectoryRoleEligibilitySchedule`) and not in the active list — the role has zero standing assignments for that user.
+- **Activation is time-bound.** When the user self-activates, an entry appears in `Get-MgRoleManagementDirectoryRoleAssignmentSchedule` with an expiration; after the duration (`PT2H`) elapses, it is gone with no manual deactivation.
+- **Activation controls fire.** Activation prompts for MFA and a justification, and (if configured) waits for approval before the role goes active.
+- **The access review removes access.** A denied member is no longer in the privileged group after auto-apply, and the review instance holds the decision record.
+
+## Teardown
+
+Return the tenant to baseline so the lab is repeatable.
+
+<PowerShellBlock title="Tear down the PIM and access-review artifacts">{`Connect-MgGraph -Scopes "RoleManagement.ReadWrite.Directory","AccessReview.ReadWrite.All"
+
+# 1) Remove the eligibility you created (adminRemove against the same role/principal).
+$user = Get-MgUser -UserId "test.admin@yourtenant.onmicrosoft.com"
+$removeEligibility = @{
+  Action           = "adminRemove"
+  PrincipalId      = $user.Id
+  RoleDefinitionId = "fe930be7-5e62-47db-91af-98c3a49a38b1"
+  DirectoryScopeId = "/"
+  Justification    = "Lab teardown"
+}
+New-MgRoleManagementDirectoryRoleEligibilityScheduleRequest -BodyParameter $removeEligibility -WhatIf  # drop -WhatIf to apply
+
+# 2) Delete the access review definition.
+$def = Get-MgIdentityGovernanceAccessReviewDefinition -Filter "displayName eq 'Quarterly recert - Privileged Operators'"
+if ($def) {
+  Remove-MgIdentityGovernanceAccessReviewDefinition -AccessReviewScheduleDefinitionId $def.Id -WhatIf  # drop -WhatIf to delete
+}`}</PowerShellBlock>
+
+Removing the eligibility schedule returns the role to whatever baseline you want (re-add a permanent assignment only if the lab user genuinely needs standing access, which for a lab they do not). Delete the access review definition so it stops recurring. The *practice* — eligible over standing, recurring recertification — is what you carry forward; the specific lab objects are disposable.
+
+## What this proves
+
+You can implement the two governance controls auditors ask about first: least privilege *over time* through just-in-time activation, and *recurring recertification* through access reviews. You internalized the distinction that trips up half the people who talk about PIM without using it — eligible is dormant permission to request a role, active is the live, time-bound assignment that activation produces and that expires on its own. You can do this in the portal for the SC-300 exam and reproduce it in Graph with `New-MgRoleManagementDirectoryRoleEligibilityScheduleRequest`, the self-activate variant, the eligibility/assignment schedule reads, and `New-MgIdentityGovernanceAccessReviewDefinition` with auto-apply and a deny-by-default for unreviewed members. That combination — privilege that is off until needed and re-attested on a schedule — is precisely the evidence a SOX or FFIEC examiner wants to see in a bank, and it is the heart of the SC-300 privileged-access and access-review objectives.
+
+## Decision check
+
+<Quiz question={{
+  id: "12-labs/06-pim-and-access-reviews/q1",
+  prompt: "After onboarding the User Administrator role to PIM, a Graph query shows the test user has an eligibility schedule but no active assignment. The user complains they cannot perform admin tasks. What is happening?",
+  options: [
+    "PIM failed to assign the role; re-run the assignment.",
+    "The user is eligible but has not activated the role; PIM keeps the privilege dormant until the user requests activation (with MFA/justification/approval), at which point a time-bound active assignment is created.",
+    "The tenant is missing Entra ID P1.",
+    "Eligible and active are the same; this indicates a replication delay."
+  ],
+  correctIndex: 1,
+  explanation: "Eligible is not active. PIM's just-in-time model means the user must activate the eligible role to get a time-bound active assignment. That dormancy is the control, not a bug. (PIM requires P2, not P1.)"
+}} />
+
+## Recall drill
+
+<Flashcard front="In Entra PIM, what is the difference between an 'eligible' and an 'active' role assignment?" back="Eligible means the user can activate the role on demand (with MFA/justification/approval) for a time-bound window; active means the role is currently assigned. PIM's value is keeping privilege eligible (dormant) instead of standing." />
+<Flashcard front="Which Entra license tier is required for PIM and Access Reviews?" back="Microsoft Entra ID P2 (or Entra ID Governance / EMS E5). PIM (just-in-time roles) and Access Reviews are governance features; P1 covers Conditional Access but not these capabilities." />

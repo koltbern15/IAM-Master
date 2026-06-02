@@ -1,0 +1,265 @@
+{/* Lab procedures verified against Microsoft Learn (Windows LAPS module + ActiveDirectory module) as of 2026-06-01. Re-verify cmdlet syntax and GPO/CSP policy paths before relying on them. */}
+
+<HoloPanel label="COVERS">
+- **Builds on:** Lab 01 (the `corp.lab` AD lab and its OU structure) and Module 6 §02 the PowerShell IAM Cookbook (bulk-create, attribute update, disable-and-revoke patterns)
+- Operations and hardening lab — **not** SC-300 aligned (Windows LAPS and on-prem joiner/mover/leaver are SY0-701 and IGA-operations territory, not the cloud Entra cert)
+- **Security+ SY0-701** Objective 4.1 — apply common security techniques to computing resources (local-admin password rotation, account lifecycle)
+- **CISSP** Domain 5 — Identity and Access Management (the identity lifecycle expressed as code)
+</HoloPanel>
+
+# LAPS + Joiner/Mover/Leaver Automation
+
+Two of the most expensive failures in any directory share the same root cause: a credential that should have been unique, rotated, or removed was instead static, shared, and forgotten. A single local Administrator password reused across every workstation is one phished laptop away from a domain-wide breach. An account that joined the company three years ago, moved departments twice, and was never cleaned up still carries the access of all three roles stacked on top of each other. This lab fixes both. First you deploy Windows LAPS so every machine in `corp.lab` rotates its own unique local-admin password into the directory. Then you build a joiner/mover/leaver (JML) automation skeleton in PowerShell so the identity lifecycle — provisioning, attribute and group changes, and clean offboarding — happens the same way every time, with an audit trail, instead of by hand from a half-remembered runbook.
+
+This is the "now actually do it" counterpart to the Cookbook. Module 6 §02 gave you the recipes — bulk `New-MgUser`, attribute reconciliation from an HR feed, `-WhatIf` before any bulk write, `Revoke` on a compromise. Here you wire those recipes into named functions you can hand to a junior analyst and trust them to run.
+
+## Objective
+
+When you finish, the `corp.lab` lab will have Windows LAPS managing the local Administrator password on at least one domain-joined workstation — randomized, rotated on a schedule, and stored encrypted in the computer's own AD object where only authorized accounts can read it. You will also have three PowerShell functions that express the full identity lifecycle: a `New-Joiner` that provisions an account into the right OU with the right groups, a `Move-Employee` that handles a department change without leaving stale access behind, and a `Disable-Leaver` that offboards an account safely — capturing what it removes before it removes it. For a banking IAM role this is the daily work made repeatable: you are eliminating the number-one lateral-movement enabler and turning the lifecycle into reviewable code instead of tribal knowledge.
+
+## Prerequisites
+
+- **The Lab 01 AD lab.** You need `corp.lab` running with the `OU=Corp` structure (`Users`, `Groups`, `Workstations`, `Servers`, `ServiceAccounts`, `Admins`) from Lab 01. The JML functions write into those OUs by distinguished name.
+- **At least one domain-joined workstation VM.** LAPS manages a *member machine's* local admin password, so you need a client joined to `corp.lab` — a small Windows 10/11 VM is fine. Put its computer object in `OU=Workstations,OU=Corp`.
+- **Windows LAPS, not legacy LAPS.** Windows LAPS is the modern, in-box solution built into current Windows and Windows Server (Server 2019 and later received it through servicing updates; recent Windows 11 and Server 2025 ship with it). It is a different product from the older downloadable "Microsoft LAPS" MSI — confirm your DC and client are patched current so the `LAPS` PowerShell module and the `Laps*` cmdlets are present. Cite MS Learn "Windows LAPS overview" and "Get started with Windows LAPS and Windows Server Active Directory."
+- **Schema-admin rights for the one-time schema extension**, and an account authorized to set permissions on the `Workstations` OU.
+- **Builds on:** Lab 01 (the directory itself) and Module 6 §02 (the bulk-create, attribute-update, and disable-and-revoke patterns the JML functions are built from). This lab is where those recipes stop being snippets and become functions.
+
+<ProTip>
+**Lab-safety banner — same discipline as the rest of the module.** Every destructive command here is shown with `-WhatIf` first wherever the cmdlet supports it. Run all of this against the isolated `corp.lab` lab VM, never a production domain. Snapshot the DC before you extend the schema — a schema extension is a forest-wide, one-way change, and although the LAPS extension is additive and supported, you want a revert point the first time you do it. The single best habit in this lab: capture state to a log *before* you change it, and `-WhatIf` *before* you disable or remove anything.
+</ProTip>
+
+<Definition term="JML (Joiner/Mover/Leaver)">The three lifecycle events every identity passes through. A **Joiner** is provisioned: an account is created and granted the baseline access for their role. A **Mover** changes role, department, or location: their access must be re-aligned, which means *removing* the access of the old role as well as adding the new one. A **Leaver** departs: their access is revoked and the account is disabled, then eventually deleted after a retention window. The hard part is the Mover — most organizations are good at adding access and bad at removing it, so access accumulates with every move. JML automation makes the remove-step happen reliably instead of being skipped under deadline pressure.</Definition>
+
+## Part 1 — Windows LAPS
+
+### Step 1: Extend the AD schema for Windows LAPS
+
+Windows LAPS stores the managed password (and its history) as attributes on the computer object, so the directory schema has to know about those attributes before anything can write them. This is a one-time, forest-wide change. Run it from an account in the Schema Admins group, on a machine with the Windows LAPS feature present. Snapshot the DC first.
+
+<PowerShellBlock title="Extend the schema for Windows LAPS (one-time, forest-wide)">{`# The LAPS module ships in-box on patched Windows / Windows Server.
+# Confirm it is present before you start.
+Get-Command -Module LAPS | Format-Table Name, CommandType
+
+# Extend the schema. Additive change, but forest-wide and one-way -- snapshot first.
+# Run as a member of Schema Admins.
+Update-LapsADSchema -Verbose`}</PowerShellBlock>
+
+`Update-LapsADSchema` adds the LAPS attributes to the directory and to the computer class's `mayContain` list. You only ever run it once per forest.
+
+### Step 2: Grant the managed machines permission to write their own password
+
+A LAPS-managed machine writes its *own* rotated password back into its *own* computer object. For that to work, the computers in the `Workstations` OU need an inheritable permission to update the LAPS attributes on themselves. `Set-LapsADComputerSelfPermission` sets that permission on the OU so it flows down to every computer it contains.
+
+<PowerShellBlock title="Grant computer-self write permission on the Workstations OU">{`Set-LapsADComputerSelfPermission \`
+  -Identity 'OU=Workstations,OU=Corp,DC=corp,DC=lab' -Verbose`}</PowerShellBlock>
+
+Scope this to the OU that actually holds your managed clients, not the domain root. The permission is what lets a workstation rotate and store its own credential without a human ever touching it.
+
+### Step 3: Configure the LAPS policy
+
+The schema and permissions are the plumbing; the *policy* decides the password's length, complexity, rotation age, and — most importantly — where the password is backed up. In a Windows Server Active Directory lab you set the backup directory to **Active Directory** (the other option, Microsoft Entra ID, is for cloud-joined or hybrid devices). You deliver the policy by Group Policy in an AD environment, or by the LAPS configuration service provider (CSP) when devices are Intune-managed.
+
+The settings you care about live under Computer Configuration in the LAPS policy area: the backup directory (set it to Active Directory), the password age in days, and the password length and complexity. Set a sane lab baseline — for example a 20-plus character complex password rotated every 30 days. Apply the GPO to the `Workstations` OU and refresh policy on the client.
+
+<PowerShellBlock title="Refresh policy on the client and confirm LAPS sees its policy">{`# Run on the managed workstation after linking the LAPS GPO to its OU.
+gpupdate /force
+
+# Ask the LAPS client to evaluate its current policy and report status.
+# This surfaces whether a backup directory is configured and reachable.
+Invoke-LapsPolicyProcessing -Verbose`}</PowerShellBlock>
+
+If the policy is configured correctly, the client now knows it is supposed to manage the local Administrator password and back it up to AD.
+
+### Step 4: Force a rotation and read the password back
+
+Once policy is live, the workstation rotates its local Administrator password on schedule. To prove the loop works without waiting for the schedule, force a rotation, then read the stored value back from the directory. Reading it is a privileged action — only accounts you have granted the read permission can decrypt it — so this also demonstrates the RBAC boundary that makes LAPS safe.
+
+<PowerShellBlock title="Force a rotation, then retrieve the stored password">{`# On the managed workstation: rotate now instead of waiting for the schedule.
+Reset-LapsPassword -Verbose
+
+# On the DC (or any machine, as an authorized reader): read the stored password.
+# Default returns a SecureString; -AsPlainText returns clear text for lab inspection.
+Get-LapsADPassword -Identity 'WS01' -AsPlainText`}</PowerShellBlock>
+
+By default `Get-LapsADPassword` returns the password wrapped in a .NET `SecureString`; `-AsPlainText` returns it in clear text, which is fine for inspecting the value in a lab but exposes it to casual viewing — treat it accordingly. The point is proven the moment you see a long random string come back that you never set: the machine generated and rotated its own credential, and only an authorized account can read it.
+
+<WarStory title="One password, four thousand endpoints">
+A regional firm imaged every workstation and server from the same gold image. The image baked in a single local Administrator password — easy for the help desk, who could walk up to any machine and log in. Four thousand endpoints, one password, never rotated, because rotating it would have meant re-imaging or scripting a change across the whole fleet and nobody owned that.
+
+One user opened a malicious attachment. The attacker landed on that one laptop with normal user rights, dumped the local SAM, and pulled the local Administrator hash. Because that hash was identical on every machine in the estate, pass-the-hash let them authenticate as local admin to the next workstation, and the next, and the file server. They never needed a domain credential to move laterally — the shared local-admin password *was* the skeleton key. Containment meant rebuilding trust across the whole fleet.
+
+LAPS would have stopped the lateral movement cold. With a unique, rotated local-admin password on every machine, the hash dumped from the first laptop unlocks exactly one box — the one already compromised. There is no skeleton key to steal. This is why "deploy LAPS" is one of the highest-leverage, lowest-cost hardening steps in any Windows estate, and why it leads this lab.
+</WarStory>
+
+## Part 2 — Joiner / Mover / Leaver automation
+
+The directory is now hardened on the credential side. The other half of the job is the identity lifecycle. You will build three functions. They lean directly on the Module 6 §02 recipes — the difference is that here each recipe becomes a named, parameterized, reusable function with the safety rails baked in.
+
+### Step 5: Joiner — provision an account into the right place
+
+The joiner wraps Lab 01's `New-ADUser` into a function that knows your conventions: it builds the UPN, drops the account into the correct OU, sets the manager, forces a password change at first logon, and adds the baseline groups for the new hire's department. Driving it from a department-to-groups map means the access a joiner gets is *policy*, not whatever the person provisioning them happened to remember.
+
+<PowerShellBlock title="New-Joiner: provision a new hire">{`function New-Joiner {
+  [CmdletBinding(SupportsShouldProcess)]
+  param(
+    [Parameter(Mandatory)] [string] $FirstName,
+    [Parameter(Mandatory)] [string] $LastName,
+    [Parameter(Mandatory)] [string] $Department,
+    [Parameter(Mandatory)] [string] $JobTitle,
+    [string] $ManagerSam
+  )
+
+  # Department -> baseline groups. This is your access policy as data.
+  $deptGroups = @{
+    'Finance' = @('Finance-Users','VPN-Users')
+    'IT'      = @('IT-Users','VPN-Users','Workstation-Admins')
+    'Retail'  = @('Retail-Users')
+  }
+
+  $sam = ($FirstName.Substring(0,1) + $LastName).ToLower()
+  $upn = "$($FirstName.ToLower()).$($LastName.ToLower())@corp.lab"
+  $ou  = 'OU=Users,OU=Corp,DC=corp,DC=lab'
+
+  # Generate a random temp password; force a change at first sign-in.
+  $chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789!@#%^&*'
+  $temp  = -join (1..16 | ForEach-Object { $chars[(Get-Random -Maximum $chars.Length)] })
+  $secure = ConvertTo-SecureString $temp -AsPlainText -Force
+
+  if ($PSCmdlet.ShouldProcess($upn, 'Create joiner account')) {
+    New-ADUser -Name "$FirstName $LastName" \`
+               -GivenName $FirstName -Surname $LastName \`
+               -SamAccountName $sam -UserPrincipalName $upn \`
+               -Department $Department -Title $JobTitle \`
+               -Path $ou -AccountPassword $secure \`
+               -ChangePasswordAtLogon $true -Enabled $true
+
+    if ($ManagerSam) { Set-ADUser -Identity $sam -Manager $ManagerSam }
+
+    foreach ($g in $deptGroups[$Department]) {
+      Add-ADGroupMember -Identity $g -Members $sam
+    }
+  }
+
+  [PSCustomObject]@{ Sam = $sam; UPN = $upn; TempPassword = $temp; Groups = $deptGroups[$Department] }
+}
+
+# Dry run first, then for real:
+New-Joiner -FirstName Dana -LastName Reyes -Department Finance -JobTitle Analyst -WhatIf`}</PowerShellBlock>
+
+`SupportsShouldProcess` is what gives the function its own `-WhatIf` for free — the same discipline the Cookbook drilled. Deliver the returned temp password over a secure channel, never email.
+
+### Step 6: Mover — re-align access on a department change
+
+The mover is where most lifecycle programs leak. Adding the new department's groups is easy; the discipline is *removing* the old department's groups in the same operation so access does not accumulate. This function takes the new department, computes which groups to add and which to strip, updates the directory attributes, and reports exactly what it changed. It mirrors the Cookbook's HR-feed reconciliation pattern (Recipe 7), but on-prem and group-aware.
+
+<PowerShellBlock title="Move-Employee: re-align access on a department change">{`function Move-Employee {
+  [CmdletBinding(SupportsShouldProcess)]
+  param(
+    [Parameter(Mandatory)] [string] $Sam,
+    [Parameter(Mandatory)] [string] $NewDepartment,
+    [string] $NewTitle
+  )
+
+  $deptGroups = @{
+    'Finance' = @('Finance-Users','VPN-Users')
+    'IT'      = @('IT-Users','VPN-Users','Workstation-Admins')
+    'Retail'  = @('Retail-Users')
+  }
+
+  $user = Get-ADUser -Identity $Sam -Properties Department, MemberOf
+  $oldDept = $user.Department
+
+  $addGroups    = $deptGroups[$NewDepartment]
+  $removeGroups = $deptGroups[$oldDept] | Where-Object { $_ -notin $addGroups }
+
+  if ($PSCmdlet.ShouldProcess($Sam, "Move $oldDept -> $NewDepartment")) {
+    Set-ADUser -Identity $Sam -Department $NewDepartment
+    if ($NewTitle) { Set-ADUser -Identity $Sam -Title $NewTitle }
+
+    foreach ($g in $removeGroups) { Remove-ADGroupMember -Identity $g -Members $Sam -Confirm:$false }
+    foreach ($g in $addGroups)    { Add-ADGroupMember    -Identity $g -Members $Sam }
+  }
+
+  [PSCustomObject]@{ Sam = $Sam; From = $oldDept; To = $NewDepartment; Added = $addGroups; Removed = $removeGroups }
+}
+
+# Dry run first:
+Move-Employee -Sam dreyes -NewDepartment IT -NewTitle 'Systems Analyst' -WhatIf`}</PowerShellBlock>
+
+Notice the function computes `removeGroups` as the *difference* — groups the old department had that the new one does not — so a group common to both (here `VPN-Users`) is left untouched rather than churned off and back on.
+
+### Step 7: Leaver — offboard safely, capture before you strip
+
+The leaver is the highest-stakes function, because it removes access and you can never prove what access existed if you remove it without recording it first. The order matters: **capture the group memberships to a log, then disable the account, then move it to a disabled OU, then strip the groups, then stamp a deletion-eligible date.** Disabling before stripping means the account is already inert if the strip step fails partway. The log is your audit evidence — for an offboarding question from an examiner, "what did this person have access to on their last day," the answer is a file with a timestamp.
+
+<PowerShellBlock title="Disable-Leaver: offboard with an audit trail">{`function Disable-Leaver {
+  [CmdletBinding(SupportsShouldProcess)]
+  param(
+    [Parameter(Mandatory)] [string] $Sam,
+    [int] $RetentionDays = 30
+  )
+
+  $disabledOU = 'OU=Disabled,OU=Corp,DC=corp,DC=lab'
+  $user = Get-ADUser -Identity $Sam -Properties MemberOf
+  $stamp = Get-Date -Format 'yyyyMMdd-HHmm'
+
+  # 1) CAPTURE FIRST -- record every group membership before touching anything.
+  $log = "C:\Audits\Leaver_$($Sam)_$stamp.csv"
+  $user.MemberOf | ForEach-Object {
+    [PSCustomObject]@{ Sam = $Sam; Group = $_; CapturedOn = (Get-Date) }
+  } | Export-Csv -Path $log -NoTypeInformation
+  Write-Host "Memberships logged to $log"
+
+  if ($PSCmdlet.ShouldProcess($Sam, 'Disable, relocate, de-group, stamp')) {
+    # 2) Disable the account so it is inert immediately.
+    Disable-ADAccount -Identity $Sam
+
+    # 3) Move it to the disabled OU.
+    Move-ADObject -Identity $user.DistinguishedName -TargetPath $disabledOU
+
+    # 4) Strip group memberships now that they are captured.
+    foreach ($g in $user.MemberOf) {
+      Remove-ADGroupMember -Identity $g -Members $Sam -Confirm:$false
+    }
+
+    # 5) Stamp a deletion-eligible date into a spare attribute for the cleanup job (Lab 11).
+    $deleteAfter = (Get-Date).AddDays($RetentionDays).ToString('yyyy-MM-dd')
+    Set-ADUser -Identity $Sam -Replace @{ info = "DisabledOn=$(Get-Date -Format 'yyyy-MM-dd'); DeleteAfter=$deleteAfter" }
+  }
+}
+
+# ALWAYS dry-run a leaver first:
+Disable-Leaver -Sam dreyes -WhatIf`}</PowerShellBlock>
+
+The `DeleteAfter` stamp is the handoff to Lab 11's stale-account cleanup: the leaver function does not delete anything itself — it disables and marks the account, and the retention-gated cleanup job deletes it later only after a second review.
+
+<ProTip>
+**Capture the group memberships to a log BEFORE you strip them — every time, no exceptions.** Once you run `Remove-ADGroupMember` you have destroyed the only record of what the account could reach. If an examiner, an incident responder, or a re-hire scenario later asks "what access did this person have," your answer has to be a timestamped artifact, not a shrug. The `Disable-Leaver` function above does the capture as step one, before it disables or removes anything, precisely so the evidence exists no matter what happens in the steps that follow. This single ordering decision is the difference between an offboarding you can defend in an audit and one you cannot.
+</ProTip>
+
+## Validation
+
+Prove each piece works rather than assuming it did.
+
+- **LAPS:** `Get-LapsADPassword -Identity 'WS01'` returns a stored, recently-rotated password (check the expiration/update timestamp it returns), and an unauthorized account gets access-denied trying the same read — confirming the RBAC boundary.
+- **Joiner:** after a real `New-Joiner` run, `Get-ADUser dreyes -Properties MemberOf, Department` shows the account in `OU=Users,OU=Corp`, in the correct department, and a member of exactly the baseline groups for that department.
+- **Mover:** after `Move-Employee`, the account's department attribute is updated and `MemberOf` shows the new department's groups present and the old department's exclusive groups gone — with any shared group untouched.
+- **Leaver:** after `Disable-Leaver`, the account is disabled, sitting in `OU=Disabled,OU=Corp`, stripped of group memberships, stamped with a `DeleteAfter` date — and the `C:\Audits\Leaver_*.csv` log lists every group it removed.
+
+<PowerShellBlock title="Confirm the lifecycle result for one account">{`Get-ADUser -Identity dreyes -Properties Department, MemberOf, Enabled, info |
+  Select-Object Name, Enabled, Department, info,
+    @{ N = 'Groups'; E = { ($_.MemberOf | ForEach-Object { ($_ -split ',')[0] -replace 'CN=' }) -join ', ' } }`}</PowerShellBlock>
+
+## Teardown
+
+Nothing here is costly to leave running — it all lives in the `corp.lab` lab VM, which you snapshot and revert. The LAPS schema extension is forest-wide and one-way, so you do not "undo" it; the snapshot you took before Step 1 is your revert point if you want a clean slate. For the JML side, re-enable any lab accounts you disabled (`Enable-ADAccount`) and the test users return to a usable state. The real deliverable is not the disposable test data — it is the disabled-OU-plus-retention pattern, which is exactly what Lab 11 picks up to do the eventual deletion safely.
+
+## What this proves
+
+You have closed the two cheapest, highest-impact gaps in a Windows estate. Windows LAPS means there is no shared local-admin skeleton key for an attacker to steal and reuse — the single most common lateral-movement enabler is gone, replaced by per-machine, self-rotating, directory-stored credentials that only authorized accounts can read. And you have expressed the entire identity lifecycle as code: a joiner that provisions by policy, a mover that *removes* old access as reliably as it adds new access, and a leaver that captures its evidence before it acts. That is the operational core of any IGA program — the part auditors want to see running consistently, not the part done by hand under deadline pressure. You can now hand these functions to someone less experienced and trust the safety rails (`-WhatIf`, capture-before-strip, retention-gated deletion) to keep them out of trouble.
+
+## Recall drill
+
+<Flashcard front="What problem does Windows LAPS solve and where does it store the rotated password?" back="It randomizes and rotates each machine's local Administrator password so no single shared local-admin credential exists across endpoints. The password is stored (encrypted) in the computer object in AD (or in Entra ID for cloud-joined devices), retrieved with Get-LapsADPassword." />
+<Flashcard front="In a leaver automation, what must you do BEFORE stripping a departing user's group memberships?" back="Capture and log every group membership first (for audit evidence), then disable the account, move it to a disabled OU, and remove the memberships. You cannot later prove what access existed if you strip the groups first." />

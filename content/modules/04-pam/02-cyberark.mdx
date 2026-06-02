@@ -1,0 +1,165 @@
+{/* Objectives current as of 2026-06-01. Re-verify product naming against docs.cyberark.com before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **PAM** The CyberArk market position — Privileged Access Manager (Self-Hosted) and the SaaS Privilege Cloud
+- **PAM** The Digital Vault (EPV) — layered encryption, the Server Key, and Safes
+- **PAM** The core component tier — PVWA, CPM, PSM, and PSM for SSH
+- **PAM** Credential injection and isolated, recorded privileged sessions
+- **PAM** The Master Policy — dual control, one-time passwords, session recording
+- **PAM** Privileged Threat Analytics (PTA) — behavioral detection that feeds rotation
+- **PAM** Application secrets — Credential Providers / CCP (AAM) and Conjur for the app-to-app side
+</HoloPanel>
+
+# CyberArk: The PAM Market Leader
+
+If you work privileged access in a large, regulated enterprise — and a bank is exactly that — you will meet CyberArk. It is the vendor that effectively defined the privileged-access-management category and has held the leader position in it for the better part of two decades. When an examiner, an auditor, or a new CISO asks "what are we using to protect domain admin and the service accounts," the answer in financial services is, more often than not, CyberArk. This section takes the abstract machinery from the previous section — vault, session broker, credential injection, rotation, JIT — and makes it concrete in the architecture of one product family, because once you understand how CyberArk fits the pieces together, every other PAM vendor reads as a variation on the same theme.
+
+## What it is
+
+CyberArk's flagship privileged-access product comes in two delivery shapes. The on-premises, customer-operated suite is **Privileged Access Manager - Self-Hosted** (the product that older documentation, certifications, and engineers still call "PAS" or "Privileged Access Security"). The SaaS equivalent, where CyberArk operates the control plane and you consume it, is **Privilege Cloud**. The conceptual components are the same across both; the difference is who runs the hardened infrastructure. In Privilege Cloud, for example, the rotation engine has been re-platformed as a cloud-native service rather than the classic self-hosted rotation engine — but the *job* it does (rotate, verify, reconcile credentials) is identical, so the mental model carries over cleanly.
+
+<Definition term="Privileged Access Manager (Self-Hosted)">CyberArk's on-premises privileged-access suite — historically branded Privileged Access Security or PAS. You deploy and operate the components yourself: the Digital Vault, PVWA, CPM, and PSM. The SaaS counterpart is Privilege Cloud, where CyberArk operates the control plane. Both implement the same vault-broker-rotate-record model; the split is operational ownership, not capability.</Definition>
+
+The reason CyberArk dominates financial services specifically is not marketing — it is the combination of two things examiners care about deeply. First, a single hardened crown-jewel store for every privileged credential, with cryptographic isolation and full audit. Second, complete session recording: an examiner who asks "show me every privileged session against the core-banking database last quarter, with video" gets a clean answer. That evidentiary completeness, more than any single feature, is why the heaviest-regulated estates standardize on it.
+
+## Why it exists
+
+Before a vaulting platform, privileged credentials lived everywhere and nowhere: a domain-admin password in a sysadmin's head and a sticky note, a service-account password hardcoded in a dozen application config files, a shared "firecall" account whose password had not changed since the last person who knew it left the company. Every one of those is the attack surface the previous section described — standing, shared, un-rotated, un-audited privilege. CyberArk exists to collapse all of it into one governed flow: discover the privileged accounts, pull them into an encrypted vault, rotate their passwords on a schedule, and force every human use of them through a recorded, credential-injected session.
+
+The design philosophy worth internalizing is **assume the operator's endpoint is hostile**. A teller's workstation, an admin's laptop, a vendor's machine — any of them could be compromised. So the architecture is built so the cleartext secret never reaches that endpoint at all. The operator proves who they are, the platform brokers the session, and the password is injected server-side into the target protocol. The human never sees it, never types it, and therefore cannot leak it from a keylogged or malware-ridden box. That single property — the operator never handles the secret — is the through-line of the entire CyberArk architecture.
+
+## How it works under the hood
+
+CyberArk is best understood as a small set of components that pass a credential between them so that a human can use it without ever holding it. The diagram below is the canonical flow; click any step to inspect what each component does.
+
+<CyberArkArchDiagram />
+
+Walk it once end to end, then we will define each box.
+
+1. **Authenticate.** The admin signs in to **PVWA** (LDAP, SAML, RADIUS, or PKI). PVWA is the web front end and REST API; it holds no secrets itself.
+2. **Retrieve under policy.** On an approved request, PVWA pulls the requested credential from the **Digital Vault** — subject to the Master Policy (dual control, check-out, one-time-password rules).
+3. **Rotate and verify.** Independently and on its own schedule, the **CPM** changes, verifies, and reconciles the managed password directly on the target system, then writes the new value back into the Vault.
+4. **Launch the session.** For interactive access the operator connects through the **PSM**, a secure jump/proxy host. The operator never sees the credential.
+5. **Proxy and record.** PSM injects the credential into the target protocol and opens an isolated, fully recorded session. It can be monitored live and terminated mid-session, and the recording is retained for audit.
+
+Behind that flow, **PTA** watches for anomalies and can trigger an automatic rotation if it sees something it does not like. Now the components in detail.
+
+### The Digital Vault (EPV)
+
+<Definition term="Digital Vault (EPV)">CyberArk's hardened, encrypted core store for all privileged secrets — historically called the Enterprise Password Vault. It runs on a dedicated, OS-hardened host with the firewall locked down to a single proprietary Vault protocol port, uses layered per-object encryption, and is the single most security-critical asset in the deployment because its compromise would expose every managed credential.</Definition>
+
+The Vault is the asset you protect above all others, and CyberArk hardens it accordingly. The Vault server runs on a dedicated Windows host that is OS-hardened to CyberArk's specification — unnecessary services are deactivated and the Microsoft firewall is configured to permit only traffic to the dedicated Vault port (by default **TCP 1858**), blocking everything else. All traffic on that port is encrypted with CyberArk's proprietary Vault protocol. This is why the Vault is often described as effectively air-gapped or isolated: it does not speak the general-purpose protocols an attacker would use to pivot into it.
+
+Encryption is **layered**. CyberArk uses FIPS 140-2 compliant AES-256, and every individual object — every password file, every Safe — is encrypted with its own unique key. Sitting above all of those is a single top-level key, the **Server Key**, which is required to start the Vault. Without the Server Key the Vault will not open; the data on disk is just ciphertext. Best practice is to keep the Server Key on a hardware security module (HSM) so it is physically separated from the data it protects.
+
+<ProTip>
+Treat the Server Key as the literal root of trust for your entire privileged-credential estate. If it is stored on an HSM, the Vault cannot be started — and therefore your secrets cannot be decrypted — without the HSM present. That is a feature, not an inconvenience: it means a stolen Vault backup tape is inert ciphertext. The flip side is an operational discipline you must get right: losing the Server Key without a tested recovery path means losing the Vault. Document and rehearse Server Key custody and recovery the same way you would rehearse break-glass for the directory itself.
+</ProTip>
+
+Inside the Vault, credentials are organized into **Safes**.
+
+<Definition term="Safe">A logical container inside the CyberArk Vault that groups credential objects and carries its own role-based access control through Safe members and their authorizations. The Safe is the unit at which you delegate who may retrieve, use, or administer which secrets — so Safe design is where least privilege is actually enforced for the vaulted credentials.</Definition>
+
+A clean Safe design — grouping credentials by team, application, or sensitivity, and granting Safe membership narrowly — is what turns a vault from "one big shared password store" into a least-privilege-enforcing system. Sloppy Safe design (everyone a member of everything) silently undoes the whole control.
+
+### PVWA — Password Vault Web Access
+
+PVWA is the primary interface for both users and administrators. It runs on IIS and presents the web UI (and a REST API) where users request access, retrieve credentials, kick off sessions, and where approvers grant dual-control requests. The key architectural point is that PVWA is stateless with respect to secrets: it brokers requests to the Vault and renders results, but it does not store the credentials. Compromising PVWA is not the same as compromising the Vault — which is exactly the separation of concerns you want.
+
+### CPM — Central Policy Manager
+
+<Definition term="Central Policy Manager (CPM)">The CyberArk engine that performs automatic credential management against managed targets. It executes three operations — change (rotate the password), verify (confirm the stored value still works), and reconcile (force the target back into sync after drift) — driven by the Master Policy and per-target platform definitions. It is the component behind CyberArk's automatic rotation.</Definition>
+
+The CPM is the workhorse of rotation. It connects to each managed target — a Windows server, a Unix host, an Oracle database, a network device, a cloud account — using a **platform**, which is the per-target-type plug-in that knows *how* to change a password on that kind of system. The three operations are worth committing to memory because they map directly to how rotation fails and recovers in the real world:
+
+- **Change** rotates the password on the target and stores the new value in the Vault.
+- **Verify** periodically confirms the Vault's stored value still authenticates against the target.
+- **Reconcile** uses a privileged reconciliation account to force the target's password back to a known good value when the Vault and the live account have drifted out of sync (the classic "someone changed the password manually" scenario).
+
+In Privilege Cloud, this rotation capability is delivered as a cloud-native rotation service rather than the self-hosted CPM binary, but change/verify/reconcile remain the operations you reason about.
+
+### PSM — Privileged Session Manager
+
+<Definition term="credential injection">The technique where the Privileged Session Manager inserts a vaulted secret directly into the target protocol (RDP, SSH, or web) at connect time, so the operator authenticates to the target without ever seeing, typing, or possessing the password. It is what makes session isolation meaningfully stronger than simply knowing a credential — the secret never reaches the operator's endpoint.</Definition>
+
+PSM is the session-isolation tier. Instead of the admin connecting directly to the target with a password in hand, they connect *through* PSM, a hardened jump/proxy host. PSM pulls the credential from the Vault, performs credential injection into the RDP/SSH/web session, and the operator gets a working session to the target without ever having handled the secret. Every keystroke and the full screen are recorded; the session can be watched live by a SOC analyst and terminated instantly if something looks wrong. **PSM for SSH** (the lineage some engineers still call PSM-SSHP) is the variant that brokers Unix/Linux SSH sessions the same way.
+
+This is the component that earns CyberArk its place in banking. Session recording is not a nice-to-have here — it is the audit evidence. When an examiner asks to see who did what with the firewall-admin account on a given date, the answer is a video.
+
+### The Master Policy
+
+The **Master Policy** is the central rule set that governs privileged-access behavior across Safes. It is where you turn on the controls that map to your compliance obligations:
+
+- **Dual control** — a privileged retrieval requires a second person's approval before it is granted.
+- **One-time passwords / exclusive access** — a credential is rotated automatically on check-in, so each use is a fresh password and only one operator holds it at a time.
+- **Session recording requirements** — mandate that access to a given Safe must go through a recorded PSM session.
+- **Check-in / check-out** — reserve a credential exclusively for a window, then return and rotate it.
+
+The Master Policy is how a written control ("no single person can retrieve the domain-admin password unilaterally") becomes an enforced technical control.
+
+### PTA — Privileged Threat Analytics
+
+PTA is the behavioral-analytics layer. It continuously watches privileged activity — both accounts CyberArk manages and ones it does not yet — looking for indications of abuse: a suspicious credential retrieval, access at an odd time, Kerberos attack indicators like Golden Ticket patterns, or use of an account that should be dormant. When PTA detects something high-risk it can do more than alert: it can trigger an automatic CPM rotation of the implicated credential, so a suspected-stolen password is changed out from under the attacker. PTA capabilities increasingly surface inside CyberArk's broader Identity Security Platform, but the detection-plus-automatic-rotation behavior is the concept to retain.
+
+### The application side — Credential Providers, CCP, and Conjur
+
+Everything above is built around a *human* using a privileged account. The other half of any real PAM program is *applications* using credentials — the hardcoded database password in a config file, the API key in a connection string. CyberArk addresses this with the **Application Access Manager (AAM)** family.
+
+**Credential Providers (CP)** and the **Central Credential Provider (CCP)** let an application fetch its secret from the Vault at runtime instead of storing it. The app is authenticated not by a password it holds but by its own characteristics — the path it runs from, a hash of the application binary, the OS user it runs as — so no static credential ever lives in code or config. The local Credential Provider runs an agent on the application host; the Central Credential Provider exposes the same retrieval over a web service for apps where an agent is impractical.
+
+<Definition term="Conjur">CyberArk's DevOps and cloud-native secrets manager, built for machine identities, CI/CD pipelines, containers, and microservices, with policy expressed as code. It addresses the high-velocity application-to-application secrets problem — distinct from the human privileged-session problem the classic Vault, PVWA, and PSM solve — and overlaps directly with the space HashiCorp Vault occupies.</Definition>
+
+**Conjur** is the modern, cloud-native answer to the same problem at DevOps scale. Where Credential Providers retrofit secret retrieval onto traditional applications, Conjur is built from the ground up for pipelines, containers, and microservices, with policy-as-code and machine identity. It is the CyberArk product that competes most directly with HashiCorp Vault (covered in the next section) — and the existence of both inside the same vendor tells you the market split: classic Vault/PSM for human privileged sessions, Conjur for automated app-to-app secrets.
+
+## War story
+
+<WarStory title="Break-Glass to the Vault Itself">
+A regional bank rolled out CyberArk to vault and broker every Tier-0 credential — domain admins, the core-banking service accounts, the network gear. It went well. PSM recorded every session, the Master Policy enforced dual control on the most sensitive Safes, and an examiner walked away happy after seeing video of a domain-admin maintenance window. The team had done the hard work right.
+
+Then, eighteen months in, on a holiday weekend, the Vault host had a hardware fault and the standby did not fail over cleanly. The Vault was down. And here was the problem nobody had rehearsed: the credentials for the infrastructure they needed to *fix* the Vault — the ESXi hosts, the storage array, the out-of-band management — had all been onboarded into CyberArk. They were now sitting, encrypted, inside the very system that was offline. The team had built a beautiful vault and locked the recovery keys inside it.
+
+It took six hours. Most of that was not technical repair; it was finding a senior engineer who still remembered an out-of-band path that predated the CyberArk rollout, and confirming the Server Key custody so they were certain they could bring the Vault back up at all. They recovered everything, lost no data, and the credentials were intact behind the Server Key exactly as designed. But six hours of "we cannot get into the thing we need to fix the thing" on a holiday is a long six hours.
+
+The remediation was a documented, tested break-glass path *for the PAM platform itself*, treated with the same rigor as directory break-glass. A small set of recovery-critical credentials — just enough to repair the Vault and its dependencies — kept on a sealed, offline, dual-control path outside CyberArk, alerted on any use, and tested twice a year. Plus a written, rehearsed Server Key recovery procedure. The lesson generalizes: when you vault the keys to the kingdom, make very sure you have a separate, sealed key to the vault. The crown jewel becomes a single point of failure precisely because it is so well protected, and a PAM program that has not rehearsed recovering its own vault is not finished.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="Name the four core components of the CyberArk self-hosted PAM suite." back="The Digital Vault (EPV) for encrypted storage, PVWA (Password Vault Web Access) for the web UI and API, CPM (Central Policy Manager) for automatic credential rotation, and PSM (Privileged Session Manager) for isolated, recorded sessions." />
+<Flashcard front="What is the CyberArk Digital Vault and why is it hardened?" back="The encrypted, layered-key core store for all privileged secrets (historically the Enterprise Password Vault). It runs on a dedicated, OS-hardened host whose firewall permits only the proprietary Vault protocol on its dedicated port (1858 by default), because compromise of the Vault would expose every managed credential." />
+<Flashcard front="What is a Safe in CyberArk?" back="A logical container inside the Vault that groups credential objects and carries its own role-based access (Safe members and authorizations) — the unit at which you delegate who can retrieve or use which secrets, and therefore where least privilege is enforced for vaulted credentials." />
+<Flashcard front="What three operations does the CyberArk CPM perform?" back="Change (rotate the password on the target and store it in the Vault), verify (confirm the stored value still authenticates), and reconcile (force a drifted target back to a known good value using a reconciliation account) — all driven by the Master Policy and per-target platform plug-ins." />
+<Flashcard front="What does PSM (Privileged Session Manager) provide beyond vaulting?" back="Session isolation: it proxies RDP/SSH/web sessions through a hardened jump host, injects the credential so the secret never reaches the endpoint, and records the full session for audit, live monitoring, and instant termination." />
+<Flashcard front="What is credential injection in CyberArk PSM?" back="PSM inserts the vaulted secret directly into the target protocol (RDP/SSH/web) at connect time, so the operator authenticates to the target without ever seeing, typing, or possessing the password — defeating credential theft from a compromised endpoint." />
+<Flashcard front="What is the CyberArk Master Policy?" back="The central rule set governing privileged-access behavior across Safes — dual control/approval, exclusive or one-time passwords, mandatory session recording, and check-in/check-out — which turns a written control into an enforced technical one." />
+<Flashcard front="What is the Server Key in CyberArk and why does it matter?" back="The single top-level key required to start the Vault; without it the on-disk data stays encrypted and the Vault will not open. It is best stored on an HSM, separated from the data it protects, making it the root of trust for the entire privileged-credential estate." />
+<Flashcard front="What is CyberArk PTA (Privileged Threat Analytics)?" back="A behavioral-analytics layer that detects anomalous privileged activity — suspicious retrievals, off-hours access, Kerberos attack indicators — across managed and unmanaged accounts, and can trigger an automatic CPM rotation of an implicated credential in response." />
+<Flashcard front="What problem do CyberArk Credential Providers / CCP (AAM) solve, and how does Conjur differ?" back="Credential Providers and the Central Credential Provider remove hardcoded credentials from application code and config — the app fetches its secret at runtime, authenticated by attributes like path, application hash, and OS user. Conjur is CyberArk's DevOps/cloud-native secrets manager with policy-as-code and machine identity, built for CI/CD, containers, and microservices rather than human privileged sessions." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "04-pam/02-cyberark/q1",
+  prompt: "In the CyberArk self-hosted suite, which component is responsible for automatically changing and reconciling a managed service-account password on its target system?",
+  options: [
+    "PVWA",
+    "The Digital Vault (EPV)",
+    "CPM (Central Policy Manager)",
+    "PSM (Privileged Session Manager)"
+  ],
+  correctIndex: 2,
+  explanation: "The CPM performs the change, verify, and reconcile operations against managed targets according to the Master Policy and the per-target platform plug-in. The Digital Vault stores secrets but does not rotate them, PVWA is the stateless web UI/API, and PSM brokers and records interactive sessions. Rotation is the CPM's job."
+}} />
+
+<Quiz question={{
+  id: "04-pam/02-cyberark/q2",
+  prompt: "A development team has database passwords hardcoded in application config files. Which CyberArk capability is designed to eliminate these hardcoded credentials?",
+  options: [
+    "The Master Policy",
+    "Credential Providers / Central Credential Provider (AAM)",
+    "Privileged Threat Analytics (PTA)",
+    "A dedicated Safe with dual control"
+  ],
+  correctIndex: 1,
+  explanation: "CyberArk Credential Providers and the Central Credential Provider (Application Access Manager) let the application retrieve its secret at runtime — authenticated by attributes such as path, application hash, and OS user — so no static password lives in code or config. The Master Policy governs human-access behavior, PTA is analytics, and a Safe still implies a stored password the app must fetch through a provider."
+}} />

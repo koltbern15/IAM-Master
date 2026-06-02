@@ -1,0 +1,162 @@
+{/* Lab procedure. CyberArk portal labels and REST/psPAS paths shift by version — re-verify against current CyberArk docs and the psPAS project before running in any tenant. */}
+
+<HoloPanel label="COVERS">
+- **Hands-on PAM operations** — Vault / PVWA / CPM / PSM control loop in practice (operationalizes Module 4 §02 CyberArk architecture)
+- **Security+ SY0-701** Objective 4.6 — Implement and maintain identity and access management (privileged access, credential vaulting, session recording)
+- **CISSP** Domain 5.4 — Manage the identity and access provisioning lifecycle; Domain 7 — privileged session monitoring
+- Not an SC-300 objective — CyberArk is vendor PAM, not a Microsoft cert topic. **Builds on: Module 4 §02 (CyberArk)**, and reuses the weak service account seeded in Lab 01.
+</HoloPanel>
+
+# Onboard an Account into CyberArk PAM
+
+## Objective
+
+When you finish this lab you will have walked a privileged credential through CyberArk's full management loop end to end: you create a **Safe** to hold it, attach a **Platform** that governs how it is rotated and verified, **onboard** the account so its password moves into the Vault, let the **CPM** rotate that password on onboarding, and then connect to the target through **PSM** with the session recorded. The payoff is a single, demonstrable fact — the human who connects to the privileged target never sees the password, the password rotates on a schedule no one has to remember, and every privileged session is captured for replay. That is the exact control loop a bank like Richwood has to evidence for its SOX-relevant privileged access, which makes this the highest-direct-relevance lab in the module for the day job.
+
+This is the "now actually do it" counterpart to the CyberArk architecture you studied in Module 4 §02. There you learned what the Vault, PVWA, CPM, and PSM are. Here you make them move.
+
+## Prerequisites
+
+- **A CyberArk environment.** The lab is written against **CyberArk Privilege Cloud** (the SaaS offering) because a full self-hosted Self-Hosted/Privileged Access Manager build — Vault server, PVWA, CPM, PSM, all separately licensed and hardened — is heavy to stand up just to learn the workflow. If you have access to a Privilege Cloud trial or an employer/partner tenant, use it. If you only have a self-hosted lab, the same concepts apply; the portal labels and connection details differ.
+- **A privileged account to onboard.** Reuse the deliberately weak, SPN-registered service account you created in Lab 01 (`corp.lab`), or any lab domain admin / local admin you are willing to hand to the Vault. The point of starting with the weak account is that onboarding it is precisely the remediation for the finding in the war story below.
+- **Vault permissions.** You need an account with rights to create Safes and add Safe members, and to add/manage accounts. In CyberArk these are Safe-level authorizations (Add accounts, Update password value, Initiate CPM password management operations, and so on) plus the directory/Vault role that lets you create Safes in the first place. Confirm your trial user has them before you start.
+- **Builds on Module 4 §02.** Keep the CyberArk component diagram from that section open. Every step here maps to one box on it: Safe and account live in the **Vault**, you drive everything through **PVWA** (the web portal), the **CPM** does the rotation, and the **PSM** brokers and records the connection.
+
+### A note on automation: this is not a Microsoft module
+
+Everything in Modules 2–6 leaned on Microsoft Graph PowerShell. **CyberArk does not.** There is no Microsoft cmdlet for any of this. CyberArk exposes a **REST API**, and the community-maintained PowerShell wrapper around that API is **`psPAS`** (the open-source module by Pete Maan, installable from the PowerShell Gallery). When this lab shows a cmdlet, it is a `psPAS` cmdlet talking to the CyberArk REST API — not a vendor-supported Microsoft module. Most of the workflow is genuinely portal-driven; the two PowerShell blocks below exist to show you the automation path for the steps that scale (bulk onboarding, programmatic retrieval), not because the portal cannot do them.
+
+<ProTip>
+Treat the portal as the source of truth for *what the labels are* and `psPAS` as the source of truth for *what scales*. CyberArk renames blades and reshuffles menus between versions, and `psPAS` parameters track the REST API version your tenant exposes. If a cmdlet parameter below does not exist in your version, run `Get-Command -Module psPAS` and `Get-Help <cmdlet> -Full` against your tenant — the most recent psPAS release is built to work across CyberArk versions, but the available parameters depend on the API your tenant actually serves.
+</ProTip>
+
+## Lab steps
+
+### Step 1: Create a Safe and define its members
+
+A **Safe** is the unit of access control in CyberArk. It is the container that holds accounts, and — critically — it is *where you grant who-can-do-what*. Permissions in CyberArk are assigned at the Safe level (and refined per member), not globally. So the first decision is not "what account am I onboarding," it is "what is the access-control boundary this credential lives inside."
+
+<Definition term="credential brokering">The pattern where a privileged-access system holds the real credential and connects you to the target *on your behalf*, so you are authenticated to the system you need without ever being given the password. The broker (CyberArk's PSM) injects the Vault-managed credential into the session; you drive the session, the broker holds the secret. This is what lets a credential rotate and stay secret while users still get their work done — and it is the structural difference between a vault and a password manager.</Definition>
+
+In PVWA, create the Safe (give it a clear name like `LAB-Windows-Admins`), then add **Safe members** with explicit authorizations — separate the people who may *use/retrieve* a credential from those who may *manage* it, and grant the **CPM user** the management authorizations so it can rotate. The principle to carry out of this step: the Safe is the boundary; least privilege is expressed by who you add to it and with which authorizations.
+
+If you script Safe creation later, the `psPAS` cmdlets are `New-PASSafe` and `Add-PASSafeMember`. Establish the API session first with `New-PASSession` (it authenticates you to PVWA and returns the token the rest of the cmdlets reuse).
+
+<PowerShellBlock title="Authenticate to CyberArk and create a Safe (psPAS)">{`# psPAS talks to the CyberArk REST API. Install once: Install-Module psPAS -Scope CurrentUser
+# Privilege Cloud uses an OAuth/Identity sign-in; self-hosted may use CyberArk/LDAP auth.
+# Confirm the auth type and base URL for YOUR tenant before running.
+
+$baseUri = 'https://your-subdomain.privilegecloud.cyberark.cloud'
+
+# Start an authenticated session (prompts for credentials; do not hardcode them)
+New-PASSession -BaseURI $baseUri -Credential (Get-Credential)
+
+# Create the Safe that will hold the privileged account
+New-PASSafe -SafeName 'LAB-Windows-Admins' \`
+            -Description 'Lab Windows domain/local admin accounts' \`
+            -NumberOfVersionsRetention 5
+
+# Add a member who may USE/RETRIEVE but not manage (least privilege)
+Add-PASSafeMember -SafeName 'LAB-Windows-Admins' \`
+                  -MemberName 'lab.operator' \`
+                  -UseAccounts $true \`
+                  -RetrieveAccounts $true \`
+                  -ListAccounts $true`}</PowerShellBlock>
+
+### Step 2: Associate a Platform
+
+A **Platform** is the policy template that controls how a *type* of credential is handled — how often it rotates, how the CPM verifies it is still correct, and how it reconciles the password if it drifts out of sync. You do not invent rotation rules per account; you attach the account to a Platform that already encodes them. For a domain service account you would use a Windows Domain Account platform; for a local admin, a Windows Local Account platform. CyberArk ships these as built-in platform templates you can duplicate and tune.
+
+The decision in this step is conceptual, not a command: pick (or duplicate-and-edit) the Platform whose verification/rotation/reconciliation policy matches the credential's risk and the target's tolerance for change. A service account that other systems depend on needs a rotation cadence that will not break those dependents; a break-glass local admin can rotate aggressively. The Platform is where "rotate this every N days, verify weekly, reconcile if it drifts" lives — author it once, reuse it for every account of that type.
+
+### Step 3: Onboard the privileged account
+
+Now bring the actual credential under management. Onboarding means: tell the Vault the account's **username**, **address** (the target host or domain), the **Platform** to govern it, and the **Safe** to store it in — and hand over the current password so the Vault can take ownership. Use the weak `corp.lab` service account from Lab 01 as the subject; onboarding it is the remediation for it being a guessable, shared, unrotated secret.
+
+In PVWA this is **Accounts → Add Account**: choose the system type / platform, the Safe, then fill username, address, and the current password. The `psPAS` cmdlet is **`Add-PASAccount`**.
+
+<PowerShellBlock title="Onboard a privileged account into the Safe (psPAS)">{`# Onboard the weak service account from Lab 01 so the Vault takes ownership of it.
+# Supply its CURRENT password once; after Step 4 the Vault rotates it and you never use it again.
+
+$onboard = @{
+  UserName    = 'svc_sql'                       # the weak SPN account from Lab 01
+  Address     = 'corp.lab'                       # target host or domain
+  PlatformID  = 'WinDomain'                       # the Platform you attached in Step 2
+  SafeName    = 'LAB-Windows-Admins'
+  secret      = (Read-Host 'Current password' -AsSecureString)
+  secretType  = 'password'
+}
+
+$account = Add-PASAccount @onboard
+$account | Format-List UserName, Address, PlatformID, SafeName, id
+
+# Note the returned account id — Step 6 uses it to retrieve the (now Vault-managed) password.`}</PowerShellBlock>
+
+Read the parameter names against `Get-Help Add-PASAccount -Full` for your tenant; the exact property names (for example how the secret is supplied) follow the REST API version your CyberArk exposes.
+
+### Step 4: Let the CPM verify and rotate the password
+
+The **CPM (Central Policy Manager)** is the component that actually changes passwords on targets. With the Platform attached and the account onboarded, trigger a **change** so the CPM rotates the password immediately — "change on onboard." After this completes, the password stored in the Vault is one the CPM generated; the original weak password you typed in Step 3 is gone from the target.
+
+In PVWA, open the account and choose **Change** (you may also see **Verify** and **Reconcile**). Verify confirms the stored password still works on the target; Change rotates it; Reconcile uses a privileged reconciliation account to forcibly reset it if it has drifted out of sync. Watch the account's status move to a managed/`success` state. The conceptual win: from this moment the credential is *Vault-owned*. No human knows it, and it will keep rotating on the Platform's schedule without anyone touching it.
+
+### Step 5: Connect through PSM with session recording
+
+The **PSM (Privileged Session Manager)** is the broker. Instead of copying the password out of the Vault and pasting it into an RDP/SSH client, you click **Connect** in PVWA and PSM opens the session *for* you — it pulls the managed credential, injects it into the connection to the target, and **records the session** (keystrokes, screen, or both, per policy). You drive a fully privileged session; you were never given the secret.
+
+Make the connection from PVWA's **Connect** on the onboarded account, choosing the PSM connection component for the target type (RDP for the Windows box). Then confirm the recording exists in the session monitoring view. This step is the whole reason the architecture exists: the credential stays secret and rotated (Steps 3–4) *and* the privileged activity is auditable (this step). Brokering plus recording is what turns "someone has the domain admin password" into "the Vault has it, and here is the replay of exactly what was done."
+
+### Step 6: Retrieve a credential programmatically (controlled automation)
+
+Some legitimate automation genuinely needs the secret — a scheduled job, a deployment runner. CyberArk supports retrieving a credential through the REST API under the Safe's authorizations (and, where configured, dual control / one-time access). The `psPAS` cmdlet is **`Get-PASAccountPassword`**, which returns the password for an account by its **AccountID** and can hand it back as a `SecureString` or `PSCredential` rather than bare text.
+
+<PowerShellBlock title="Retrieve a managed credential for automation (psPAS)">{`# Retrieve the CPM-managed password by the account id returned in Step 3.
+# Prefer the object methods so the secret lands as a SecureString / PSCredential,
+# not a plaintext variable left lying in your session.
+
+$result = Get-PASAccountPassword -AccountID $account.id
+
+# Convert straight to a credential object for an automation call
+$cred = $result.ToPsCredential()
+
+# ...hand $cred to the thing that needs it (e.g. a remoting session), then dispose.
+# Every retrieval is logged in CyberArk against the requesting identity — that audit
+# trail is the point. Do not echo $result to the console.`}</PowerShellBlock>
+
+The lesson embedded here: even when automation must touch the secret, the secret is still Vault-owned, still rotating, and *every retrieval is recorded against the caller*. Compare that to the war story's hardcoded password in a script — same automation need, opposite security posture.
+
+## Validation
+
+You have proven the loop when all four of these hold:
+
+1. **The account shows a managed status.** In PVWA the onboarded account's status is `success` / managed, not `failed` or `pending` — the Vault owns the credential.
+2. **CPM rotation succeeded.** The password change you triggered in Step 4 completed; the target now accepts the CPM-generated password, and the original weak password no longer works.
+3. **A PSM session was recorded.** There is a session entry in the monitoring/recordings view for the connection you made in Step 5, replayable after the fact.
+4. **The connecting user never possessed cleartext.** The human (or automation) that connected did so through brokering/retrieval under Safe authorization — at no point did you paste a known password into the target.
+
+A quick programmatic check: `Get-PASAccount -search 'svc_sql'` should return the onboarded account with its Safe and Platform, confirming it is under management. (Run `Get-Help Get-PASAccount -Full` to confirm the search parameter name for your version.)
+
+## Teardown
+
+This matters most on a trial, where you want a clean slate and you are watching an expiry clock.
+
+- **Delete the account** from the Safe (PVWA → the account → Delete, or `Remove-PASAccount -AccountID $account.id`). Deleting it stops CPM management and removes the stored credential.
+- **Remove the Safe** once it is empty (`Remove-PASSafe -SafeName 'LAB-Windows-Admins'`).
+- **Detach / clean up the custom Platform** if you duplicated a built-in one to tune it.
+- **Close the API session** with `Close-PASSession` so the auth token is not left valid.
+- **Note the trial expiry.** Privilege Cloud trials are time-boxed; capture screenshots of the managed status and a recorded session for your portfolio before the tenant disappears.
+
+## What this proves
+
+You now understand the PAM control loop as a sequence of moving parts, not a slide: **vault** the secret (Safe + onboard), **rotate** it so it is never static and never known (Platform + CPM), **broker** the session so users get access without the password (PSM), and **record** that session so it is auditable. That loop — vault → rotate → broker → record — is exactly what a SOX-relevant privileged-access program in a regulated bank has to implement and evidence. You took the weakest possible credential (the Lab 01 service account) and put it inside that loop, which is the literal remediation for the most common privileged-access audit finding there is.
+
+<WarStory title="The service account password that lived in a deploy script">
+A regional bank's quarterly access review pulls the deployment scripts for a line-of-business app. Buried in one of them is a domain service account — call it `svc_app` — with its password sitting in cleartext as a script variable so the nightly job can authenticate. The account has a Service Principal Name and broad rights on three servers. The password has not changed in over two years. It is shared: the same string appears in two other scripts and in a runbook page three teams can read.
+
+The auditor's finding writes itself. A privileged credential that is shared, unrotated, and stored in cleartext in a location multiple people can reach violates the institution's privileged-access control — and because the account is SPN-registered with a stale password, it is also a textbook Kerberoasting target (the very thing Lab 10 hunts). The remediation is not "change the password." It is this lab: onboard `svc_app` into a CyberArk Safe, attach a Windows Domain Account platform, let the CPM rotate it onto a schedule, and convert the script to *retrieve* the credential through the REST API at run time instead of holding it. After onboarding, no human and no script file holds the secret, it rotates on its own, and every retrieval is logged. The two-year-old shared password becomes a Vault-managed, rotating, audited credential — and the finding closes.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="In CyberArk, what is a Safe and what is a Platform?" back="A Safe is the access-control boundary/container that holds accounts and defines who may use, retrieve, or manage them (permissions are assigned at the Safe level). A Platform is the policy template that governs how a credential type is verified, rotated, and reconciled. Confirm exact labels against current CyberArk docs." />
+<Flashcard front="What does connecting through CyberArk PSM achieve that handing out the password does not?" back="PSM brokers the session using the Vault-managed credential, so the user never sees the password, and it records the session. The credential stays managed and rotated, and the privileged session is auditable for replay." />

@@ -1,0 +1,263 @@
+{/* Lab procedures verified against Microsoft Learn as of 2026-06-01. Re-verify cmdlet syntax and eval-ISO availability before relying on them. */}
+
+<HoloPanel label="COVERS">
+- **Builds on:** Module 3 §01 Active Directory (forest/domain, OUs, AGDLP) and Module 6 §01 PowerShell fundamentals
+- Foundational on-prem lab — **not** SC-300 aligned (AD DS is on-premises; the cert is cloud Entra)
+- **Security+ SY0-701** Objective 4.1 — apply common security techniques to computing resources (directory hardening, service-account hygiene)
+- Seeds the sandbox every later on-prem lab uses: LAPS + JML (Lab 05), Kerberoasting hunt (Lab 10), stale-account cleanup (Lab 11)
+</HoloPanel>
+
+# Build an Active Directory Lab From Scratch
+
+Everything that follows in this module — the LAPS rollout, the joiner/mover/leaver automation, the Kerberoasting hunt, the stale-account cleanup — needs a directory to act on. You do not get to learn IAM by reading about a domain. You learn it by building one, populating it the way a real org is populated, then breaking it on purpose and fixing it. This lab is the substrate. By the end you will have a single-forest, single-domain Active Directory environment named `corp.lab` running on one Windows Server VM, with an organizational-unit structure that mirrors a real bank, bulk-created test users, AGDLP groups nested correctly, and one deliberately weak service account waiting to be kerberoasted in Lab 10.
+
+This is the capstone module. Every lab in it follows the same skeleton — objective, prerequisites, numbered steps with real commands, validation, teardown, and a short reflection on what the muscle memory bought you. Read that pattern once here and it will feel familiar for the next twelve labs.
+
+## Objective
+
+Stand up `corp.lab` as a brand-new forest on a Windows Server 2022 or 2025 VM, promote the VM to its first domain controller, and lay down the directory objects the rest of the curriculum manipulates. When you finish you will understand forest promotion, OU design, and the AGDLP group-nesting model from the inside — not from a slide — because you typed every cmdlet and watched the directory change. For a banking IAM role this is the floor: hybrid identity, Conditional Access, PIM, and governance all assume you already know how the on-prem half of the world is wired, because in a regulated shop the on-prem half never fully goes away.
+
+## Prerequisites
+
+- **A hypervisor.** Hyper-V (built into Windows 11 Pro) or VirtualBox. You are building a throwaway VM, not touching your host.
+- **A Windows Server evaluation ISO.** Windows Server 2022 or 2025, downloaded from the Microsoft Evaluation Center. The evaluation runs for 180 days, which is far longer than you need for a lab — and the whole point of a snapshot-and-revert workflow is that you can rebuild it in an afternoon. Search the Microsoft Evaluation Center for "Windows Server 2025" (or 2022) and grab the Datacenter or Standard ISO.
+- **Resources.** Give the DC VM at least 4 GB of RAM and 2 vCPUs. A domain controller is memory-hungry once DNS and the directory database are running; 2 GB will technically promote but will crawl.
+- **A static IP plan.** A domain controller must have a static IP and must point its own DNS at itself. Decide on an address before you start — for example the DC at `10.0.0.10/24` with a gateway of `10.0.0.1`. DHCP on a DC is asking for pain.
+- **Builds on:** the AD concepts in **Module 3 §01** (what a forest, domain, OU, and the AGDLP model actually are) and the **Module 6 §01** PowerShell fundamentals (pipelines, `Import-Csv`, `ForEach-Object`, splatting). This lab is where Module 3's diagram becomes a thing you can `Get-ADUser` against.
+
+<ProTip>
+**Lab-safety banner — read this once, apply it for the whole module.** Every destructive command in this module is shown with `-WhatIf` first wherever the cmdlet supports it. Never run bulk writes against a production tenant or a production domain. Use a dedicated, isolated lab VM (and, in the cloud labs, a dedicated dev/test Entra tenant such as a Microsoft 365 developer subscription) so a mistake costs you a VM revert, not your job. The single best habit you can build in this module is: snapshot before you change anything, and `-WhatIf` before you delete anything.
+</ProTip>
+
+<Definition term="domain controller (DC)">A server running the Active Directory Domain Services role that hosts a writable (or read-only) copy of the directory database, authenticates users and computers via Kerberos and NTLM, and answers LDAP queries. In a single-domain forest the first DC you promote also holds all five FSMO roles and, in this lab, runs DNS for the domain. Every other machine in the domain trusts it to say who you are.</Definition>
+
+## Lab steps
+
+### Step 1: Provision the VM, set a static IP, and rename the host
+
+Create a new VM in your hypervisor, attach the Windows Server eval ISO, and run through the standard install (choose the Desktop Experience edition the first time — the GUI makes the AD tooling easier to inspect while you learn). After first sign-in, set the static IP and give the box a real name before you promote it. Renaming after promotion is a headache; do it now.
+
+<PowerShellBlock title="Set a static IP and rename the host">{`# Find your network adapter name first
+Get-NetAdapter | Format-Table Name, InterfaceDescription, Status
+
+# Assign a static IP (adjust the adapter name and addresses to your plan)
+New-NetIPAddress -InterfaceAlias 'Ethernet' \`
+                 -IPAddress 10.0.0.10 \`
+                 -PrefixLength 24 \`
+                 -DefaultGateway 10.0.0.1
+
+# A DC must resolve DNS against itself once it is promoted; point DNS at this box
+Set-DnsClientServerAddress -InterfaceAlias 'Ethernet' -ServerAddresses 10.0.0.10
+
+# Rename the host, then reboot so the new name takes effect before promotion
+Rename-Computer -NewName 'DC01' -Restart`}</PowerShellBlock>
+
+After the reboot, sign back in. The machine is now `DC01` with a fixed address — a clean base for promotion.
+
+### Step 2: Install the AD DS role
+
+Promotion is a two-stage affair. First you install the binaries (the Active Directory Domain Services role and its management tools), then a separate cmdlet actually creates the forest. Installing the feature does nothing destructive — it just lays down the code and the `ADDSDeployment` PowerShell module you need for the next step.
+
+<PowerShellBlock title="Install the AD DS role and management tools">{`# Installs the role binaries plus RSAT AD tools (the ActiveDirectory module, ADUC, etc.)
+Install-WindowsFeature -Name AD-Domain-Services -IncludeManagementTools
+
+# Confirm the feature is now installed
+Get-WindowsFeature -Name AD-Domain-Services`}</PowerShellBlock>
+
+`-IncludeManagementTools` is the part people forget. Skip it and you have the role but none of the `Get-ADUser` / `New-ADGroup` cmdlets you are about to lean on for every other step.
+
+### Step 3: Promote the server to a new forest
+
+This is the moment `DC01` becomes a domain controller and `corp.lab` comes into existence. The `Install-ADDSForest` cmdlet creates the forest and the root domain, installs and configures DNS, sets the Directory Services Restore Mode (DSRM) password, and then reboots the machine automatically when it finishes. Expect the box to drop and come back up on its own.
+
+<PowerShellBlock title="Promote DC01 to the first DC of a new forest">{`# You will be prompted for the DSRM (Safe Mode) password — store it somewhere you can find it.
+# DNS is installed by default; -InstallDns makes that explicit and self-documenting.
+Install-ADDSForest \`
+  -DomainName 'corp.lab' \`
+  -DomainNetbiosName 'CORP' \`
+  -InstallDns \`
+  -SafeModeAdministratorPassword (Read-Host -Prompt 'DSRM password' -AsSecureString) \`
+  -Force
+
+# The server reboots automatically on completion. Add -NoRebootOnCompletion
+# only if you have a reason to stage the restart yourself.`}</PowerShellBlock>
+
+<Definition term="DSRM password">The Directory Services Restore Mode password is a standalone local-administrator credential for the domain controller, used to boot the DC into a special recovery mode for offline directory repair or authoritative restores. It is separate from any domain account. You set it during promotion and you will be glad you wrote it down the one time you ever need it.</Definition>
+
+When the VM comes back up, sign in with the domain administrator account (`CORP\Administrator`). You are now inside `corp.lab`.
+
+### Step 4: Build an OU structure that mirrors a real org
+
+A flat directory — every user dumped in the default `CN=Users` container — is the single most common rookie mistake, and it makes everything downstream (delegation, Group Policy targeting, LAPS scoping, sync OU-filtering) either impossible or ugly. Build a sane structure now. The pattern below mirrors how a small bank's directory is actually carved up: a top-level `Corp` OU with children for each object class you will manage separately.
+
+<PowerShellBlock title="Create the OU structure">{`$base = 'DC=corp,DC=lab'
+
+# Top-level container for everything we manage
+New-ADOrganizationalUnit -Name 'Corp' -Path $base
+
+# Child OUs, each a separate delegation and GPO target
+$corp = "OU=Corp,$base"
+'Users','Groups','Workstations','Servers','ServiceAccounts','Admins' |
+  ForEach-Object {
+    New-ADOrganizationalUnit -Name $_ -Path $corp
+  }
+
+# Verify the tree you just built
+Get-ADOrganizationalUnit -Filter * |
+  Select-Object Name, DistinguishedName |
+  Sort-Object DistinguishedName`}</PowerShellBlock>
+
+Notice the deliberate separation: `Workstations` and `Servers` get different Group Policy, `Admins` and `ServiceAccounts` get tighter delegation than ordinary `Users`, and `Groups` keeps your security groups out of the way of user objects. This structure is what makes Lab 02's OU-scoped sync, Lab 05's LAPS targeting, and Lab 11's stale-account searches clean instead of a guessing game.
+
+<WarStory title="Everyone in CN=Users">
+I inherited a directory once where 1,800 user objects, every service account, and a dozen disabled-but-never-deleted contractors all lived in the default `CN=Users` container. No OUs to speak of. When the auditors asked us to delegate password-reset rights to the help desk for *standard users only* — not admins, not service accounts — there was no way to do it cleanly, because there was no boundary to delegate against. We could not scope a Group Policy to just the kiosk machines. We could not point LAPS at just the workstations. Every "just apply it to these" request turned into a hand-built security group because the directory's own structure carried zero information.
+
+The fix was a multi-week migration: design the OU tree, move objects in batches, re-test every GPO link. All of it avoidable if someone had spent twenty minutes on OU design on day one — which is exactly what Step 4 is. The structure of your directory *is* your delegation model. Build it deliberately or pay for it later.
+</WarStory>
+
+### Step 5: Bulk-create test users from a CSV
+
+You need bodies in the directory. Hand-creating users teaches you nothing; bulk-creating from a CSV is the real on-prem pattern, and it is the on-prem mirror of the Microsoft Graph bulk-create you saw in Module 6. Same discipline — generate a non-static temp password, force a change at first logon, drop each user in the right OU — but with the `ActiveDirectory` module cmdlets instead of `New-MgUser`.
+
+<PowerShellBlock title="Bulk-create users from a CSV">{`# Build a tiny sample CSV for the lab (in a real org this comes from HR)
+$csvPath = 'C:\Lab\NewHires.csv'
+@'
+FirstName,LastName,Department,JobTitle
+Alice,Nguyen,Finance,Analyst
+Bob,Carter,IT,Engineer
+Carol,Diaz,HR,Specialist
+'@ | Set-Content -Path $csvPath
+
+$usersOU = 'OU=Users,OU=Corp,DC=corp,DC=lab'
+$results = @()
+
+foreach ($row in (Import-Csv -Path $csvPath)) {
+  try {
+    $sam = ($row.FirstName.Substring(0,1) + $row.LastName).ToLower()
+    $upn = "$($row.FirstName).$($row.LastName)@corp.lab".ToLower()
+
+    # Non-static temp password; force a change at first sign-in
+    $tempPw = -join (1..16 | ForEach-Object {
+      [char[]]'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789!@#%' | Get-Random
+    })
+
+    New-ADUser -Name "$($row.FirstName) $($row.LastName)" \`
+               -GivenName $row.FirstName \`
+               -Surname $row.LastName \`
+               -SamAccountName $sam \`
+               -UserPrincipalName $upn \`
+               -Department $row.Department \`
+               -Title $row.JobTitle \`
+               -Path $usersOU \`
+               -AccountPassword (ConvertTo-SecureString $tempPw -AsPlainText -Force) \`
+               -ChangePasswordAtLogon $true \`
+               -Enabled $true
+
+    $results += [PSCustomObject]@{ SamAccountName = $sam; Status = 'Created' }
+  } catch {
+    $results += [PSCustomObject]@{ SamAccountName = $sam; Status = "FAILED: $($_.Exception.Message)" }
+  }
+}
+
+$results | Format-Table -AutoSize`}</PowerShellBlock>
+
+`-ChangePasswordAtLogon $true` is the on-prem equivalent of `ForceChangePasswordNextSignIn` — the same rule applies: a temp password nobody is forced to change is a credential that lives forever. `-Path` puts each account in the `Users` OU rather than the default container, which is why Step 4 came first.
+
+### Step 6: Create AGDLP groups and nest them
+
+AGDLP is the group-nesting model Microsoft has recommended for permission management since the NT days, and it still shows up on the Security+ and CISSP exams. The chain reads **Account → Global → Domain Local → Permission**: put user accounts into a Global group that represents a *role* (e.g., "Finance staff"), nest that Global group inside a Domain Local group that represents *access to a resource* (e.g., "Read the Finance share"), and assign the actual permission to the Domain Local group. Build one chain by hand so the model stops being an acronym and becomes muscle memory.
+
+<PowerShellBlock title="Create and nest an AGDLP chain">{`$groupsOU = 'OU=Groups,OU=Corp,DC=corp,DC=lab'
+
+# A — the accounts (already created in Step 5)
+# G — a Global group representing a role
+New-ADGroup -Name 'GG-Finance-Staff' \`
+            -GroupScope Global \`
+            -GroupCategory Security \`
+            -Path $groupsOU
+
+# DL — a Domain Local group representing access to a resource
+New-ADGroup -Name 'DL-FinanceShare-Read' \`
+            -GroupScope DomainLocal \`
+            -GroupCategory Security \`
+            -Path $groupsOU
+
+# A -> G : put the user accounts into the role group
+Add-ADGroupMember -Identity 'GG-Finance-Staff' -Members 'anguyen'
+
+# G -> DL : nest the role group inside the resource group
+Add-ADGroupMember -Identity 'DL-FinanceShare-Read' -Members 'GG-Finance-Staff'
+
+# P : you would then grant DL-FinanceShare-Read the NTFS/Read permission on the share.
+# The Domain Local group is the only thing the resource ACL ever names.`}</PowerShellBlock>
+
+The payoff: when someone joins Finance you add them to `GG-Finance-Staff` and they inherit every resource the Finance role can touch. When you grant a new share to Finance, you nest one Global group into the new Domain Local group — you never touch individual ACLs per user. That is the whole reason AGDLP exists, and Lab 05's joiner/mover/leaver automation rides directly on top of it.
+
+### Step 7: Seed a deliberately weak service account for Lab 10
+
+This step intentionally plants a vulnerability. Lab 10 (Kerberoasting Hunt) needs a service account with a registered Service Principal Name (SPN) and a weak, guessable password so you can request its service ticket, watch the attack signature appear in event 4769, and then remediate it. Create it now, in the `ServiceAccounts` OU, and label it clearly so you do not forget it is a planted target.
+
+<PowerShellBlock title="Seed the weak SPN service account (target for Lab 10)">{`$svcOU = 'OU=ServiceAccounts,OU=Corp,DC=corp,DC=lab'
+
+# Deliberately weak password — this is a planted lab target, never a real pattern
+New-ADUser -Name 'svc_sql' \`
+           -SamAccountName 'svc_sql' \`
+           -UserPrincipalName 'svc_sql@corp.lab' \`
+           -Description 'LAB TARGET for Module 12 Lab 10 - deliberately weak; remediate there' \`
+           -Path $svcOU \`
+           -AccountPassword (ConvertTo-SecureString 'Summer2024!' -AsPlainText -Force) \`
+           -PasswordNeverExpires $true \`
+           -Enabled $true
+
+# Register an SPN so the account is kerberoastable (any auth user can request its TGS)
+Set-ADUser -Identity 'svc_sql' -ServicePrincipalNames @{ Add = 'MSSQLSvc/db01.corp.lab:1433' }
+
+# Confirm the SPN is set
+Get-ADUser -Identity 'svc_sql' -Properties ServicePrincipalNames |
+  Select-Object SamAccountName, ServicePrincipalNames`}</PowerShellBlock>
+
+A real service account would get a long random password, AES-only encryption, and ideally be a group Managed Service Account (gMSA) — which is precisely the hardened end-state you will drive it to in Lab 10. For now it is a controlled, isolated learning artifact: a weak SPN account in a sandbox VM you can revert.
+
+## Validation
+
+Prove the build worked before you trust it. Each command below has an expected shape, not just a "no errors" outcome.
+
+<PowerShellBlock title="Validate the directory">{`# 1. The forest/domain exists and this box holds the FSMO roles
+Get-ADDomain | Select-Object DNSRoot, NetBIOSName, DomainMode, InfrastructureMaster
+
+# 2. The OU tree is present (expect Corp + 6 children)
+Get-ADOrganizationalUnit -Filter * | Measure-Object | Select-Object Count
+
+# 3. The bulk-created users landed in the Users OU (expect 3 from the sample CSV)
+Get-ADUser -Filter * -SearchBase 'OU=Users,OU=Corp,DC=corp,DC=lab' |
+  Select-Object SamAccountName, Enabled
+
+# 4. The AGDLP nesting is correct: GG-Finance-Staff is a member of DL-FinanceShare-Read
+Get-ADGroupMember -Identity 'DL-FinanceShare-Read' | Select-Object Name, objectClass
+
+# 5. The planted SPN target exists and is kerberoastable
+Get-ADUser -Filter "ServicePrincipalNames -like '*'" -Properties ServicePrincipalNames |
+  Select-Object SamAccountName, ServicePrincipalNames`}</PowerShellBlock>
+
+Expected: `Get-ADDomain` returns `corp.lab` / `CORP`; the OU count is 7 (one `Corp` plus six children); three users appear in the `Users` OU, all enabled; `DL-FinanceShare-Read` lists `GG-Finance-Staff` as a group member; and `svc_sql` shows up with its `MSSQLSvc/...` SPN.
+
+## Teardown
+
+For a lab built around a single VM, the cleanest teardown is a hypervisor snapshot, not a cmdlet. The moment your validation passes, snapshot the VM and call it "AD lab — baseline built." From then on, *reverting to that snapshot is your teardown*: it costs seconds, it is perfectly repeatable, and it lets every later lab start from a known-good directory. Take a fresh snapshot before any lab that changes the domain (Lab 05, Lab 10, Lab 11) so you can roll back a botched run.
+
+If you ever genuinely want to dismantle the domain rather than revert — for example to reclaim the VM — you demote the domain controller rather than deleting the VM blindly:
+
+<PowerShellBlock title="Demote the DC (only when truly dismantling)">{`# This removes AD DS from the last DC and tears down the domain. Destructive.
+# Use -ForceRemoval only for the final DC in a forest, in a lab.
+Uninstall-ADDSDomainController -ForceRemoval -DemoteOperationMasterRole -Force`}</PowerShellBlock>
+
+In practice you will almost never run that in a lab — the snapshot revert is faster and safer. Mention it so you know the proper exit exists and that you do not "uninstall a domain" by deleting files.
+
+## What this proves
+
+You can now build the substrate the rest of the curriculum manipulates. You promoted a forest, designed an OU tree that carries delegation meaning, bulk-created users with the same secure-temp-password discipline you use in the cloud, nested an AGDLP chain by hand, and planted a controlled vulnerability for a later attack-and-defend lab. None of that came from a slide — you watched the directory change under each command. That is the difference between someone who can talk about Active Directory in an interview and someone who has actually stood one up. Every on-prem lab that follows — LAPS and JML in Lab 05, the Kerberoasting hunt in Lab 10, the stale-account pipeline in Lab 11 — runs against the directory you just built.
+
+## Recall drill
+
+<Flashcard front="Which single cmdlet promotes a freshly role-installed Windows Server into the first DC of a brand-new forest, and what does it do automatically?" back="Install-ADDSForest -DomainName 'corp.lab' -InstallDns. It creates the forest and root domain, installs/configures DNS, sets the DSRM password, and reboots the machine on completion (use -NoRebootOnCompletion to stage the restart). The AD-Domain-Services feature must already be installed via Install-WindowsFeature." />
+<Flashcard front="In AGDLP, what goes in the Domain Local group and which group gets the actual resource permission?" back="Accounts go into Global groups (representing roles), Global groups nest into Domain Local groups (representing resource access), and the Domain Local group is the only object you grant the permission on the resource. The chain is Account -> Global -> Domain Local -> Permission." />

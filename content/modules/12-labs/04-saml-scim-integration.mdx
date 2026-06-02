@@ -1,0 +1,162 @@
+{/* Lab current as of 2026-06-01. Portal labels and Graph schemas drift — re-verify each step against live MS Learn docs before a cert sitting or a production change. */}
+
+<HoloPanel label="COVERS">
+- Aligns with **SC-300: Implement and manage app registrations and enterprise applications** — adding a gallery/non-gallery enterprise app and configuring SAML SSO
+- Aligns with **SC-300: Plan, implement, and manage application access** — assigning users/groups and configuring SCIM automatic provisioning
+- **Security+ SY0-701** Objective 4.6 — Implement and maintain identity and access management (federation, SSO, provisioning)
+- **Builds on:** Module 2 §02 SAML and §06 SCIM (assertion anatomy, provisioning CRUD); Module 3 §02 Entra ID (App Registration vs Enterprise Application); this lab uses the dev tenant from Lab 02
+</HoloPanel>
+
+# Integrate a SaaS App: SAML SSO + SCIM Provisioning <SC300Badge />
+
+## Objective
+
+By the end of this lab you will have a single SaaS application wired into Entra ID two ways at once: **SAML 2.0** so users authenticate through your identity provider instead of a local app password, and **SCIM 2.0** so the same users — and their group memberships — flow automatically into the app when you assign them, and get disabled automatically when you unassign them. This is the daily bread of an identity-provider administrator. Almost every "onboard the new SaaS tool" ticket reduces to these two protocols: SAML carries the *authentication* (who is signing in, proven by a signed assertion), and SCIM carries the *lifecycle* (who should exist in the app at all, and with what access). When you can stand both up cleanly and prove deprovisioning actually fires, you have closed the gap that produces the most common access-review finding in a banking environment — orphaned accounts in downstream SaaS apps that nobody remembered to remove when the employee left.
+
+You will do most of this in the Entra portal, because Entra's enterprise-app SSO and provisioning configuration is genuinely portal-first; there is no first-class Graph cmdlet for "set the SAML reply URL." But you will reach for PowerShell where it is the right tool: confirming the service principal exists, assigning users programmatically, and pulling the provisioning logs to prove what happened.
+
+## Prerequisites
+
+- The **dev Entra tenant** from Lab 02 (do not do this in a production tenant — assigning and unassigning users triggers real provisioning writes downstream).
+- A **target SaaS app that speaks SCIM 2.0.** Two practical options: pick a gallery application that documents a SCIM endpoint, or use a free/throwaway SCIM test endpoint (several public SCIM 2.0 test servers and the open-source SCIM tester projects exist) so you can watch the provisioning calls land without paying for a real SaaS seat. The mechanics in Entra are identical either way.
+- **Permissions:** at minimum the **Application Administrator** or **Cloud Application Administrator** role to create the enterprise app, configure SSO, and turn on provisioning. Global Administrator works but is more than you need — practice least privilege even in the lab.
+- The Microsoft Graph PowerShell SDK installed and connected with scopes covering `Application.Read.All`, `AppRoleAssignment.ReadWrite.All`, and `AuditLog.Read.All` for the verification steps. Authoritative reference for the procedure: MS Learn "Quickstart: Add an enterprise application" and "Tutorial: Develop and plan provisioning for a SCIM endpoint."
+
+<ProTip>
+**Lab safety first, every time.** Use a dedicated dev/test tenant, never production. SCIM provisioning is a *write* path into another system — when you assign a user, Entra creates that user in the target app; when you unassign, it disables or deletes them downstream. A misconfigured attribute mapping or scope filter against a real SaaS tenant can create or wipe accounts at scale. Provision **on demand for a single test user** before you ever flip provisioning to On for the whole assignment set. Treat the first real provisioning cycle the way you treat a bulk write in PowerShell — confirm the target set first.
+</ProTip>
+
+## Step 1: Add the enterprise application
+
+An **enterprise application** is the service principal — the local instance of an application — that lives in *your* tenant. This is the object on which you configure SSO and provisioning. Do not confuse it with an **App Registration**, which is the application's *definition and identity in its home tenant* (its app object, reply URLs for the OIDC/OAuth flows it owns, its API permissions). For a SaaS app you are *consuming*, you almost always work with the enterprise application; the vendor owns the registration on their side. (This is the Module 3 §02 distinction made concrete: registration = the blueprint in the home tenant, enterprise app = the instance/service principal in the consuming tenant.)
+
+In the Entra admin center, go to **Identity > Applications > Enterprise applications > New application**, then either pick your target from the gallery or choose **Create your own application** for a non-gallery SCIM app. After it provisions, note the application's **Object ID** and **Application (client) ID** from its Overview blade — you will use them in PowerShell shortly.
+
+Confirm from PowerShell that the service principal now exists in your tenant.
+
+<PowerShellBlock title="Confirm the enterprise app's service principal exists">{`# Connect with the scopes this lab needs
+Connect-MgGraph -Scopes "Application.Read.All","AppRoleAssignment.ReadWrite.All","AuditLog.Read.All"
+
+# Find the service principal (enterprise app) by display name
+$appName = "Contoso SCIM Demo"   # the name you gave the enterprise app
+$sp = Get-MgServicePrincipal -Filter "displayName eq '$appName'"
+
+[PSCustomObject]@{
+  DisplayName = $sp.DisplayName
+  ObjectId    = $sp.Id        # the service principal Object ID
+  AppId       = $sp.AppId     # the Application (client) ID
+  Tags        = $sp.Tags -join ", "
+} | Format-List`}</PowerShellBlock>
+
+If `$sp` comes back empty, the enterprise app was not created in this tenant or the display name does not match exactly — fix that before going further, because every later step keys off this object.
+
+## Step 2: Configure SAML 2.0 single sign-on
+
+On the enterprise app, open **Single sign-on** and select **SAML**. Entra exposes the three values that make a SAML federation work, and getting these exactly right — character for character, including trailing slashes — is the single most common cause of "SSO doesn't work" tickets.
+
+- **Identifier (Entity ID)** — the unique name the service provider expects to see as the *audience* of the assertion. The SaaS vendor gives you this value.
+- **Reply URL (Assertion Consumer Service URL)** — where Entra POSTs the signed SAML response after the user authenticates.
+- **Sign-on URL** — for service-provider-initiated SSO, the app URL that kicks off the flow.
+
+<Definition term="Assertion Consumer Service (ACS) URL">
+The endpoint at the service provider (the SaaS app) where the identity provider posts the signed SAML response after authenticating the user. In Entra it is labeled the **Reply URL**. The browser carries the assertion to this URL via an HTTP POST; the service provider validates the signature against the IdP's certificate, reads the audience and the NameID, and establishes the session. A wrong or extra-trailing-slash ACS URL means the assertion is delivered to the wrong place — or rejected — and SSO silently fails.
+</Definition>
+
+Next, configure the **claims**. The most important is the **NameID** (the assertion's subject — the identifier the app uses to recognize the user). For most SaaS apps you set NameID to `user.userprincipalname`, but confirm what the vendor expects; some match on `user.mail` or an employee ID. Add any extra claims the app documents (given name, surname, groups). This ties directly back to the Module 2 §02 assertion anatomy: the NameID is the subject, the claims are the attribute statements, and the audience restriction is your Entity ID.
+
+Finally, download the **Base64 certificate** (or copy the **App Federation Metadata URL**) from the SAML signing certificate section and hand it to the vendor — that is the public key the service provider uses to verify Entra's signature on every assertion.
+
+## Step 3: Assign users and groups to the app
+
+This is the gate that controls *who can use the app at all.* In Entra, only users (and members of groups) explicitly **assigned** to an enterprise application get the app tile and can complete SSO — assuming user assignment is required (the default for most SSO apps). Assignment is also what scopes SCIM provisioning in Step 4, so this single act controls both auth and lifecycle.
+
+You can assign from the portal (**Users and groups > Add user/group**), but doing it in PowerShell shows you the underlying mechanism: an **app role assignment** linking a principal to the service principal.
+
+<PowerShellBlock title="Assign a user to the enterprise app via app role assignment">{`# Resolve the test user and the app's default app role
+$user = Get-MgUser -UserId "testuser@yourtenant.onmicrosoft.com"
+
+# Apps with no custom roles expose the default access role with an all-zero GUID
+$defaultRoleId = "00000000-0000-0000-0000-000000000000"
+
+# If the app defines real app roles, pick the right one instead:
+# $defaultRoleId = ($sp.AppRoles | Where-Object { $_.DisplayName -eq 'User' }).Id
+
+New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id \`
+  -PrincipalId  $user.Id \`
+  -ResourceId   $sp.Id \`
+  -AppRoleId    $defaultRoleId
+
+# Verify the assignment landed
+Get-MgServicePrincipalAppRoleAssignedTo -ServicePrincipalId $sp.Id |
+  Select-Object PrincipalDisplayName, PrincipalType, CreatedDateTime`}</PowerShellBlock>
+
+The all-zero GUID is Entra's well-known identifier for the "default access" role that apps without custom roles expose — use it when the app has no named roles, and substitute the real role ID when it does.
+
+## Step 4: Configure SCIM 2.0 automatic provisioning <SC300Badge />
+
+Now the lifecycle half. On the enterprise app, open **Provisioning** and set the mode to **Automatic**. Under **Admin Credentials**, supply:
+
+- **Tenant URL** — the SaaS app's SCIM 2.0 base endpoint (the SCIM tester or vendor gives you this; it ends in `/scim/v2` or similar).
+- **Secret Token** — the bearer token the SaaS app issued for Entra to authenticate its SCIM calls.
+
+Click **Test Connection.** Entra makes a live SCIM request to the endpoint with that token; a green result means it reached a compliant SCIM 2.0 server and authenticated. A failure here is almost always a wrong URL, an expired token, or a SCIM server that does not implement the discovery endpoints Entra probes.
+
+Then expand **Mappings.** Entra ships default attribute mappings (the Entra `userPrincipalName` to the SCIM `userName`, display name, email, active flag, and so on). Review them against what the app expects — this is where you fix mismatches like an app that keys on `employeeNumber` rather than UPN. Set the **Scope** to **Sync only assigned users and groups** so provisioning honors the assignment gate from Step 3 rather than trying to push the whole directory.
+
+## Step 5: Provision on demand, then turn it On
+
+Before flipping the master switch, use **Provision on demand** for the single test user you assigned in Step 3. Entra runs the full SCIM flow for just that one principal and shows you each step — import, matching, the attributes it would write, and the result. This is your dry run. If the user is created correctly in the SaaS app, you have proven the mapping and the endpoint work end to end for one safe object.
+
+Only then set provisioning to **On** and start the cycle. The initial cycle can take time; subsequent incremental cycles run on Entra's provisioning interval.
+
+## Step 6: Verify deprovisioning fires on unassignment
+
+This is the step everyone skips and every auditor asks about. Unassign the test user from the app (remove the app role assignment) and confirm the downstream effect.
+
+<Definition term="SCIM deprovisioning (soft-disable)">
+When you unassign a user from an Entra enterprise application that has SCIM provisioning enabled, Entra issues a SCIM `PATCH` request to the target app setting the user's `active` attribute to `false` — a soft-disable that suspends the account rather than destroying it. Whether the target then *disables* or *hard-deletes* the user is determined by that app's own SCIM implementation and configuration, not by Entra. Always confirm per app which behavior you get, because "the access is gone from the IdP" does not guarantee "the account is gone from the app."
+</Definition>
+
+Remove the assignment in PowerShell, then pull the provisioning logs to see the actual SCIM operation Entra performed.
+
+<PowerShellBlock title="Unassign the user and read the provisioning log to prove deprovisioning">{`# Find and remove the user's app role assignment (the unassign)
+$assignment = Get-MgServicePrincipalAppRoleAssignedTo -ServicePrincipalId $sp.Id |
+  Where-Object { $_.PrincipalId -eq $user.Id }
+
+Remove-MgServicePrincipalAppRoleAssignedTo -ServicePrincipalId $sp.Id \`
+  -AppRoleAssignmentId $assignment.Id
+
+# Pull recent provisioning events for this service principal
+# (provisioning logs require the AuditLog.Read.All scope)
+$since = (Get-Date).AddHours(-1).ToString("yyyy-MM-ddTHH:mm:ssZ")
+Get-MgAuditLogProvisioning -Filter "activityDateTime ge $since" -All |
+  Where-Object { $_.ServicePrincipal.Id -eq $sp.Id } |
+  Select-Object ActivityDateTime,
+                @{ N='Action';   E={ $_.ProvisioningAction } },
+                @{ N='Status';   E={ $_.ProvisioningStatusInfo.Status } },
+                @{ N='Identity'; E={ $_.SourceIdentity.DisplayName } } |
+  Sort-Object ActivityDateTime -Descending`}</PowerShellBlock>
+
+`Get-MgAuditLogProvisioning` is the Microsoft.Graph.Reports cmdlet that surfaces every provisioning event — create, update, disable, delete — with its status. After an unassign, you are looking for a disable/update action with a success status against your test user. That log entry is your audit evidence that lifecycle deprovisioning actually fired.
+
+## Validation
+
+You have succeeded when all of the following are true:
+
+1. The enterprise app exists as a service principal in your tenant (`Get-MgServicePrincipal` returns it).
+2. An assigned test user can complete SSO into the SaaS app — test both **SP-initiated** (start at the app's sign-on URL) and **IdP-initiated** (launch from the My Apps portal) flows.
+3. **Test Connection** under Provisioning returns green, and **Provision on demand** created the test user in the SaaS app.
+4. After unassigning the user, `Get-MgAuditLogProvisioning` shows a disable/deprovision action against that user, and the user is disabled (or removed) in the target app.
+
+## Teardown
+
+Leave the lab clean and repeatable. Turn **Provisioning** off first (so no further SCIM writes fire), then unassign any remaining users and groups, then delete the enterprise application from **Enterprise applications**. Deleting the enterprise app removes the service principal and its SSO/provisioning configuration from your tenant. If you used a throwaway SCIM tester, reset or discard it so the next run starts from a clean target.
+
+## What this proves
+
+You can wire the two protocols every SaaS onboarding depends on, and — more importantly — you can *prove* the half that matters most for an audit. SAML SSO is the visible part; teams celebrate when the login button works. SCIM lifecycle is the invisible part that determines whether a departed employee still has a live account in a dozen SaaS apps six months later. You configured both, you provisioned on demand before going live (the SCIM equivalent of `-WhatIf`), and you read the provisioning log to confirm deprovisioning fired on unassignment. That is the difference between an IdP admin who *connects* apps and one who can sit in front of an examiner and demonstrate that access leaves when people do.
+
+## Recall drill
+
+<Flashcard front="In Entra, what is the difference between an App Registration and an Enterprise Application, and which one do you configure SSO and provisioning on?" back="The App Registration is the application's definition and identity in its home tenant (the app object). The Enterprise Application is the service principal — the local instance — in the tenant consuming the app. For a SaaS app you are integrating, you configure SAML SSO and SCIM provisioning on the Enterprise Application." />
+<Flashcard front="What does SCIM provisioning send downstream when you unassign a user from an Entra enterprise app, and does that disable or delete the account?" back="Entra issues a SCIM PATCH setting the user's active attribute to false (a soft-disable). Whether the target app then disables or hard-deletes the user depends on that app's own SCIM implementation, so confirm the behavior per app rather than assuming the account is gone." />

@@ -1,0 +1,269 @@
+{/* Lab procedure current as of 2026-06-01. Re-verify cmdlet syntax and licensing notes against live Microsoft Learn before running against any real tenant. */}
+
+<HoloPanel label="COVERS">
+- **IAM operations** — account hygiene as a safe, staged, auditable pipeline (warn -> disable -> delete) rather than a one-shot delete
+- **Security+ SY0-701** Objective 4.7 — Automate and orchestrate security using scripting (idempotent, schedulable cleanup)
+- **CISSP** Domain 5 — Identity and Access Management (account provisioning and de-provisioning, periodic access review of dormant accounts)
+- **Audit framing** — FFIEC / SOX expect evidence that dormant access is reviewed and removed on a defined cadence, with proof of what was removed
+- Builds on: **Lab 01** (the corp.lab AD environment) and **Lab 02** (the synced dev tenant); operationalizes **Module 6 Section 02** recipes (stale-account finder, the -WhatIf dry-run discipline)
+</HoloPanel>
+
+# Automated Stale Account Cleanup
+
+Every directory accumulates dead weight. A contractor finishes a project and nobody closes the account. An employee transfers, then leaves, and their old account lingers enabled for a year. A service account is created for a one-off migration and never retired. Each of these is an unmonitored, often un-MFA'd credential that an attacker can phish, spray, or quietly inherit. Stale-account cleanup is the unglamorous hygiene work that closes that attack surface — and the auditors who review a regulated bank will ask for evidence that you do it on a schedule.
+
+This lab builds that evidence machine. You will not write a single blunt `Remove-ADUser` loop. You will build a pipeline that finds stale accounts on both sides of a hybrid identity (on-prem AD and Entra ID), then stages every candidate through three gates — **warn**, **disable**, **delete** — with a `-WhatIf` dry run in front of every write, full logging of what each account had before you touched it, and a retention window that makes the final delete reversible right up until the moment it is not. The discipline is the deliverable. A delete script anyone can write in five minutes; a defensible cleanup pipeline is what separates an operator from a liability.
+
+## Objective
+
+When you finish this lab you will have a re-runnable script that, given a staleness threshold (say 90 days), produces a timestamped evidence CSV of every dormant account, disables the confirmed candidates after a dry run, logs their group memberships before any change, moves them to a holding OU with a "disabled on" timestamp, and deletes only those that have sat disabled past a retention window and survived a second review. It runs safely on a schedule — re-running it does not double-act on accounts it already processed. That is exactly the artifact an FFIEC or SOX examiner wants to see, and exactly the muscle memory a banking IAM role demands.
+
+## Prerequisites
+
+- **The Lab 01 AD environment** (`corp.lab`) with the `ActiveDirectory` PowerShell module available on a domain-joined admin workstation, and **the Lab 02 synced tenant** so you have a hybrid population to clean.
+- A handful of deliberately dormant test accounts. If your lab is fresh, create a couple, set them enabled, and leave them un-signed-in so the inactivity filters have something to catch.
+- **The Microsoft Graph PowerShell SDK** for the cloud side, connected with at least `User.Read.All` and `AuditLog.Read.All` — the `signInActivity` property is not returned without `AuditLog.Read.All`.
+- **Licensing caveat for the cloud side:** Entra ID's `signInActivity` (the last-sign-in data this lab relies on) is a premium reporting feature and is populated only on tenants with the appropriate Entra ID premium licensing. Confirm your dev tenant has the premium plan enabled before expecting `LastSignInDateTime` to come back non-null. On a license-free tenant the property is simply blank, which would make every account look "never signed in." Verify the current licensing requirement on Microsoft Learn "Manage inactive user accounts in Microsoft Entra ID" before relying on it in production.
+- This lab builds directly on **Module 6 Section 02** — the stale-account finder recipe and the `-WhatIf` dry-run habit you learned there are the foundation. Here you wrap them into a staged, audited pipeline.
+
+<ProTip>
+**Disable, wait, delete. Never delete on first detection. Always log group memberships first.** This is the entire safety model of the lab in one line. A disabled account can be re-enabled in seconds when you discover it was the break-glass account nobody documented; a deleted account means an AD restore or a rebuild. And if you strip an account's group memberships without recording them, you have destroyed the only evidence of what access that identity held — which is precisely the question an auditor or an incident responder will ask you next. Capture first, change second, delete last.
+</ProTip>
+
+<Definition term="LastLogonTimeStamp">
+An Active Directory attribute that records, approximately, when a user or computer account last authenticated. Crucially it is **replicated with intentional latency** — Active Directory updates it only when the new value is more than roughly nine to fourteen days newer than the stored one, specifically to avoid flooding the directory with replication traffic for an attribute that changes on every logon. That means `LastLogonTimeStamp` can lag real activity by up to about two weeks. Its real-time counterpart, `LastLogon`, is accurate but is per-DC and **not replicated**, so reading it correctly means querying every domain controller and taking the maximum. For a domain-wide stale-account report you use the replicated value (exposed as `LastLogonDate`) or the purpose-built `Search-ADAccount -AccountInactive`, and you build the latency slack into your threshold.
+</Definition>
+
+## Lab steps
+
+### Step 1: Find stale accounts on-prem
+
+Start on the AD side. The `Search-ADAccount` cmdlet has a built-in inactivity finder so you do not have to hand-roll a `LastLogonDate` comparison, and it understands the replicated timestamp. Scope it to users, to enabled accounts, and to your real OU so you never accidentally sweep up built-in or service objects you have not reviewed.
+
+<PowerShellBlock title="On-prem: find enabled, inactive user accounts">{`# 90-day threshold expressed as a TimeSpan (days.hours:minutes:seconds)
+$threshold = '90.00:00:00'
+
+# Search-ADAccount uses the replicated LastLogonTimeStamp, so it already
+# accounts for the per-DC LastLogon problem. -UsersOnly excludes computers.
+$staleOnPrem = Search-ADAccount -AccountInactive -TimeSpan $threshold -UsersOnly \`
+  -SearchBase 'OU=Users,OU=Corp,DC=corp,DC=lab' |
+  Where-Object { $_.Enabled -eq $true }
+
+$staleOnPrem |
+  Select-Object Name, SamAccountName, DistinguishedName, LastLogonDate |
+  Sort-Object LastLogonDate |
+  Format-Table -AutoSize
+
+Write-Host "$($staleOnPrem.Count) enabled on-prem accounts inactive for 90+ days."`}</PowerShellBlock>
+
+The accuracy caveat from Module 6 matters here: because `LastLogonTimeStamp` converges slowly, an account that signed in last week can still show a stale date. That is why the 90-day threshold already bakes in a comfortable margin over the roughly two-week replication slack — and why you corroborate against the cloud's near-real-time signal in the next step rather than trusting one source.
+
+### Step 2: Find stale accounts in the cloud
+
+Entra ID exposes `signInActivity.LastSignInDateTime`, which is far closer to real time than the on-prem timestamp. Pull every user with that property, then filter client-side for the ones whose last sign-in is older than your threshold (or who have never signed in). Remember this is the property that needs `AuditLog.Read.All` and premium licensing to populate.
+
+<PowerShellBlock title="Cloud: find inactive Entra ID accounts">{`Connect-MgGraph -Scopes 'User.Read.All','AuditLog.Read.All'
+
+$cutoff = (Get-Date).AddDays(-90)
+
+# signInActivity is only returned when you request it explicitly.
+$cloudUsers = Get-MgUser -All \`
+  -Property 'displayName,userPrincipalName,accountEnabled,signInActivity'
+
+$staleCloud = $cloudUsers | Where-Object {
+  $_.AccountEnabled -eq $true -and
+  (
+    $null -eq $_.SignInActivity -or
+    $null -eq $_.SignInActivity.LastSignInDateTime -or
+    $_.SignInActivity.LastSignInDateTime -lt $cutoff
+  )
+}
+
+$staleCloud |
+  Select-Object DisplayName, UserPrincipalName,
+    @{ N = 'LastSignIn'; E = { $_.SignInActivity.LastSignInDateTime } } |
+  Sort-Object LastSignIn |
+  Format-Table -AutoSize
+
+Write-Host "$($staleCloud.Count) enabled cloud accounts inactive for 90+ days."`}</PowerShellBlock>
+
+Treat "never signed in" carefully. A brand-new account legitimately has no sign-in history, and on a license-free tenant *every* account looks like it never signed in. Cross-check the account's creation date before you flag a "never" as stale, and confirm your tenant actually populates `signInActivity` before trusting the result.
+
+### Step 3: Stage 1 — warn (export evidence and notify)
+
+Before anything is touched, freeze the candidate list as evidence and give owners a chance to object. The export is your audit artifact: it proves what the cleanup considered and when. The notification step is conceptual in the lab (you would wire it to your mail relay or a ticketing system), but the export is real and should always run first.
+
+<PowerShellBlock title="Stage 1: export the candidate list as timestamped evidence">{`$stamp   = Get-Date -Format 'yyyyMMdd-HHmm'
+$logRoot = 'C:\Audits\StaleCleanup'
+New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
+
+# Normalize both sources into one evidence table
+$candidates = @()
+$candidates += $staleOnPrem | ForEach-Object {
+  [PSCustomObject]@{
+    Source     = 'OnPrem'
+    Identity   = $_.SamAccountName
+    Display    = $_.Name
+    LastActive = $_.LastLogonDate
+    DN         = $_.DistinguishedName
+  }
+}
+$candidates += $staleCloud | ForEach-Object {
+  [PSCustomObject]@{
+    Source     = 'Cloud'
+    Identity   = $_.UserPrincipalName
+    Display    = $_.DisplayName
+    LastActive = $_.SignInActivity.LastSignInDateTime
+    DN         = $_.Id
+  }
+}
+
+$evidencePath = Join-Path $logRoot "Candidates_$stamp.csv"
+$candidates | Export-Csv -Path $evidencePath -NoTypeInformation
+Write-Host "Wrote $($candidates.Count) candidates to $evidencePath"
+Write-Host '(Stage 1 = warn: notify owners/managers before any disable.)'`}</PowerShellBlock>
+
+In a real run this CSV goes to the account owners and their managers with a deadline. Anyone who replies "that account is still needed" gets pulled from the list. Only the silence-after-warning set proceeds to Stage 2.
+
+### Step 4: Stage 2 — disable (dry run first, log memberships before)
+
+Now the first write — but never blind. Run the disable with `-WhatIf` so PowerShell tells you exactly which accounts it *would* change without changing them, eyeball that set, then re-run for real. And before you remove anything, capture each account's group memberships to a log: once you disable and later strip groups, this file is the only record of what access existed.
+
+<PowerShellBlock title="Stage 2 (on-prem): log memberships, dry run, then disable">{`# Capture group memberships BEFORE any change — this is the audit evidence.
+$memberLog = Join-Path $logRoot "Memberships_$stamp.csv"
+$staleOnPrem | ForEach-Object {
+  $acct = $_
+  Get-ADPrincipalGroupMembership -Identity $acct.SamAccountName |
+    ForEach-Object {
+      [PSCustomObject]@{
+        Account = $acct.SamAccountName
+        Group   = $_.Name
+        GroupDN = $_.DistinguishedName
+      }
+    }
+} | Export-Csv -Path $memberLog -NoTypeInformation
+Write-Host "Logged memberships to $memberLog"
+
+# DRY RUN — shows what would happen, changes nothing.
+$staleOnPrem | Disable-ADAccount -WhatIf
+
+# Review the -WhatIf output, then run for real (remove -WhatIf):
+# $staleOnPrem | Disable-ADAccount`}</PowerShellBlock>
+
+The cloud side mirrors the same dry-run gate. `Update-MgUser` supports `-WhatIf`, so you preview the account-disable before committing it.
+
+<PowerShellBlock title="Stage 2 (cloud): dry run, then disable">{`# DRY RUN first
+$staleCloud | ForEach-Object {
+  Update-MgUser -UserId $_.Id -AccountEnabled:$false -WhatIf
+}
+
+# After reviewing, run for real (remove -WhatIf):
+# $staleCloud | ForEach-Object {
+#   Update-MgUser -UserId $_.Id -AccountEnabled:$false
+# }`}</PowerShellBlock>
+
+### Step 5: Stage 3 — move to a holding OU and stamp the disable date
+
+A disabled account that stays in its normal OU is easy to lose track of and easy to mistake for active. Move every newly disabled on-prem account into a dedicated holding OU and write the disable date into a free attribute (the `info` / Notes attribute works for a lab) so the delete gate later knows how long it has sat. This stamp is what makes the retention window enforceable.
+
+<PowerShellBlock title="Stage 3: move disabled accounts to a holding OU with a disable stamp">{`$disabledOU = 'OU=Disabled,OU=Corp,DC=corp,DC=lab'
+$today      = (Get-Date).ToString('yyyy-MM-dd')
+
+$staleOnPrem | ForEach-Object {
+  # Record the disable date in the Notes/info attribute for the delete gate.
+  Set-ADUser -Identity $_.SamAccountName \`
+    -Replace @{ info = "DisabledByCleanup $today" } -WhatIf
+
+  Move-ADObject -Identity $_.DistinguishedName \`
+    -TargetPath $disabledOU -WhatIf
+}
+
+# Remove -WhatIf on both cmdlets above once the dry run looks correct.`}</PowerShellBlock>
+
+### Step 6: The retention gate — delete only after the window AND a second review
+
+This is the gate that prevents the disaster the war story describes. Nothing is deleted on first detection. An account is eligible for deletion only when it has sat disabled in the holding OU **past the retention window** (30 days here) — and even then, deletion is a separate, deliberately manual second-review step, never an automatic tail end of the same script run. Read the disable stamp, compute the age, and surface the truly-eligible set for a human to confirm.
+
+<PowerShellBlock title="Step 6: surface delete-eligible accounts past the retention window">{`$retentionDays = 30
+$now           = Get-Date
+
+$held = Get-ADUser -SearchBase 'OU=Disabled,OU=Corp,DC=corp,DC=lab' \`
+  -Filter { Enabled -eq $false } -Properties info, DistinguishedName
+
+$deleteEligible = $held | ForEach-Object {
+  if ($_.info -match 'DisabledByCleanup (\d{4}-\d{2}-\d{2})') {
+    $disabledOn = [datetime]$matches[1]
+    $age        = ($now - $disabledOn).Days
+    if ($age -ge $retentionDays) {
+      [PSCustomObject]@{
+        Account    = $_.SamAccountName
+        DisabledOn = $disabledOn.ToString('yyyy-MM-dd')
+        AgeDays    = $age
+        DN         = $_.DistinguishedName
+      }
+    }
+  }
+}
+
+$deleteEligible | Format-Table -AutoSize
+Write-Host "$($deleteEligible.Count) accounts past the $retentionDays-day window."
+Write-Host 'Deletion is a SEPARATE, human-confirmed step. Do not auto-delete here.'
+
+# Only after a documented second review:
+# $deleteEligible | ForEach-Object { Remove-ADUser -Identity $_.Account -WhatIf }`}</PowerShellBlock>
+
+Because the eligibility test is driven by the stamped disable date and the holding-OU scope, the whole pipeline is **idempotent**: re-running Steps 1 through 5 will not re-disable an already-disabled account or reset its stamp, and Step 6 only ever surfaces accounts whose clock has genuinely run out. That is what lets you schedule it (Task Scheduler on-prem, or Azure Automation for the cloud half) and trust that a second nightly run is harmless.
+
+## Validation
+
+Prove each gate did its job:
+
+- **Find:** the dry run lists the accounts you expect — your deliberately dormant test users appear, your active accounts do not.
+- **Disable:** after the real run, `Get-ADUser <sam> -Properties Enabled` shows `Enabled : False`, and the corresponding cloud user shows `AccountEnabled : False` via `Get-MgUser`.
+- **Evidence:** the `Candidates_*.csv` and `Memberships_*.csv` files exist and contain the expected rows — you can hand them to an auditor.
+- **Retention:** nothing inside the 30-day window appears in `$deleteEligible`. Force-test it by setting a test account's `info` stamp to a date 40 days ago and confirming it surfaces, while one stamped today does not.
+- **Idempotency:** run the whole script twice. The second run reports zero new disables and does not alter the stamps or memberships of accounts already processed.
+
+## Teardown
+
+This lab leaves your AD and tenant in a deliberately modified state, so reset it:
+
+<PowerShellBlock title="Teardown: re-enable lab accounts and move them back">{`# Re-enable and restore the on-prem test accounts
+$held = Get-ADUser -SearchBase 'OU=Disabled,OU=Corp,DC=corp,DC=lab' \`
+  -Filter { Enabled -eq $false }
+
+$held | ForEach-Object {
+  Enable-ADAccount -Identity $_.SamAccountName
+  Set-ADUser -Identity $_.SamAccountName -Clear info
+  Move-ADObject -Identity $_.DistinguishedName \`
+    -TargetPath 'OU=Users,OU=Corp,DC=corp,DC=lab'
+}
+
+# Re-enable the cloud test accounts
+# $staleCloud | ForEach-Object { Update-MgUser -UserId $_.Id -AccountEnabled:$true }`}</PowerShellBlock>
+
+The reusable artifact — the staged script and its evidence files — is the thing you keep. The lab accounts themselves go back to their original state so the lab is repeatable.
+
+## What this proves
+
+You can operationalize account hygiene as a safe, audited, staged pipeline rather than a one-shot `Remove`. You disable before you delete, you wait out a retention window, you require a second human review at the gate, and you log what every account held before you touched it. You also respect the `LastLogonTimeStamp` accuracy pitfall instead of treating a replicated, throttled attribute as ground truth — corroborating on-prem staleness against the cloud's near-real-time `signInActivity`. That combination — staged safety plus accurate detection plus exportable evidence — is precisely what an FFIEC or SOX reviewer asks for when they want proof that dormant access is being managed, and it is the difference between a cleanup that earns trust and one that causes an outage.
+
+## Recall drill
+
+<Flashcard front="Why is on-prem AD LastLogonTimeStamp not a real-time last sign-in, and what is the practical implication for a stale-account threshold?" back="LastLogonTimeStamp replicates with intentional latency (up to ~14 days) to reduce replication traffic; the real-time LastLogon is per-DC and non-replicated. So a stale-account threshold built on it must allow that ~14-day slack (or corroborate with Entra signInActivity) to avoid false positives." />
+<Flashcard front="What is the safe staging order for removing stale accounts, and what gates the final delete?" back="Warn (export evidence and notify) -> disable (with a -WhatIf dry run first, logging group memberships before any change) -> delete only after a retention window (e.g. 30 days) and a documented second review. Never delete on first detection." />
+
+## Drill
+
+<Quiz question={{
+  id: "12-labs/11-stale-account-cleanup/q1",
+  prompt: "Your on-prem stale-account script uses LastLogonTimeStamp with a 90-day threshold. A colleague says some accounts flagged stale actually logged in last week. What explains this, and how should the threshold account for it?",
+  options: [
+    "The script has a timezone bug; convert all times to UTC.",
+    "LastLogonTimeStamp replicates with intentional latency (up to ~14 days), so it lags real activity; the threshold should include that slack (or corroborate with Entra signInActivity) to avoid false positives.",
+    "LastLogonTimeStamp is real-time; the colleague is mistaken.",
+    "You must query LastLogon on every DC and the script already does."
+  ],
+  correctIndex: 1,
+  explanation: "LastLogonTimeStamp is deliberately throttled (~14-day convergence) to limit replication traffic, so it trails real sign-ins. Build the staleness threshold with that slack, or corroborate against the near-real-time Entra signInActivity, before disabling. The real-time value (LastLogon) is per-DC and non-replicated, so a domain-wide report should not rely on it directly."
+}} />

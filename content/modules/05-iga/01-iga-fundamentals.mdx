@@ -1,0 +1,131 @@
+{/* Objectives current as of 2026-06-01. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Plan and implement identity governance — the conceptual foundation (the concrete Microsoft implementation lives in section 05, Entra ID Governance)
+- **Security+ SY0-701** Objective 4.6 — Access controls (RBAC, ABAC, least privilege) and provisioning/deprovisioning lifecycle
+- **CISSP** Domain 5 (Identity and Access Management) — provisioning lifecycle, access review, RBAC/ABAC models, separation of duties
+- **NIST SP 800-53 Rev. 5** — AC-2 (Account Management), AC-5 (Separation of Duties), AC-6 (Least Privilege)
+</HoloPanel>
+
+# IGA Fundamentals: The Access Lifecycle
+
+Every access problem you will ever investigate reduces to four questions: who has access to what, why do they have it, and should they still? Identity Governance and Administration is the discipline — and the tool category — built to answer those questions continuously, for every identity and every system, with evidence an auditor will accept. Before you can compare SailPoint to Okta to Saviynt, before you can stand up an Entra access review, you need the spine: the access lifecycle that all of those platforms implement. That is this section.
+
+## What it is
+
+<Definition term="Identity Governance and Administration (IGA)">The discipline and tool category that answers "who has access to what, why, and should they still?" by combining identity administration — provisioning, deprovisioning, and request fulfilment — with identity governance — policy, access certification, segregation of duties, and access analytics. Gartner defined the IGA market by merging the earlier identity-and-access-governance (IAG) market with the user-administration and provisioning market; the two halves are now sold and operated as one platform category.</Definition>
+
+The pairing in that name is deliberate and worth slowing down on. **Administration** is the doing: connectors that create an account in Active Directory, add a user to a group in Salesforce, raise a ticket to a fulfiller, disable a mailbox on a termination. **Governance** is the deciding and the proving: the policy that says a new Loans hire automatically gets the Loans application bundle, the quarterly campaign where a manager attests that each of their reports still needs what they hold, the rule that flags anyone who can both create a vendor and approve its payment. A pure provisioning tool can grant access fast but cannot tell you whether it should have. A pure governance tool can flag a problem but cannot fix it. IGA insists on both, because the value is in the loop — decide, do, review, correct, repeat.
+
+The reason this is a named market and not just "the access part of Active Directory" is scale and heterogeneity. A community bank runs Entra ID, an on-prem AD domain, a core-banking platform, a loan-origination SaaS, ServiceNow, fifty smaller apps, and a fleet of service accounts. No single one of those systems knows the whole picture of what a given employee can touch. IGA is the system of record for that whole picture — the layer that sits above every application and answers governance questions across all of them at once.
+
+## Why it exists
+
+The problem IGA solves is that access, left alone, only ever accumulates. Grant a permission and it tends to outlive the reason it was granted. Multiply that across thousands of employees, a decade of department transfers, and dozens of applications, and you get the entropy every IAM auditor finds: people holding access nobody can explain, accounts belonging to people who left, privileges that crept upward through a series of "just add this one group" requests that were each individually reasonable and collectively a disaster.
+
+Regulators noticed. Several frameworks now make access governance non-negotiable. **SOX** internal-controls-over-financial-reporting (ITGC) testing expects periodic, evidenced access reviews for financially significant applications — typically on a quarterly cadence. **PCI DSS v4.0** Requirement 7 mandates restricting access to the cardholder data environment by least privilege and business need-to-know — and explicitly requires that access be reviewed (human accounts on a recurring schedule), while Requirement 8 governs unique identification and authentication of every user. The NIST control catalog gives you the named primitives that IGA implements: **AC-2 (Account Management)**, **AC-5 (Separation of Duties)**, and **AC-6 (Least Privilege)** in NIST SP 800-53 Rev. 5. When an auditor asks "show me you review access," IGA is what produces the report.
+
+<Definition term="orphaned account">An account that has no valid owning identity — the person left the organization, or the account was never linked to any identity at all (a forgotten service account, a contractor's leftover login). It is unmonitored standing access: nobody owns it, nobody is watching it, and it often still works. Orphaned accounts are a prime target for attackers and a recurring finding under SOX and PCI access reviews.</Definition>
+
+## How it works under the hood
+
+### The access lifecycle — the spine
+
+Every IGA platform, whatever the vendor calls its features, implements the same five-stage loop. Learn it as primitives and the products become variations on a theme.
+
+**Request.** Someone needs access they do not have. In a modern IGA tool this is self-service: a request portal where the user browses a catalog of requestable items — modeled as roles, entitlements, or access profiles — and adds what they need to a cart. Contrast that with **birthright** access, which is granted automatically with no request at all because policy says a person in this job gets this access by default. The art is drawing the line: birthright the predictable baseline, make the rest requestable.
+
+**Approval.** A request rarely grants itself. It routes through an approval workflow.
+
+<Definition term="approval workflow">The defined path a request takes from submission to a grant decision — single-stage or multi-stage, with the approver being the requester's manager, the resource/application owner, or the role owner, and with escalation and SLA timers so a request does not sit forever. The workflow is where policy meets a human decision: the approver is accountable for affirming that this person should get this access.</Definition>
+
+**Provisioning (fulfilment).** Once approved, the access has to actually be created in the target system. This is **automated** when a connector writes the entitlement directly — the IGA tool adds the AD group, calls the SaaS API. It is **manual** when no write-capable connector exists, so the platform raises a work item or ticket to a human fulfiller who makes the change and marks it done. The dominant standard for automated cross-application provisioning is **SCIM 2.0** — the System for Cross-domain Identity Management — whose schema is defined in RFC 7643 and whose protocol is defined in RFC 7644. SCIM is the reason an IGA tool or IdP can push a create/update/disable to a SCIM-enabled SaaS app in a vendor-neutral way (covered in depth in Module 2's SCIM section).
+
+**Certification (recertification).** Granting access is the easy half; proving it is still appropriate is the half that satisfies auditors.
+
+<Definition term="access certification campaign">A periodic review — also called recertification or attestation — in which a reviewer (a manager, an application or entitlement owner, or a role owner) examines each user's access and affirms it should continue (approve) or removes it (revoke). The campaign produces the audit evidence that access was actually reviewed by an accountable human, on a schedule, with a recorded decision per item.</Definition>
+
+**Revocation (deprovisioning).** This closes the loop. A revoke decision from a certification, a leaver event, or a policy change must result in the access actually being removed — automatically through a connector or via a work item for manually fulfilled sources. The same machinery detects orphaned and rogue access: accounts that exist in a target system with no corresponding governed grant.
+
+Surrounding all five stages, continuously, are **policy** and **segregation of duties**. Policy decides birthright and recalculation; SoD watches for combinations of access that no single person should hold (the full treatment is in section 06).
+
+### Joiner–Mover–Leaver — the lifecycle in human terms
+
+The five-stage loop describes mechanics. **JML** describes the three moments in an employee's life that drive most of the work.
+
+<Definition term="Joiner-Mover-Leaver (JML)">The model that maps identity lifecycle work to three triggering events. Joiner: a person is hired and needs birthright access provisioned on day one. Mover: a person changes department, manager, or job, so their access must be recalculated — old access removed, new access granted. Leaver: a person is terminated and all access must be promptly deprovisioned. Each event has a signature failure mode that IGA exists to prevent.</Definition>
+
+The **Joiner** is the cleanest: birthright access driven by RBAC, ideally provisioned automatically off an HR feed before the start date so the new hire is productive on day one. The risk here is over-provisioning — granting a generous bundle "to be safe" rather than the least-privilege baseline.
+
+The **Mover** is the one organizations get wrong most often, and the failure has a name.
+
+<Definition term="privilege creep">The gradual accumulation of access an identity no longer needs, caused by Mover events that grant new access without removing the old. Eighteen months and two department transfers later, the person holds three jobs' worth of entitlements. Also called access accumulation, it is the direct enemy of least privilege and the single most common thing a certification campaign is built to catch.</Definition>
+
+The fix for the Mover is recalculation: on a job change, the system recomputes what birthright access the new role grants and removes what the old role justified. When that recalculation is missing or incomplete, the certification campaign becomes the detective backstop.
+
+The **Leaver** is the highest-stakes event because the failure mode is an orphaned account with standing access and no owner. Timely, complete deprovisioning on termination — same day, ideally same hour for involuntary terminations — is the control. The classic audit finding is the terminated employee whose VPN, email, or core-banking login still works weeks later.
+
+### RBAC vs ABAC — the two access models
+
+How access gets decided in the first place comes down to two models you will be asked to compare on every cert and in every design review.
+
+<Definition term="Role-Based Access Control (RBAC)">An access model in which permissions are grouped into roles and users are granted access by being assigned to roles, rather than receiving permissions directly. It is the predominant enterprise model: predictable, auditable, and aligned to job functions. Formalized as the Ferraiolo-Kuhn model in 1992 and standardized as ANSI INCITS 359 (the 2012 revision, reaffirmed in 2022). Its characteristic failure is role explosion — too many narrow roles destroying the auditability it was meant to provide.</Definition>
+
+<Definition term="Attribute-Based Access Control (ABAC)">An access model in which access decisions are computed at evaluation time from attributes of the subject, the resource, the action, and the environment, evaluated against policy — for example, "permit if department equals Treasury AND device is managed AND time is within business hours." Defined in NIST SP 800-162 (Guide to ABAC Definition and Considerations). It is flexible and dynamic but harder to audit and reason about than a static role membership.</Definition>
+
+The trade-off is the whole story. RBAC gives you a list you can hand an auditor — these users are in this role, this role grants these permissions — but it struggles with context and high-cardinality conditions, and over-specific roles breed until there are nearly as many roles as users. ABAC handles context and dynamism elegantly — no role to mint for every combination — but answering "who can access X and why" requires evaluating policy rather than reading a membership list, which auditors find harder to verify. Most mature programs run a **hybrid**: RBAC for the coarse, stable, birthright layer, and ABAC for the fine-grained, contextual dimension. Section 06 turns this trade-off into a concrete design method.
+
+### Recertification campaigns in practice
+
+Certification is not one thing. The common types: **user access reviews** (a manager certifies their direct reports' access), **application or entitlement owner reviews** (the owner of an app certifies who holds its entitlements), **role membership reviews** (is this person still rightly in this role?), and **privileged access reviews** (the highest-risk accounts, reviewed most often). Cadence is driven by risk and compliance — financially significant applications under SOX typically get a quarterly review; lower-risk apps may be annual.
+
+The two pitfalls are human, not technical. **Rubber-stamping** is when reviewers bulk-approve everything without real scrutiny — the campaign generates audit evidence but delivers zero risk reduction, which is arguably worse than no campaign because it manufactures false assurance. **Reviewer fatigue** is its cause: drown a manager in 400 line items and they will approve-all to clear the queue. The mitigations are scope and signal: target campaigns at high-risk access rather than boiling the ocean, surface last-sign-in and inactivity recommendations so the reviewer's eye goes to the suspicious items, and hold reviewers accountable for their decisions.
+
+### Where IGA sits — versus the IdP and PAM
+
+It helps to place IGA against its neighbors. The **IdP** (Entra ID, Okta) authenticates — it owns the sign-in conversation and issues tokens. **PAM** (Module 4) vaults credentials and brokers privileged sessions — it controls how the most dangerous access is used. **IGA** governs who should have what across every system — it is the system of record for access policy, and it frequently feeds birthright groups that the IdP then consumes for assignment. They are complementary layers, not competitors: the IdP says "you are who you claim," PAM says "your privileged session is brokered and recorded," and IGA says "you should have this access at all, and here is the evidence we reviewed it." On SC-300, Microsoft's concrete implementation of these governance ideas — entitlement management, access reviews, Lifecycle Workflows — is the subject of section 05.
+
+<ProTip>
+When you stand up your first certification program, do not try to certify everything at once. Scope the first campaigns to your highest-risk applications — the financially significant systems and anything holding regulated data — and to privileged access. A tight, high-signal campaign that reviewers actually scrutinize beats a tenant-wide campaign that everyone rubber-stamps. You expand coverage once the cadence and the reviewer habits are established. Boil-the-ocean campaigns are how you train your managers to click approve-all.
+</ProTip>
+
+## War story
+
+<WarStory title="The Account That Outlived the Acquisition">
+A regional bank acquired a smaller competitor and inherited its systems mid-integration. Eight months later, during the annual SOX ITGC audit, the external auditor pulled a sample of accounts from the core-banking platform and asked the IAM team to map each one to a current employee. Most mapped fine. Eleven did not.
+
+Of the eleven, four belonged to people who had left the acquired company before the deal even closed — their accounts had been migrated wholesale during integration, with no reconciliation against an active HR feed. Three were service accounts nobody could explain, with interactive-login capability and passwords that had not changed in years. The remaining four were the worst: contractors from the acquired side whose engagements had ended, whose accounts still carried entitlements to the loan-origination system, and which had been used to sign in twice in the prior ninety days — by someone.
+
+The auditor wrote it up as a deficiency in account management and access review (the AC-2 family in plain language): no Leaver process spanning the acquired estate, no orphaned-account detection, no recurring certification on the core platform. The "two recent sign-ins on a terminated contractor's account" line turned a routine finding into a security incident review.
+
+The remediation was the whole lifecycle, retrofitted. The team wired the core-banking platform into their IGA tool as a governed source, ran a first aggregation, and reconciled every account against the consolidated HR feed — which immediately surfaced the orphans because they correlated to no active identity. They built a Leaver workflow that fired off the authoritative HR termination event for both legacy populations. They stood up a quarterly manager certification scoped first to exactly the high-risk applications the auditor had sampled. The two-recent-sign-ins account went to incident response; the rest were disabled, then deleted after a hold period.
+
+The lesson Kolton-shaped readers will recognize: orphaned accounts are not a hypothetical. They are what an auditor finds in the first sample, every time, when the JML loop has a gap. The same failure shows up in a SaaS-first startup as a deactivated Okta user whose downstream SCIM deprovisioning silently failed, and in a defense enclave as a separated soldier whose enclave account was never disabled. Different systems, identical finding: standing access with no living owner, because the loop never closed.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="What does IGA stand for and what two disciplines does it combine?" back="Identity Governance and Administration. It merges identity administration (provisioning, deprovisioning, and request fulfilment) with identity governance (policy, access certification, segregation of duties, and access analytics) — answering who has access to what, why, and whether they should still." />
+<Flashcard front="Name the five stages of the access lifecycle." back="Request, then Approval, then Provisioning (fulfilment), then Certification (recertification), then Revocation/deprovisioning. All five are bounded continuously by policy and segregation of duties." />
+<Flashcard front="What are the three events in the Joiner-Mover-Leaver model and the signature risk of each?" back="Joiner: birthright access on hire (risk: over-provisioning a new hire). Mover: access recalculation on a role change (risk: privilege creep / access accumulation when old access is never removed). Leaver: deprovisioning on termination (risk: orphaned accounts that retain access)." />
+<Flashcard front="Define an orphaned account and why auditors flag it." back="An account with no valid owning identity — the person left, or it was never correlated to any identity. It is unmonitored standing access: a prime target for attackers and a recurring finding under SOX and PCI access reviews." />
+<Flashcard front="How do RBAC and ABAC differ in one line each?" back="RBAC grants access by assigning users to roles — predictable and auditable, but prone to role explosion. ABAC grants access by evaluating subject, resource, action, and environment attributes against policy — flexible and dynamic, but harder to audit." />
+<Flashcard front="Which standards anchor RBAC and ABAC?" back="RBAC: the Ferraiolo-Kuhn NIST RBAC model, standardized as ANSI INCITS 359 (the 2012 revision, reaffirmed 2022). ABAC: NIST SP 800-162, the Guide to ABAC Definition and Considerations." />
+<Flashcard front="What is an access certification (recertification) campaign?" back="A periodic review in which a reviewer (manager, application/entitlement owner, or role owner) attests that each user's access is still appropriate, approving or revoking it — producing the audit evidence that access was reviewed by an accountable person on a schedule." />
+<Flashcard front="What is rubber-stamping in certifications and why is it dangerous?" back="When reviewers bulk-approve access without real scrutiny, defeating the control: the campaign produces audit evidence but no actual risk reduction, manufacturing false assurance. Mitigate with risk-scoped campaigns, last-sign-in recommendations, and reviewer accountability." />
+<Flashcard front="Which NIST SP 800-53 Rev. 5 controls most directly govern the IGA lifecycle?" back="AC-2 (Account Management), AC-5 (Separation of Duties), and AC-6 (Least Privilege). They are the named primitives that account provisioning, SoD enforcement, and least-privilege review implement." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "05-iga/01-iga-fundamentals/q1",
+  prompt: "A new hire transfers from the Loans department to Treasury after 18 months. Six months later an audit finds she still holds all her old Loans entitlements plus her new Treasury access. Which IGA lifecycle stage failed, and what is this condition called?",
+  options: [
+    "The Joiner stage failed — birthright access was over-granted at hire.",
+    "The Mover stage failed — her access was not recalculated/deprovisioned on the department change; the condition is privilege creep (access accumulation).",
+    "The Leaver stage failed — she should have been fully deprovisioned.",
+    "Certification cannot detect this; only provisioning controls can."
+  ],
+  correctIndex: 1,
+  explanation: "The Mover event should trigger a recalculation that removes access no longer justified by the new role. When old access is retained across a transfer, accumulated entitlements build up — privilege creep, the direct enemy of least privilege. A recertification campaign is the detective backstop when the Mover automation is incomplete, which is why both controls exist together."
+}} />

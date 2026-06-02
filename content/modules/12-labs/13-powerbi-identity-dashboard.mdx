@@ -1,0 +1,217 @@
+{/* Lab procedure current as of 2026-06-01. Re-verify cmdlet syntax, the authentication-methods report cmdlet, and licensing notes against live Microsoft Learn before running against any real tenant. */}
+
+<HoloPanel label="COVERS">
+- **IAM program metrics** — turning raw directory and governance data into the executive-facing numbers an identity program is judged on (MFA coverage, standing privilege, stale accounts, guest sprawl, Conditional Access coverage)
+- **Reporting pipeline** — PowerShell (Microsoft Graph) extracts to timestamped CSV; Power BI loads, models, and visualizes — an extract-then-visualize pattern, not an IAM-native Power BI feature
+- **Security+ SY0-701** Objective 4.7 — Automate and orchestrate security using scripting (a re-runnable, schedulable extract)
+- **CISSP** Domain 1 / Domain 7 — security governance and metrics; reporting detective controls to leadership
+- Builds on: **Module 6 Section 02** (every export recipe this lab consolidates), **Labs 02 / 03 / 06 / 11** (the data sources), and the program-metrics framing of **Module 10**
+- Note: touches the SC-300 authentication-methods reporting surface but is classified as program-reporting ops, not an SC-300 objective
+</HoloPanel>
+
+# Build a Power BI Identity Dashboard
+
+Everything in this module so far has been operator work — you stood up the lab, synced a tenant, wrote Conditional Access, onboarded PIM, and built a staged cleanup pipeline. This lab is the bridge from operator to program owner. A CISO does not ask "did you run the access review." A CISO asks "what percentage of our workforce has MFA registered, how many standing privileged assignments do we carry, and is that number going up or down." Those questions are answered with a dashboard, and the dashboard is built on the exact exports you already know how to produce.
+
+The key idea is a clean division of labor. **PowerShell extracts; Power BI visualizes.** There is no IAM-specific Power BI connector, no "Get Entra data" button — Power BI does not know what a privileged role is. Its job is to load flat files, model them, and render them. The intelligence lives in your Microsoft Graph export scripts, which you have been building since Module 6. This lab consolidates those scripts into one timestamped export folder, then walks the Power BI Desktop flow that turns that folder into five executive metric areas: MFA registration percentage, standing privileged-role count, stale-account count, guest sprawl by inviter, and Conditional Access coverage. The output is a tangible portfolio artifact — the kind of thing you put in front of a consulting prospect or a hiring manager to prove you can run a program, not just a console.
+
+## Objective
+
+When you finish this lab you will have two things. First, a single consolidated extract script that, in one run, writes five purpose-built CSVs into one timestamped folder — MFA registration detail, privileged role assignments, stale accounts, guest inventory, and Conditional Access policy inventory. Second, a Power BI Desktop `.pbix` file that loads that folder, cleans and types the data in Power Query, defines a handful of DAX measures, and renders an executive identity dashboard: KPI cards for the headline numbers, a stale-accounts table, a guests-by-inviter bar chart, and a Conditional Access coverage matrix. Every number on the dashboard reconciles against the source PowerShell counts — the dashboard tells the truth because it is fed by the truth.
+
+## Prerequisites
+
+- **Power BI Desktop** — the free Windows desktop application. You author the `.pbix` locally; you do not need a Power BI Pro license or the Power BI service to complete the lab. Install it from the Microsoft Store or the Microsoft download center, and confirm the current version supports the Folder and CSV connectors (it has for years; verify against Microsoft Learn "Get data from CSV in Power BI Desktop").
+- **A tenant with real data** and the **Microsoft Graph PowerShell SDK** installed and connected. This lab presumes the **Lab 02** synced dev tenant so the exports have a population to describe.
+- **The export recipes from Module 6 Section 02.** This lab does not invent new queries — it consolidates the guest inventory (Recipe 2), the admin-consent and privileged-role audits (Recipes 3, 4, 8), the Conditional Access inventory (Recipe 5), and the stale-account finder you wrapped into a pipeline in **Lab 11**. If those recipes are unfamiliar, work through Module 6 first.
+- **Graph scopes** for the consolidated extract: `AuditLog.Read.All` (for sign-in activity and the authentication-methods registration report), `User.Read.All`, `RoleManagement.Read.Directory`, `Policy.Read.All` (Conditional Access policies), and `Directory.Read.All`. Consent to these once at connect time.
+- **Licensing caveat:** the same premium-reporting dependency from Lab 11 applies here. The `signInActivity` last-sign-in data and the authentication-methods registration report are premium Entra ID reporting features; on a license-free tenant `signInActivity` comes back blank and the registration report may be unavailable. Confirm your dev tenant has the premium plan before expecting non-null values. Verify the current requirement on Microsoft Learn before relying on it in production.
+
+<Definition term="IAM metrics">
+The small set of quantitative indicators that describe the health of an identity program rather than the state of a single account. They are program-level, trended over time, and meaningful to leadership — examples: the percentage of the workforce with a strong MFA method registered, the count of standing (always-on) privileged role assignments, the number of stale or never-signed-in accounts, the count of external guest identities and how many have gone dormant, and the percentage of sign-ins covered by an enforced Conditional Access policy. A good IAM metric is sourced from authoritative directory data (not a spreadsheet someone maintains by hand), is reproducible on a schedule, and moves in a direction you can defend. The dashboard in this lab is the presentation layer for exactly these numbers.
+</Definition>
+
+<ProTip>
+**A .pbix that loads directory exports is a sensitive file. Treat it like one.** The moment your Power BI file imports those CSVs, it embeds a cached copy of the data inside the `.pbix` — every UPN, every privileged role holder, every guest email, every stale account. That file is now a directory dump in disguise. Do not publish it to an open or shared Power BI workspace, do not drop it in a team channel, and do not commit it to a repo without classification. If you publish to the Power BI service at all, publish to a workspace with restricted membership, label the dataset per your data-classification policy, and prefer a refresh model that pulls from a governed source over one that ships the cached extract around. The dashboard is meant to be seen; the underlying identity data is not.
+</ProTip>
+
+## Lab steps
+
+### Step 1: Consolidate the extract into one timestamped folder
+
+Power BI's Folder connector is happiest when every file it will combine lives in one place and shares a clean shape. So the first job is a single script that creates one timestamped run folder and drops all five CSVs into it. Connect once with every scope the recipes need, stamp the folder, and let each export write into it. This is just the Module 6 recipes gathered under one roof.
+
+<PowerShellBlock title="Consolidated extract: create the run folder and connect">{`# One run = one timestamped folder. Power BI's Folder connector reads the whole folder.
+$stamp   = Get-Date -Format 'yyyyMMdd-HHmm'
+$runRoot = Join-Path 'C:\\IAM-Metrics' $stamp
+New-Item -ItemType Directory -Path $runRoot -Force | Out-Null
+Write-Host "Export run folder: $runRoot"
+
+# Connect once with every scope the five exports need.
+Connect-MgGraph -Scopes \`
+  'User.Read.All','AuditLog.Read.All','RoleManagement.Read.Directory', \`
+  'Policy.Read.All','Directory.Read.All'`}</PowerShellBlock>
+
+Now the five exports. Each one is a recipe you already know, retargeted to write into `$runRoot` with a predictable filename. Keep the column sets explicit — Power BI types columns by what it sees, so a clean, named projection here saves cleanup work in Power Query later.
+
+<PowerShellBlock title="Consolidated extract: write the five metric CSVs">{`# 1) MFA / strong-auth registration detail. The authentication-methods report
+#    cmdlet lives in Microsoft.Graph.Reports and needs AuditLog.Read.All.
+#    (Verify the exact cmdlet name against Microsoft Learn before a real run.)
+Get-MgReportAuthenticationMethodUserRegistrationDetail -All |
+  Select-Object UserPrincipalName, IsMfaRegistered, IsAdmin,
+    @{ N = 'Methods'; E = { ($_.MethodsRegistered) -join ' | ' } } |
+  Export-Csv -Path (Join-Path $runRoot 'mfa-registration.csv') -NoTypeInformation
+
+# 2) Standing (active/permanent) privileged role assignments. Recipe 4/8.
+$roles = Get-MgRoleManagementDirectoryRoleDefinition -All
+Get-MgRoleManagementDirectoryRoleAssignment -All -ExpandProperty 'principal,roleDefinition' |
+  ForEach-Object {
+    [PSCustomObject]@{
+      RoleName      = $_.RoleDefinition.DisplayName
+      PrincipalName = $_.Principal.AdditionalProperties['displayName']
+      PrincipalUPN  = $_.Principal.AdditionalProperties['userPrincipalName']
+      PrincipalType = ($_.Principal.AdditionalProperties['@odata.type'] -replace '#microsoft.graph.','')
+      ScopeId       = $_.DirectoryScopeId
+    }
+  } | Export-Csv -Path (Join-Path $runRoot 'privileged-roles.csv') -NoTypeInformation
+
+# 3) Stale accounts (cloud). Lab 11 finder, 90-day threshold.
+$cutoff = (Get-Date).AddDays(-90)
+Get-MgUser -All -Property 'displayName,userPrincipalName,accountEnabled,signInActivity' |
+  Where-Object {
+    $_.AccountEnabled -eq $true -and
+    ($null -eq $_.SignInActivity.LastSignInDateTime -or
+     $_.SignInActivity.LastSignInDateTime -lt $cutoff)
+  } |
+  Select-Object DisplayName, UserPrincipalName,
+    @{ N = 'LastSignIn'; E = { $_.SignInActivity.LastSignInDateTime } } |
+  Export-Csv -Path (Join-Path $runRoot 'stale-accounts.csv') -NoTypeInformation
+
+# 4) Guest inventory with inviter context. Recipe 2.
+Get-MgUser -Filter "userType eq 'Guest'" \`
+  -Property 'displayName,userPrincipalName,mail,createdDateTime,signInActivity' -All |
+  Select-Object DisplayName, Mail, UserPrincipalName, CreatedDateTime,
+    @{ N = 'LastSignIn'; E = { $_.SignInActivity.LastSignInDateTime } } |
+  Export-Csv -Path (Join-Path $runRoot 'guests.csv') -NoTypeInformation
+
+# 5) Conditional Access policy inventory. Recipe 5.
+Get-MgIdentityConditionalAccessPolicy -All |
+  Select-Object DisplayName, State,
+    @{ N = 'GrantControls'; E = { ($_.GrantControls.BuiltInControls) -join ' | ' } },
+    @{ N = 'IncludedUsers'; E = { ($_.Conditions.Users.IncludeUsers) -join ' | ' } } |
+  Export-Csv -Path (Join-Path $runRoot 'ca-policies.csv') -NoTypeInformation
+
+Write-Host "Wrote 5 CSVs to $runRoot"
+Get-ChildItem $runRoot -Filter *.csv | Select-Object Name, Length`}</PowerShellBlock>
+
+Before you open Power BI, print the counts you expect to see on the dashboard. These are your reconciliation truth — every KPI card and table must match them, or your Power Query did something you did not intend.
+
+<PowerShellBlock title="Print the reconciliation counts you will validate against">{`$mfa   = Import-Csv (Join-Path $runRoot 'mfa-registration.csv')
+$priv  = Import-Csv (Join-Path $runRoot 'privileged-roles.csv')
+$stale = Import-Csv (Join-Path $runRoot 'stale-accounts.csv')
+$guest = Import-Csv (Join-Path $runRoot 'guests.csv')
+$ca    = Import-Csv (Join-Path $runRoot 'ca-policies.csv')
+
+$mfaPct = if ($mfa.Count -gt 0) {
+  [math]::Round(($mfa.Where({ $_.IsMfaRegistered -eq 'True' }).Count / $mfa.Count) * 100, 1)
+} else { 0 }
+
+Write-Host "MFA registered:        $mfaPct% of $($mfa.Count) users"
+Write-Host "Standing priv assigns: $($priv.Count)"
+Write-Host "Stale accounts (90d):  $($stale.Count)"
+Write-Host "Guests:                $($guest.Count)"
+Write-Host "CA policies (enabled): $($ca.Where({ $_.State -eq 'enabled' }).Count) of $($ca.Count)"`}</PowerShellBlock>
+
+### Step 2: Load the folder into Power BI Desktop
+
+Open Power BI Desktop. **Get Data → More → Folder**, point it at your run folder (`C:\IAM-Metrics\<stamp>`), and choose **Transform Data** rather than Load — you want to land in Power Query first, not import raw. For a folder of five differently-shaped CSVs you do not want Power BI's automatic "combine files" step (that assumes one schema); instead, load the folder as a file list and reference each CSV as its own query.
+
+The clean approach in Power Query: from the folder query, filter to the `mfa-registration.csv` row, right-click its `Content` cell, and use **CSV Document** to expand it into a table — then duplicate that query four more times, one per file, changing the filename filter each time. The result is five named queries (`MFA`, `PrivilegedRoles`, `StaleAccounts`, `Guests`, `CAPolicies`), each pointed at one CSV but all sourced from the same parameterized folder path. Parameterizing the folder path is what lets you re-point the whole report at next month's export folder in one click.
+
+### Step 3: Clean and type in Power Query
+
+Power Query is where you make the data trustworthy before it ever hits a visual. For each query, do three things: **promote headers** (so the first CSV row becomes column names), **set explicit data types** (text for names and UPNs, a true date/time for `LastSignIn` and `CreatedDateTime`, whole number for counts), and **derive the helper columns** the visuals need. The most useful derived column is `DaysSinceSignIn`, computed from `LastSignIn`, which turns a raw timestamp into the number a stale-accounts table can sort and color on.
+
+Add a custom column on the `StaleAccounts` and `Guests` queries with the Power Query M formula below. It returns the integer day count, or a sentinel for accounts that have never signed in, so a blank does not silently sort as "most recent."
+
+<PowerShellBlock title="Power Query M: derive DaysSinceSignIn (Add Column -> Custom Column)">{`// Power Query M (not PowerShell) - paste into the Custom Column dialog.
+// [LastSignIn] is the typed date/time column from the CSV.
+if [LastSignIn] = null then
+    9999  // sentinel: never signed in - sorts to the top as most stale
+else
+    Duration.Days(DateTime.LocalNow() - [LastSignIn])`}</PowerShellBlock>
+
+Set that new column's type to whole number, then click **Close & Apply**. Power BI loads the five typed tables into the model. Because each CSV is small and self-contained, you do not need a formal star schema for this lab — flat tables are fine. If you later want a date dimension to trend metrics across monthly export folders, that is the natural next step, but it is not required to render the five metric areas.
+
+### Step 4: Define the measures
+
+A dashboard reports measures, not raw rows. Define a few explicit DAX measures so the KPI cards compute the same percentages your PowerShell reconciliation printed. Create these in the **Model** view (New Measure). The MFA percentage is the headline — it divides the count of MFA-registered users by the total, guarding against a divide-by-zero on an empty table.
+
+<PowerShellBlock title="DAX measures (New Measure in Power BI - not PowerShell)">{`// DAX, authored in Power BI Desktop. One measure per New Measure dialog.
+
+MFA Registered % =
+DIVIDE(
+    CALCULATE( COUNTROWS( MFA ), MFA[IsMfaRegistered] = "True" ),
+    COUNTROWS( MFA ),
+    0
+)
+
+Standing Privileged Assignments = COUNTROWS( PrivilegedRoles )
+
+Stale Account Count = COUNTROWS( StaleAccounts )
+
+Guest Count = COUNTROWS( Guests )
+
+Enabled CA Policies =
+CALCULATE( COUNTROWS( CAPolicies ), CAPolicies[State] = "enabled" )`}</PowerShellBlock>
+
+Each of these should equal the number your reconciliation script printed in Step 1. If `MFA Registered %` on the card does not match the PowerShell figure, the usual culprit is a type mismatch — `IsMfaRegistered` came in as text `"True"` in one place and a boolean in another. Fix it in Power Query, not in DAX, so the data stays clean at the source.
+
+### Step 5: Build the visuals
+
+Now lay out the report page. The pattern is headline numbers across the top, detail below.
+
+1. **KPI cards (top row).** Drop four **Card** visuals across the top: `MFA Registered %`, `Standing Privileged Assignments`, `Stale Account Count`, and `Guest Count`. These are the four numbers a leader reads in three seconds. Format the MFA card as a percentage.
+2. **Stale-accounts table.** Add a **Table** visual bound to `StaleAccounts` with columns `DisplayName`, `UserPrincipalName`, `LastSignIn`, and `DaysSinceSignIn`. Sort descending by `DaysSinceSignIn` and add conditional formatting so the longest-dormant rows read hot. This is the worklist a cleanup run consumes.
+3. **Guests-by-inviter bar chart.** Add a **Clustered bar chart** from `Guests` — count of guests on the value axis. If your export includes an inviter or domain column, put it on the axis; otherwise group by the guest email domain to show where external identities cluster. Either way it surfaces guest sprawl visually instead of as a single number.
+4. **Conditional Access coverage matrix.** Add a **Matrix** visual from `CAPolicies` with `State` on the rows and `GrantControls` as values, so you can see at a glance how many enabled policies actually enforce MFA versus how many sit in report-only or have no controls — the coverage gap Recipe 5 was built to find.
+
+Add a page title and a small text box noting the export timestamp (you can wire this from the folder name) so anyone reading the dashboard knows exactly how fresh the numbers are. A metric with no as-of date is a rumor.
+
+### Step 6: The refresh story
+
+The lab version is manual and that is fine: re-run the Step 1 extract into a new timestamped folder, re-point the Power Query folder parameter, and click **Refresh**. The dashboard updates against the new data. That loop — extract, re-point, refresh — is the whole refresh model for a local `.pbix`, and it is enough to produce a monthly board slide.
+
+What it is *not* is automatic. Scheduled refresh in the Power BI service cannot reach into your workstation to re-run a PowerShell script — the service can only refresh from a data source it can reach (a cloud location or an on-prem source exposed through a data gateway). So the productionization path looks like this: an **Azure Automation** runbook (or a scheduled Function) runs the consolidated extract on a cadence and writes the CSVs to a governed cloud location such as **Azure Blob Storage** or a SharePoint library; the published Power BI dataset points at that location instead of your local folder; and **scheduled refresh** then keeps the dashboard current with no human in the loop. You are not building that pipeline in this lab — but knowing that the extract has to land somewhere the service can read is the difference between a one-off slide and a living program metric. Verify the current gateway and scheduled-refresh requirements on Microsoft Learn before you design the production version.
+
+## Validation
+
+The dashboard is correct when it reconciles. Walk these checks:
+
+- **Five tables loaded.** The Power BI Fields pane shows `MFA`, `PrivilegedRoles`, `StaleAccounts`, `Guests`, and `CAPolicies`, each with the columns you typed.
+- **Cards match PowerShell.** The `MFA Registered %`, standing-privilege, stale, and guest cards equal the four numbers your Step 1 reconciliation script printed. If any card is off, the gap is in Power Query typing or a stray filter — not in the source data.
+- **Table sorts correctly.** The stale-accounts table sorts with the longest-dormant (or never-signed-in `9999` sentinel) accounts at the top, and those are the same identities the export flagged.
+- **Coverage matrix is honest.** The Conditional Access matrix shows your enabled policies and their grant controls; an enabled policy with a blank `GrantControls` value is the allow-all gap you should investigate, exactly as in Recipe 5.
+- **Freshness is visible.** The page shows the export timestamp, so a reader knows the data's age.
+
+## Teardown
+
+There is no tenant state to reverse — this lab only reads. The cleanup is about the data at rest:
+
+- The `.pbix` and the `C:\IAM-Metrics\<stamp>` CSV folders now contain a cached directory dump. If this was a lab tenant with throwaway data, you can keep them. If it touched any real identity data, store the files in a location consistent with your data-classification policy or delete them when you are done.
+- **Do not** publish a `.pbix` containing real directory exports to an open or broadly shared Power BI workspace. If you publish to demonstrate the report, publish to a restricted workspace and label the dataset.
+
+<WarStory title="The dashboard that leaked the org chart">
+A new identity lead, eager to show value in their first month, builds exactly this dashboard against the production tenant. The numbers are great and the visuals are clean, so they publish the `.pbix` to a Power BI workspace to share with their manager — and pick the default workspace, which at that org was effectively open to the whole company. The cached dataset inside the file held every privileged role holder by name and UPN, every guest's external email, and the full stale-account list. For two days, anyone in the company who browsed the workspace could see precisely which accounts held Global Administrator and which external partners had dormant guest access — a target list handed to anyone who wanted one. Nobody attacked it; the security team caught it in a workspace review and pulled it. But the lesson stuck: the dashboard is the deliverable, the underlying identity data is not, and a `.pbix` is a data file, not just a picture. Restricted workspace, classified dataset, governed refresh source — decide that before you click Publish, not after.
+</WarStory>
+
+## What this proves
+
+You can turn raw directory and governance data into the executive-facing metrics an identity program is actually judged on — MFA coverage, standing privilege, stale accounts, guest sprawl, and Conditional Access coverage — and present them in a way a leader can read in seconds. You understand the division of labor (PowerShell extracts and owns the logic; Power BI loads, models, and visualizes), you reconcile every visual against its source so the dashboard tells the truth, and you treat the resulting file as the sensitive directory dump it is. That is the operator-to-program-owner bridge: not just running the controls, but measuring them, trending them, and reporting them — and it is a portfolio artifact you can put in front of a consulting client or a hiring panel to prove it.
+
+## Recall drill
+
+<Flashcard front="What is the division of labor between PowerShell and Power BI when building an identity dashboard?" back="PowerShell (Microsoft Graph) extracts directory and governance data to timestamped CSVs and owns all the query logic; Power BI loads, models in Power Query, and visualizes it. Power BI has no IAM-specific connector or cmdlet - the value is the extract-then-visualize pipeline, not a built-in feature." />
+<Flashcard front="Name three executive IAM metrics worth putting on a dashboard and the data source for each." back="MFA-registration percentage from the authentication-methods registration report (Get-MgReportAuthenticationMethodUserRegistrationDetail), standing privileged-role count from the role-assignment audit (Get-MgRoleManagementDirectoryRoleAssignment), and stale or guest account counts from signInActivity plus the userType filter on Get-MgUser." />
+<Flashcard front="Why is publishing a .pbix that imported directory exports a data-handling risk, and how do you mitigate it?" back="Importing the CSVs embeds a cached copy of the data (UPNs, privileged role holders, guest emails, stale accounts) inside the .pbix, so the file is a directory dump. Mitigate by not publishing to open or shared workspaces, publishing only to a restricted workspace, labeling the dataset per data-classification policy, and preferring a governed refresh source over shipping the cached extract." />
+<Flashcard front="Why can Power BI service scheduled refresh not just re-run your PowerShell extract, and what is the productionization path?" back="Scheduled refresh can only pull from a source the service can reach (a cloud location or an on-prem source via a data gateway); it cannot reach into a workstation to run a script. The production path is to run the extract on a schedule (Azure Automation or a Function), write the CSVs to a governed cloud location like Azure Blob Storage, point the published dataset at that location, and let scheduled refresh keep the dashboard current." />

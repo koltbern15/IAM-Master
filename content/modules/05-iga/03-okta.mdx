@@ -1,0 +1,142 @@
+{/* Objectives current as of 2026-06-01. Vendor SKU bundling and feature names change fast — re-verify against Okta product docs before quoting in a proposal. */}
+
+<HoloPanel label="COVERS">
+- **IGA platform fluency** — Okta as the cloud-first IdP that grew into Identity Governance, and where it fits against SailPoint
+- **Lifecycle automation** — Universal Directory, Lifecycle Management, group rules, and Okta Workflows as the joiner-mover-leaver engine
+- **Governance** — Okta Identity Governance (OIG): Access Requests, Access Certifications, Entitlement Management
+- **Machine/API authorization** — Okta API Access Management as an OAuth 2.0 authorization server (cross-links Module 2 OAuth/OIDC and SCIM)
+</HoloPanel>
+
+# Okta: Identity Cloud Governance
+
+SailPoint built its empire from the governance end of the problem — it started as the system of record for "who should have what," and provisioning came along for the ride. Okta arrived from the opposite direction. It was born as a cloud single sign-on company: the thing that let your users log into hundreds of SaaS apps with one identity. Governance — the certifications, the access requests, the segregation-of-duties analytics — was bolted on later, once Okta already owned the front door. That origin story explains almost everything about how Okta does IGA, where it is excellent, and where it still trails the dedicated governance vendors.
+
+This section walks the Okta governance stack from the ground up: the directory that holds the truth (Universal Directory), the automation that moves people through their lifecycle (Lifecycle Management, group rules, and Workflows), the governance SKU that layers reviews and requests on top (Okta Identity Governance), and the often-overlooked machine-authorization story (API Access Management). By the end you should be able to sit in a banking RFP and say, with a straight face, exactly when Okta is the right IGA answer and when it is not.
+
+## What it is
+
+Okta is a cloud-first identity provider that has extended into identity governance. For an organization whose front door is already Okta and whose application estate is mostly SaaS, Okta is the natural — and often cheapest-to-operate — IGA choice, because the governance features build directly on the directory and lifecycle automation the org is already running.
+
+Okta's market position is worth stating precisely, because it is easy to overclaim. Okta has been recognized as a Leader in the Gartner Magic Quadrant for Access Management for several consecutive years — that is its home turf, the single sign-on and adaptive authentication market. In dedicated Identity Governance and Administration, Okta is the newer entrant: Okta Identity Governance reached general availability comparatively recently and has earned strong customer-review recognition, but the deep, decades-old role and segregation-of-duties modeling pedigree still belongs to SailPoint, Saviynt, and One Identity. When you frame Okta in a proposal, frame it as the IdP-led governance play, not as a like-for-like SailPoint replacement.
+
+<Definition term="Universal Directory">Okta's flexible, cloud-hosted profile store. It aggregates user attributes from multiple sources — an HR system, on-prem Active Directory or LDAP (read through the Okta AD/LDAP agent), and individual application profiles — into one canonical Okta user profile. Profile mappings transform attributes as they flow between an app profile and the Universal Directory profile (and back), so a department value from Workday can drive a group assignment that drives an app entitlement. Universal Directory is the governance foundation: birthright groups and attribute-driven assignment all read from these attributes.</Definition>
+
+Everything Okta does in governance reads from Universal Directory. If the attribute that says someone is a Treasury analyst is wrong, every downstream decision — what groups they land in, what apps they get, what a reviewer sees during a certification — is wrong too. Garbage in, governed garbage out.
+
+## Why it exists
+
+The problem Okta set out to solve was never "who should have access." It was "how does a person sign into 200 SaaS apps without 200 passwords." Once Okta sat in the middle of every sign-in, it had the most valuable real estate in the identity stack: a complete picture of who exists, what they sign into, and when they last did so. Governance is the obvious next move from that position — you already know who has access, so attesting to whether they *should* is a feature away.
+
+That is why Okta's governance is so tightly coupled to its lifecycle automation. SailPoint can govern a system it has never provisioned to; it aggregates, correlates, and certifies access that something else granted. Okta's strength is that it usually granted the access itself — through Lifecycle Management and group rules — so the governance layer is reviewing access it already understands end to end. The trade-off is the mirror image of the strength: where the estate is full of complex on-prem applications that Okta does not provision and cannot read deeply, Okta's governance has less to work with than a platform built from the aggregation end.
+
+## How it works under the hood
+
+### Lifecycle Management — the joiner-mover-leaver engine
+
+<Definition term="Okta Lifecycle Management (LCM)">Okta's automated joiner-mover-leaver capability. It handles inbound provisioning (commonly HR-as-master, where a system like Workday is the authoritative source that creates and updates Okta users), group-rule-driven membership, app assignment, and deprovisioning when a user is deactivated. Outbound provisioning to downstream applications happens through SCIM and the pre-built integrations in the Okta Integration Network (OIN). Lifecycle Management is the spine the governance features ride on.</Definition>
+
+Lifecycle Management is where the joiner-mover-leaver model from the fundamentals section becomes concrete. A new hire appears in the HR system; HR-as-master inbound provisioning creates the Okta user with attributes like department, title, and manager. Those attributes immediately drive **group rules**, which drive app assignment. When the person changes departments, the HR attribute updates flow into Okta, group rules re-evaluate, and membership shifts — the mover event, automated. When they are terminated, deactivation in Okta triggers deprovisioning across every SCIM-connected app. That is the whole loop, and most of it can run with no human in it.
+
+<Definition term="group rule">An Okta rule that dynamically adds or removes users from a group based on a logical expression evaluated against profile attributes — for example, "department equals Marketing AND employeeType equals Regular." Because the group can be assigned applications, a group rule turns an attribute into birthright access automatically: change the attribute, and membership (and the app entitlements that ride on it) follows, with no manual assignment. Group rules are the workhorse of attribute-driven birthright in Okta.</Definition>
+
+Provisioning to downstream SaaS apps is worth pausing on because it is where Okta's standards alignment shows. Okta provisions to applications primarily through **SCIM** — the System for Cross-domain Identity Management, defined by RFC 7643 (the schema) and RFC 7644 (the protocol), the same standard taught in Module 2. App assignment in Lifecycle Management triggers a SCIM create/update against the target app; deactivation triggers a SCIM disable or delete. For apps without a SCIM endpoint, the Okta Integration Network ships pre-built connectors that translate Okta's intent into whatever the app's provisioning API expects. The net effect: Okta can grant and revoke access in hundreds of SaaS apps without anyone hand-creating an account.
+
+<Flashcard front="What is Okta Universal Directory?" back="A flexible cloud profile store that aggregates user attributes from many sources (HR, on-prem AD/LDAP via the Okta agent, app profiles) into one canonical Okta profile, with profile mappings transforming attributes between apps and the directory. It is the foundation for attribute-driven assignment and governance." />
+
+<Flashcard front="What does Okta Lifecycle Management automate?" back="The joiner-mover-leaver lifecycle: inbound HR-as-master provisioning, group-rule-driven membership, app assignment, and deprovisioning on deactivation. Outbound provisioning to downstream apps runs through SCIM and the pre-built integrations in the Okta Integration Network." />
+
+<Flashcard front="What is an Okta group rule?" back="A rule that dynamically adds or removes users from a group based on a profile-attribute expression. Because groups can be assigned apps, a group rule turns an attribute into automatic birthright access without manual membership management." />
+
+### Workflows — automation for the exceptions
+
+Group rules cover the predictable, attribute-driven 80 percent. The remaining 20 percent — the conditional logic, the multi-step orchestration, the "if this happens in System A, do these four things across Systems B, C, and D" — is where Okta Workflows comes in.
+
+<Definition term="Okta Workflows">Okta's no-code / low-code automation engine — an if-this-then-that style flow builder for identity events. You compose flows from triggers (a user is deactivated, a group membership changes, a scheduled time arrives) and connector cards (call an API, create a ticket, send a notification, branch on a condition) to build custom joiner-mover-leaver logic, ticketing, alerts, and provisioning that goes beyond the out-of-the-box connectors. Workflows is for the bespoke exceptions that group rules and standard LCM cannot express.</Definition>
+
+The mental model that keeps a deployment clean: **group rules are the default, Workflows is the exception**. Reach for Workflows when you need conditional branching, calls to external systems, multi-app orchestration, or sequencing that a simple attribute-to-group mapping cannot capture — a leaver flow that disables the account, transfers mailbox ownership to the manager, opens a hardware-return ticket, and posts to a Slack channel, all in order. Reach for group rules for everything that is just "this attribute means this access." Teams that invert that rule — writing a Workflow for every individual hire instead of letting a group rule handle birthright — end up with hundreds of brittle, near-identical flows that nobody can audit. That is the Workflows anti-pattern, and it is the mirror of the role-explosion problem you will meet in the SoD and RBAC section.
+
+<ProTip>
+Use group rules for birthright and reserve Workflows for the genuine exceptions. If you find yourself building one Workflow per employee, stop — that access is birthright and belongs in a group rule keyed off an HR attribute. Workflows earns its keep on conditional, multi-system orchestration that no attribute-to-group mapping can express, not on access that is the same for everyone in a department.
+</ProTip>
+
+<Flashcard front="What is Okta Workflows?" back="Okta's no-code / low-code automation engine — an if-this-then-that flow builder for identity events. It handles bespoke joiner-mover-leaver logic, ticket creation, notifications, and provisioning beyond the out-of-the-box connectors, for the exception cases that group rules cannot express." />
+
+### Okta Identity Governance — the governance layer
+
+<Definition term="Okta Identity Governance (OIG)">Okta's identity governance offering, layered on top of Universal Directory and Lifecycle Management. It brings together Access Requests (self-service request with configurable approval routing, including requests initiated from Slack and Microsoft Teams), Access Certifications (recurring access-review campaigns whose decisions can automatically revoke access), and Entitlement Management (importing, creating, and policy-assigning fine-grained app entitlements). It is the SKU that turns Okta from "the thing that grants access" into "the thing that governs access."</Definition>
+
+OIG is built around three capabilities. **Access Requests** give end users a self-service way to ask for an app, an entitlement, or a group, with configurable approval routing — and because Okta already lives in the collaboration stack, those requests and approvals can happen natively inside Slack or Microsoft Teams instead of forcing a reviewer into yet another portal. **Access Certifications** are the recurring review campaigns: a reviewer affirms or revokes each user's access, and a Revoke decision can flow straight through to deprovisioning rather than sitting as a recommendation. **Entitlement Management** lets administrators import and model the fine-grained entitlements inside an app and assign them through entitlement policies driven by profile attributes — moving Okta closer to the granular access modeling that the dedicated governance platforms have long done.
+
+Read the OIG framing the way a buyer should. The capability set and exactly how it is packaged and licensed shift over time, so confirm the current bundling with Okta before you put numbers in a proposal. The strategic point is durable: OIG exists so that Okta-centric organizations can run governance — requests, reviews, entitlement modeling — without standing up a separate governance platform alongside their IdP.
+
+<Flashcard front="What is Okta Identity Governance (OIG)?" back="Okta's governance offering layered on Universal Directory and Lifecycle Management. It adds Access Requests (self-service requests with approvals, including Slack and Teams-native flows), Access Certifications (review campaigns that can auto-revoke), and Entitlement Management (fine-grained app entitlement modeling and policy assignment)." />
+
+<Flashcard front="How does Okta provision access to downstream SaaS apps?" back="Primarily through SCIM (RFC 7643 schema and RFC 7644 protocol) and the pre-built integrations in the Okta Integration Network, driven by app assignment in Lifecycle Management. App assignment triggers a SCIM create or update; deactivation triggers a SCIM disable or delete." />
+
+### API Access Management — governing machine authorization
+
+Most IGA conversations are about human access. Okta also governs a category that is easy to forget: the access that one piece of software has to another.
+
+<Definition term="Okta API Access Management">Okta acting as an OAuth 2.0 authorization server for your own custom APIs. You define a custom authorization server with its own scopes and claims, and access policies that decide which clients get which scopes under which conditions. Okta then issues scoped OAuth access tokens that your API validates before serving a request. This is governance of machine and API authorization — controlling what an application or service is allowed to do — rather than human sign-in.</Definition>
+
+If the OAuth 2.0 and OIDC material from Module 2 is fresh, this clicks immediately: API Access Management is Okta playing the authorization-server role from that flow, but for APIs you build yourself rather than off-the-shelf SaaS. You create a custom authorization server, define scopes (`payments.read`, `payments.write`), define claims to embed in the token, and write access policies that grant scopes to clients based on conditions. A client requests a token, Okta evaluates the policy and mints a scoped access token, and your API checks the token's scopes before honoring the call. It is least privilege for software — the same governance instinct as human access reviews, applied to the API surface that an increasingly automated estate depends on.
+
+<Flashcard front="What does Okta API Access Management provide?" back="Okta acting as an OAuth 2.0 authorization server for your own custom APIs: custom authorization servers issuing scoped access tokens, with defined scopes, claims, and access policies controlling which clients get which scopes. It is governance of machine/API authorization rather than human sign-in." />
+
+### Okta versus SailPoint — the honest framing
+
+The two platforms are not competing for the same center of gravity, and a consultant who pretends otherwise loses credibility fast. Okta is strongest where the IdP is already Okta and the estate is SaaS-heavy and SCIM-friendly: fast deployment, tight integration between authentication and governance, and a governance layer reviewing access it provisioned itself. SailPoint pulls ahead where the estate is on-prem-heavy and complex, where the org needs deep, highly customizable role modeling, sophisticated segregation-of-duties analytics, and aggregation-and-correlation across systems that no IdP provisioned.
+
+A useful one-liner: choose Okta when the front door is already Okta and the apps speak SCIM; choose SailPoint (or Saviynt, or One Identity) when the governance modeling itself — roles, SoD rulesets, ERP entitlement depth — is the hard part of the problem. Okta's entitlement and certification features have been maturing quickly, so confirm the current depth of its SoD and entitlement analytics against Okta's docs before drawing a hard line in a specific engagement.
+
+<Flashcard front="When is Okta a better IGA fit than SailPoint?" back="When the IdP is already Okta and the estate is SaaS and SCIM-friendly — fast deployment and tight integration between authentication and governance, reviewing access Okta provisioned itself. SailPoint pulls ahead for deep, customizable role and SoD modeling across complex, on-prem-heavy estates." />
+
+## War story
+
+<WarStory title="The Leaver Workflow That Deprovisioned Too Much — and Then Too Little">
+A regional credit union, roughly 900 employees, ran its joiner-mover-leaver on Okta. Birthright was handled by group rules; the leaver process was a single ambitious Okta Workflow built by a sharp but unsupervised contractor. The trigger was simple: when a user is deactivated in Okta, run the leaver flow.
+
+The flow did a lot. It removed the user from every group, deactivated downstream SCIM apps, transferred OneDrive ownership to the manager, revoked sessions, and — the clever bit — looked up the user's manager and emailed them a checklist. It worked beautifully in testing against a fake test user.
+
+The first real-world failure was an over-deprovision. An employee went on extended military leave, and HR, not knowing the difference, set her status to a value that the HR-to-Okta integration mapped to "deactivated." The leaver Workflow fired. By the time she returned eleven weeks later, every group, every app, and every entitlement was gone, and there was no record of what she used to have, because the flow removed memberships without snapshotting them first. Rebuilding her access took three days of guesswork and a lot of "I think she had access to that."
+
+The second failure was the opposite, and worse. A genuine terminated employee was deactivated correctly — but he held access to two legacy applications that were not SCIM-connected and were not in the Okta Integration Network. Okta deactivated everything it knew about. It did not know about the two legacy apps, because Okta had never provisioned to them. The accounts sat live for four months until a quarterly access review in OIG flagged them as access with no corresponding active Okta user — orphaned accounts, exactly the kind the fundamentals section warned about.
+
+The remediation reshaped the whole leaver design. Birthright and standard deprovisioning moved back to group rules and standard Lifecycle Management deactivation, where the behavior is predictable and reversible. The Workflow was cut down to only the genuinely bespoke steps (mailbox transfer, manager notification) and was changed to snapshot the user's memberships to a log before removing anything, so a mistaken deactivation could be reversed. The leave-of-absence HR status was remapped to a "suspend" path that disabled sign-in without tearing down memberships. And the two legacy apps were brought under governance the only way they could be — added as entitlements that OIG certifications would review on a schedule, since Okta could not provision them automatically. The lesson the team wrote on the whiteboard: automate the lifecycle you can see, and govern-by-review the lifecycle you cannot. The danger is not Workflows; the danger is a Workflow that assumes Okta knows about every system, when Okta only knows about the systems it provisions.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="What problem does Okta's origin as an SSO company create for its governance story?" back="Okta grew from the authentication side, so its governance is tightly coupled to access it provisioned itself through Lifecycle Management. Its strength is reviewing access it understands end to end; its limit is that systems Okta never provisions (legacy, non-SCIM apps) sit outside what its automation can see, leaving them to be governed only by certification review." />
+
+<Flashcard front="Group rules versus Okta Workflows — which handles what?" back="Group rules handle predictable, attribute-driven birthright access (department equals X means this group and these apps). Workflows handle the exceptions: conditional branching, multi-system orchestration, ticketing, and sequencing that an attribute-to-group mapping cannot express. Default to group rules; reserve Workflows for genuine exceptions." />
+
+<Flashcard front="What are the three governance capabilities Okta Identity Governance adds?" back="Access Requests (self-service requests with approval routing, including Slack and Teams-native flows), Access Certifications (recurring review campaigns whose decisions can auto-revoke), and Entitlement Management (importing and policy-assigning fine-grained app entitlements) — all layered on Universal Directory and Lifecycle Management." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "05-iga/03-okta/q1",
+  prompt: "An Okta-centric company needs new Marketing hires to automatically receive the Marketing app bundle on day one, driven purely by their department attribute, with no manual assignment. What is the simplest correct mechanism?",
+  options: [
+    "Write a dedicated Okta Workflows flow for each new hire.",
+    "A group rule that adds users with department = Marketing to a group that is assigned the apps, so birthright access is automatic via Lifecycle Management.",
+    "An API Access Management custom authorization server scoped to Marketing.",
+    "An Access Certification campaign that grants the apps when it runs."
+  ],
+  correctIndex: 1,
+  explanation: "Group rules express attribute-driven dynamic membership; assigning the apps to that group makes birthright access automatic the moment the department attribute is set. Workflows is for bespoke logic beyond rules and would be overkill (and unmaintainable) per hire; API Access Management governs OAuth tokens for APIs, not human app assignment; certifications review existing access rather than granting it. Always reach for the simplest mechanism that fits — here, a group rule."
+}} />
+
+<Quiz question={{
+  id: "05-iga/03-okta/q2",
+  prompt: "A team needs Okta to issue scoped access tokens for its internally built API, with custom scopes and claims and an access policy controlling which clients receive which scopes. Which Okta capability is this?",
+  options: [
+    "Universal Directory.",
+    "Lifecycle Management.",
+    "API Access Management — Okta acting as an OAuth 2.0 authorization server with a custom authorization server, scopes, claims, and access policies.",
+    "Okta Identity Governance Access Certifications."
+  ],
+  correctIndex: 2,
+  explanation: "API Access Management turns Okta into an OAuth 2.0 authorization server for your own custom APIs: you define a custom authorization server, scopes, and claims, and write access policies that decide which clients get which scopes, after which Okta issues a scoped access token the API validates. Universal Directory stores profiles, Lifecycle Management automates human joiner-mover-leaver, and OIG certifications review human access — none of those issue scoped API access tokens."
+}} />

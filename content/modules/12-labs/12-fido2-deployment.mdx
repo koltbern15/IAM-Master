@@ -1,0 +1,217 @@
+{/* Lab procedures current as of 2026-06-01. FIDO2/passkey method enablement and authentication strengths require an Entra tenant; authentication strength as a Conditional Access control requires Entra ID P1. Re-verify portal paths and cmdlet bodies against MS Learn before running against any live tenant. */}
+
+<HoloPanel label="COVERS">
+- Touches **SC-300: Plan and implement authentication methods** — passwordless FIDO2/passkey enablement and the authentication methods policy (informational here; this lab is classified as deployment operations, not a graded SC-300 objective)
+- Touches **SC-300: Plan and implement Conditional Access** — enforcing a phishing-resistant authentication strength as a grant control
+- **Security+ SY0-701** Objective 4.6 — Implement and maintain identity and access management (phishing-resistant MFA, passwordless authentication)
+- **CISSP** Domain 5.2 — Manage the identity and access provisioning lifecycle (credential issuance, recovery, and deprovisioning)
+- **Builds on:** Module 2 §05 FIDO2 / WebAuthn / Passkeys (the registration and authentication ceremonies you are now operationalizing) and Lab 03 (Conditional Access — you reuse the break-glass-first, report-only-always discipline here)
+</HoloPanel>
+
+# Enterprise FIDO2 / Passkey Deployment
+
+## Objective
+
+When you finish this lab you will have rolled out phishing-resistant authentication in a dev Entra tenant end to end: you will have enabled the FIDO2 security key method in the authentication methods policy, registered a key for a test user, enforced a phishing-resistant **authentication strength** for administrators through a Conditional Access policy (validated report-only first, exactly as in Lab 03), and stood up the one piece every passwordless rollout actually stalls on — a **recovery path** using a Temporary Access Pass for the user who shows up Monday morning with a lost or forgotten key.
+
+This is the only MFA that actually stops modern phishing. SMS codes, authenticator-app approvals, and even push-with-number-matching can be relayed by an attacker-in-the-middle proxy (the Evilginx-style attack that has eaten through "we have MFA" assurances at bank after bank). FIDO2 and passkeys are **origin-bound**: the credential cryptographically refuses to release an assertion to any domain other than the one it was registered to, so a phishing proxy on a look-alike domain gets nothing usable. For a banking IAM role this is the control that turns "we require MFA" into "we require MFA that cannot be phished," which is increasingly what regulators and cyber-insurers want to see. The hard part is never the cryptography. It is the operations: enabling the method cleanly, enforcing it without locking anyone out, and recovering a user who lost the key. That operational arc is this lab.
+
+## Prerequisites
+
+- A **dev Entra tenant** with at least one test user. Reuse the synced users from Lab 02 if you have them, or create a cloud-only test user. Do not do this against a production tenant — use a Microsoft 365 Developer subscription or a pay-as-you-go dev tenant.
+- A **physical FIDO2 security key** (a YubiKey or any FIDO2-certified key) **or** a platform passkey you can register — Windows Hello for Business on the lab machine, or a passkey on a phone. You need at least one real authenticator to complete the registration ceremony in Step 2.
+- The **Microsoft.Graph** PowerShell module installed, and a sign-in with rights to manage the authentication methods policy and Conditional Access (Authentication Policy Administrator plus Conditional Access Administrator, or Global Administrator). You will use scopes along the lines of `Policy.ReadWrite.AuthenticationMethod`, `Policy.ReadWrite.ConditionalAccess`, `UserAuthenticationMethod.ReadWrite.All`, and `AuditLog.Read.All`.
+- **Entra ID P1** for the Conditional Access portion. Authentication strength is applied as a Conditional Access grant control, and Conditional Access is a P1 feature. Enabling the FIDO2 method itself does not require P1, but enforcing it through CA does.
+- The **break-glass accounts from Lab 03**, excluded from the Conditional Access policy you build here. The lockout risk in this lab is real and specific: a phishing-resistant-strength policy that catches an admin who has not yet registered a key locks that admin out. Break-glass plus report-only is the seatbelt, again.
+
+<ProTip>
+**Passwordless rollouts fail on recovery, not on registration.** Every team can register a key for a willing pilot user on day one. The rollout dies six weeks later when a user travels without their key, or breaks it, or a new hire arrives before their key ships — and there is no defined way to get them a strong credential without falling back to a password (which defeats the entire point) or paging an admin to hand-reset something. Design the **Temporary Access Pass / lost-key flow first** (Step 5), before you enforce anything. A phishing-resistant policy with no recovery path is a help-desk incident waiting to happen.
+</ProTip>
+
+<Definition term="authentication strength">
+A Conditional Access control that specifies exactly which combinations of authentication methods are acceptable to access a resource. Microsoft ships three built-in strengths — **Multifactor authentication**, **Passwordless MFA**, and **Phishing-resistant MFA** — and lets you author custom ones. The built-ins are predefined combinations that are always available and cannot be modified. Applied as the **Require authentication strength** grant control in a policy, a strength lets you demand a *specific quality* of MFA (for example, only FIDO2 / passkey / certificate-based authentication) rather than just any second factor. It is the difference between &quot;require MFA&quot; (which would accept a phishable SMS code) and &quot;require a method that cannot be phished.&quot;
+</Definition>
+
+<Definition term="Temporary Access Pass (TAP)">
+A time-limited passcode issued to a user as a temporary credential, used to bootstrap or recover their strong authentication methods. It is the answer to &quot;how does a user with no working key sign in to register a new one?&quot; A TAP can be configured as one-time (consumed on first use) or usable for a limited window, and is issued by an administrator (or, where enabled, through a delegated flow). In a passwordless deployment the TAP is the on-ramp for new hires and the recovery path for lost or broken keys — the thing that lets you turn passwords off without stranding anyone.
+</Definition>
+
+## Lab steps
+
+### Step 1: Enable the FIDO2 security key method
+
+FIDO2 / passkey support is governed by the **authentication methods policy** in Entra (Entra admin center → Protection → Authentication methods → Policies → FIDO2 security key). Enabling the method is the gate; until it is on, no one can register a key even if they have one in hand.
+
+Inside the FIDO2 method you have two settings worth understanding before you flip it on. **Allow self-service set up** controls whether users can register their own keys through the security-info page, or whether registration is admin-driven only — for a real rollout you usually allow self-service so users onboard their own keys. **Enforce attestation** and **key restrictions** let you constrain *which* keys are acceptable: an **AAGUID allow-list** restricts registration to specific certified key models (the AAGUID is the model identifier baked into every FIDO2 authenticator), so a bank can mandate, say, only its issued YubiKey model and reject random consumer keys. Attestation lets Entra verify the key is genuinely the model it claims to be.
+
+This step is portal-driven — the authentication methods policy is most reliably edited in the Entra admin center, and Microsoft documents the FIDO2 enablement flow there. Confirm the exact blade layout against the current MS Learn "How to enable passkeys (FIDO2) in Microsoft Entra ID" page, since the authentication-methods UI is revised periodically. Scope the method to a pilot group first (a security group of test users) rather than All users, so your blast radius is small while you learn the flow.
+
+<ProTip>
+**Decide AAGUID restrictions before the pilot, not after.** If you let users self-register any FIDO2 key during the pilot and *then* turn on an AAGUID allow-list, the keys that no longer match the list stop working and those users are suddenly in your recovery flow. Decide the allowed key models up front. For a lab, leaving the allow-list open is fine; for a bank, the allow-list is part of the control.
+</ProTip>
+
+### Step 2: Register a key for a test user
+
+With the method enabled and the test user in the pilot group, register a key. The user-driven path is the security-info page at `https://aka.ms/mysecurityinfo` (or Entra admin center → the user → Authentication methods → Add method → Security key / Passkey for an admin-assisted registration). The user inserts or activates the authenticator, performs the gesture (PIN, touch, or biometric), and the key is bound to their account.
+
+This is the **WebAuthn `create()` ceremony from Module 2 §05** made concrete. The browser asks the authenticator to generate a new public/private key pair scoped to the relying party (your tenant's Entra domain); the private key never leaves the authenticator, and the public key is registered against the user. Because the credential is bound to that relying-party origin, an assertion can only ever be produced for *your* sign-in domain — which is precisely why a phishing proxy on a look-alike domain cannot harvest anything reusable.
+
+After registration, confirm the method landed. The Microsoft Graph PowerShell authentication-method cmdlets read what is registered on a user; verify against MS Learn that the cmdlet name and the FIDO2 method object shape match your installed module version before relying on the output.
+
+<PowerShellBlock title="Confirm the test user's registered authentication methods">{`Connect-MgGraph -Scopes "UserAuthenticationMethod.Read.All"
+
+# List the authentication methods registered on the test user.
+# The FIDO2 / passkey method appears as its own method type in the returned set.
+$userId = "testuser@yourtenant.onmicrosoft.com"
+Get-MgUserAuthenticationMethod -UserId $userId |
+  Select-Object Id, AdditionalProperties
+
+# The AdditionalProperties bag carries the @odata.type that tells you the method kind,
+# e.g. a FIDO2 security key method versus a password or phone method.`}</PowerShellBlock>
+
+If you are reporting registration coverage across the whole tenant rather than one user — "what percentage of users have a phishing-resistant method registered?" — Entra exposes an authentication-method registration report. Confirm the exact reporting cmdlet name against MS Learn for your module version before scripting it into a dashboard (this is the same report Lab 13 pulls for the MFA-registration KPI).
+
+### Step 3: Enforce a phishing-resistant authentication strength (report-only first)
+
+Now make it matter. You will build a Conditional Access policy that requires the built-in **Phishing-resistant MFA** authentication strength for administrators — meaning an admin must sign in with FIDO2, a passkey, or certificate-based authentication, and a phishable second factor will not satisfy the policy. You carry the entire Lab 03 discipline forward: break-glass accounts excluded, and the policy created in **report-only** (`enabledForReportingButNotEnforced`) before any enforcement.
+
+The control is the same `grantControls` you used in Lab 03, but instead of `builtInControls = ["mfa"]` you point `authenticationStrength` at the built-in Phishing-resistant MFA strength. The built-in strengths have well-known identifiers in Graph; resolve the Phishing-resistant MFA strength's id by listing the authentication strength policies rather than hardcoding a GUID, so the policy stays portable across tenants. Verify the property path (`grantControls.authenticationStrength`) and the strength-policy listing against MS Learn's authentication-strength and `New-MgIdentityConditionalAccessPolicy` references before you run it live.
+
+<PowerShellBlock title="Create the phishing-resistant-strength policy in report-only mode">{`Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess","Policy.Read.All"
+
+# Resolve the built-in 'Phishing-resistant MFA' authentication strength by name,
+# rather than hardcoding its id, so this is portable across tenants.
+$strengths = Get-MgPolicyAuthenticationStrengthPolicy
+$phishResistant = $strengths | Where-Object { $_.DisplayName -eq "Phishing-resistant MFA" }
+
+# Break-glass object IDs from Lab 03 — excluded from this policy, just like every other CA policy.
+$breakGlass = @(
+  (Get-MgUser -UserId "breakglass1@yourtenant.onmicrosoft.com").Id,
+  (Get-MgUser -UserId "breakglass2@yourtenant.onmicrosoft.com").Id
+)
+
+# Global Administrator template id (well-known, stable). Add other privileged roles as needed.
+$adminRoleIds = @("62e90394-69f5-4237-9190-012177145e10")
+
+$policy = @{
+  DisplayName = "CA010 - Require phishing-resistant MFA for administrators"
+  State       = "enabledForReportingButNotEnforced"   # report-only FIRST, always
+  Conditions  = @{
+    Users        = @{
+      IncludeRoles = $adminRoleIds
+      ExcludeUsers = $breakGlass
+    }
+    Applications = @{ IncludeApplications = @("All") }
+    ClientAppTypes = @("all")
+  }
+  GrantControls = @{
+    Operator                = "OR"
+    AuthenticationStrength  = @{ Id = $phishResistant.Id }
+  }
+}
+
+New-MgIdentityConditionalAccessPolicy -BodyParameter $policy`}</PowerShellBlock>
+
+The shape mirrors Lab 03's admin-MFA policy almost exactly — same role-scoped targeting, same break-glass exclusion, same report-only state — with one substitution: `grantControls.authenticationStrength` replaces `grantControls.builtInControls = ["mfa"]`. That single swap is the whole point. A "require MFA" policy is satisfied by a text message; a "require Phishing-resistant MFA strength" policy is not.
+
+### Step 4: Validate in report-only, then enforce
+
+You have done this dance in Lab 03; do it again here, because the failure mode is worse. An admin who has not yet registered a phishing-resistant method will be blocked the moment this policy enforces — so report-only validation is how you find those admins *before* they are locked out.
+
+Use the **What If** tool (Entra admin center → Conditional Access → What If) for a registered test admin (expect: the phishing-resistant policy applies and is satisfied) and for the break-glass account (expect: nothing applies). Then read the report-only outcomes out of the sign-in logs, watching specifically for any admin showing a report-only failure because they have no key registered yet.
+
+<PowerShellBlock title="Find admins who would be blocked by the report-only strength policy">{`Connect-MgGraph -Scopes "AuditLog.Read.All","Policy.Read.All"
+
+# Surface report-only outcomes for the phishing-resistant policy across recent sign-ins.
+$signIns = Get-MgAuditLogSignIn -Top 200
+
+$signIns | ForEach-Object {
+  $upn = $_.UserPrincipalName
+  foreach ($ca in $_.AppliedConditionalAccessPolicies) {
+    if ($ca.DisplayName -like "CA010*" -and $ca.Result -like "reportOnly*") {
+      [PSCustomObject]@{
+        User       = $upn
+        Result     = $ca.Result   # reportOnlyFailure here = an admin with no phishing-resistant method yet
+        SignInTime = $_.CreatedDateTime
+      }
+    }
+  }
+} | Sort-Object Result, User | Format-Table -AutoSize`}</PowerShellBlock>
+
+Every `reportOnlyFailure` is a person you must get a key (or a TAP — Step 5) before you enforce. Once the report-only window is clean for your admin population — every admin either passes or is legitimately excluded — flip the policy to `enabled`, one policy at a time, and keep a break-glass session open until you have confirmed the enforced behavior with a live admin sign-in.
+
+<PowerShellBlock title="Enable the validated strength policy">{`$ca = Get-MgIdentityConditionalAccessPolicy \`
+        -Filter "displayName eq 'CA010 - Require phishing-resistant MFA for administrators'"
+
+Update-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId $ca.Id -State "enabled"
+
+Get-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId $ca.Id |
+  Select-Object DisplayName, State`}</PowerShellBlock>
+
+### Step 5: Build the recovery path — issue a Temporary Access Pass
+
+This is the step that decides whether the rollout survives contact with reality. A user loses their key, or a new admin needs to register their first one, or someone is traveling without their authenticator. You cannot tell them "use your password" — there may not be one, and falling back to a phishable factor defeats the policy you just enforced. The answer is a **Temporary Access Pass**: a short-lived passcode that lets the user sign in *once* (or for a small window) specifically to register a new strong method.
+
+TAP is itself an authentication method that must be enabled in the authentication methods policy (Entra admin center → Authentication methods → Temporary Access Pass), where you set the default lifetime, the allowed length, and whether passes are one-time or reusable. With the method enabled, an admin issues a pass to the affected user. The cmdlet is `New-MgUserAuthenticationTemporaryAccessPassMethod` (in `Microsoft.Graph.Identity.SignIns`); it creates a single TAP on the user, and the pass value is returned **only at creation** — if the current pass is still valid and you create another, the previous one is replaced.
+
+<PowerShellBlock title="Issue a one-time Temporary Access Pass for key recovery">{`Connect-MgGraph -Scopes "UserAuthenticationMethod.ReadWrite.All"
+
+$userId = "testuser@yourtenant.onmicrosoft.com"
+
+# One-time pass, valid for a 60-minute window, usable a single time.
+$tapBody = @{
+  isUsableOnce      = $true
+  lifetimeInMinutes = 60
+  # startDateTime can be omitted to start now, or set to a future ISO 8601 time.
+}
+
+$tap = New-MgUserAuthenticationTemporaryAccessPassMethod \`
+         -UserId $userId \`
+         -BodyParameter $tapBody
+
+# The TemporaryAccessPass value is returned ONLY on creation. Capture it on a secure
+# out-of-band channel to the user (a phone call / in-person), never email or chat.
+$tap | Select-Object Id, TemporaryAccessPass, IsUsableOnce, LifetimeInMinutes, StartDateTime`}</PowerShellBlock>
+
+The user signs in with the TAP — which satisfies a phishing-resistant strength when configured as such, so it works even with your Step 3 policy enforced — goes straight to the security-info page, registers their replacement FIDO2 key, and the one-time TAP is consumed. They are back to phishing-resistant sign-in without an admin ever handing them a password. Confirm the TAP property names and the one-time/lifetime behavior against MS Learn's `New-MgUserAuthenticationTemporaryAccessPassMethod` reference for your module version, and verify in the authentication methods policy that TAP is configured to count as a phishing-resistant on-ramp in your tenant.
+
+## Validation
+
+Prove the lab worked end to end:
+
+- The **test user signs in with the FIDO2 key / passkey** and no password — the WebAuthn assertion alone authenticates them.
+- An **admin sign-in is forced through phishing-resistant strength** — a phishable factor (SMS, app approval) is rejected; only FIDO2 / passkey / CBA satisfies the policy.
+- The **break-glass account signs in unaffected** by the strength policy (verify via What If and a live sign-in) — it is excluded, just as in Lab 03.
+- A **TAP successfully re-bootstraps** a user who has no working key: issue the pass, sign in with it, register a fresh key, confirm the pass is consumed and the new key works.
+- `Get-MgUserAuthenticationMethod -UserId <test user>` shows the FIDO2 method registered, and `Get-MgIdentityConditionalAccessPolicy` shows CA010 in the expected `State` with the break-glass exclusion present.
+
+## Teardown
+
+Clean up so the lab is repeatable and so a half-built strength policy cannot affect a shared dev tenant.
+
+<PowerShellBlock title="Tear down the FIDO2 lab artifacts">{`# 1. Disable then delete the lab Conditional Access policy.
+$ca = Get-MgIdentityConditionalAccessPolicy \`
+        -Filter "displayName eq 'CA010 - Require phishing-resistant MFA for administrators'"
+if ($ca) {
+  Update-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId $ca.Id -State "disabled"
+  Remove-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId $ca.Id -WhatIf  # drop -WhatIf to delete
+}
+
+# 2. Remove any lingering TAP from the test user (the FIDO2 method itself you may keep).
+$userId = "testuser@yourtenant.onmicrosoft.com"
+$existingTap = Get-MgUserAuthenticationTemporaryAccessPassMethod -UserId $userId
+if ($existingTap) {
+  Remove-MgUserAuthenticationTemporaryAccessPassMethod \`
+    -UserId $userId -TemporaryAccessPassAuthenticationMethodId $existingTap.Id -WhatIf
+}`}</PowerShellBlock>
+
+Then, in the Entra admin center, return the **authentication methods policy** to its baseline: narrow or disable the FIDO2 method's pilot-group scope if you widened it, and reset TAP settings to your standard. Keep the *practice* — FIDO2 enablement, strength enforcement, and a defined TAP recovery flow are permanent operational controls, not lab artifacts, exactly like the break-glass accounts from Lab 03.
+
+## What this proves
+
+You can deploy the only MFA that actually stops modern phishing, and you can do it the way a regulated environment demands. You understand *why* FIDO2 and passkeys resist phishing — origin-bound credentials whose private key never leaves the authenticator and that refuse to release an assertion to any domain but the registered relying party — which is the WebAuthn ceremony from Module 2 §05 turned into a running control. You can enable the method cleanly with AAGUID restrictions and self-service decided up front, enforce a *specific quality* of MFA through a Conditional Access **authentication strength** rather than settling for any-second-factor, and you carried the report-only-first, break-glass-always discipline straight from Lab 03 into a policy whose lockout risk is even sharper. Most importantly, you solved the part where most passwordless rollouts die: the recovery path. A Temporary Access Pass that re-bootstraps a user with no working key — issued out-of-band, one-time, satisfying the phishing-resistant strength — is the difference between a passwordless program that scales and a pilot that quietly reverts to passwords the first time someone loses a key.
+
+## Recall drill
+
+<Flashcard front="What Conditional Access control enforces FIDO2/passkey use, and why is it stronger than 'require MFA'?" back="An authentication strength (the built-in 'Phishing-resistant MFA' strength) applied as the Require authentication strength grant control. It demands a specific phishing-resistant method (FIDO2 / passkey / certificate-based auth), whereas 'require MFA' would accept phishable methods like SMS codes or app-approval push." />
+<Flashcard front="What credential bootstraps or recovers a passwordless user who has no or lost FIDO2 key, and which cmdlet issues it?" back="A Temporary Access Pass (TAP) - a time-limited passcode used to sign in once and register the first or replacement strong method. It is issued with New-MgUserAuthenticationTemporaryAccessPassMethod, and the pass value is returned only at creation, so capture it on a secure out-of-band channel." />

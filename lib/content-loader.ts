@@ -61,6 +61,36 @@ const AUTHORED_SECTIONS = new Set([
   '06-powershell/03-tips-tricks',
   '11-cert-roadmap/01-sc300-roadmap',
   '11-cert-roadmap/02-study-strategy',
+  '04-pam/01-pam-fundamentals',
+  '04-pam/02-cyberark',
+  '04-pam/03-beyondtrust-delinea',
+  '04-pam/04-hashicorp-vault',
+  '04-pam/05-cloud-native-pam',
+  '04-pam/06-pam-program-design',
+  '05-iga/01-iga-fundamentals',
+  '05-iga/02-sailpoint',
+  '05-iga/03-okta',
+  '05-iga/04-saviynt-oneidentity-omada',
+  '05-iga/05-entra-id-governance',
+  '05-iga/06-sod-and-rbac-design',
+  '08-security-detection/01-identity-attack-techniques',
+  '08-security-detection/02-defender-for-identity',
+  '08-security-detection/03-crowdstrike-semperis',
+  '08-security-detection/04-kql-identity-hunting',
+  '08-security-detection/05-identity-incident-response',
+  '12-labs/01-build-an-ad-lab',
+  '12-labs/02-entra-connect-setup',
+  '12-labs/03-conditional-access-lab',
+  '12-labs/04-saml-scim-integration',
+  '12-labs/05-laps-and-jml-automation',
+  '12-labs/06-pim-and-access-reviews',
+  '12-labs/07-cyberark-onboarding',
+  '12-labs/08-okta-sso-lifecycle',
+  '12-labs/09-sailpoint-cert-campaign',
+  '12-labs/10-kerberoasting-hunt',
+  '12-labs/11-stale-account-cleanup',
+  '12-labs/12-fido2-deployment',
+  '12-labs/13-powerbi-identity-dashboard',
 ])
 
 // Static map for sections that have been authored. Webpack resolves these
@@ -107,6 +137,66 @@ async function loadAuthoredComponent(
       return (await import('@/content/modules/11-cert-roadmap/01-sc300-roadmap.mdx')).default
     case '11-cert-roadmap/02-study-strategy':
       return (await import('@/content/modules/11-cert-roadmap/02-study-strategy.mdx')).default
+    case '04-pam/01-pam-fundamentals':
+      return (await import('@/content/modules/04-pam/01-pam-fundamentals.mdx')).default
+    case '04-pam/02-cyberark':
+      return (await import('@/content/modules/04-pam/02-cyberark.mdx')).default
+    case '04-pam/03-beyondtrust-delinea':
+      return (await import('@/content/modules/04-pam/03-beyondtrust-delinea.mdx')).default
+    case '04-pam/04-hashicorp-vault':
+      return (await import('@/content/modules/04-pam/04-hashicorp-vault.mdx')).default
+    case '04-pam/05-cloud-native-pam':
+      return (await import('@/content/modules/04-pam/05-cloud-native-pam.mdx')).default
+    case '04-pam/06-pam-program-design':
+      return (await import('@/content/modules/04-pam/06-pam-program-design.mdx')).default
+    case '05-iga/01-iga-fundamentals':
+      return (await import('@/content/modules/05-iga/01-iga-fundamentals.mdx')).default
+    case '05-iga/02-sailpoint':
+      return (await import('@/content/modules/05-iga/02-sailpoint.mdx')).default
+    case '05-iga/03-okta':
+      return (await import('@/content/modules/05-iga/03-okta.mdx')).default
+    case '05-iga/04-saviynt-oneidentity-omada':
+      return (await import('@/content/modules/05-iga/04-saviynt-oneidentity-omada.mdx')).default
+    case '05-iga/05-entra-id-governance':
+      return (await import('@/content/modules/05-iga/05-entra-id-governance.mdx')).default
+    case '05-iga/06-sod-and-rbac-design':
+      return (await import('@/content/modules/05-iga/06-sod-and-rbac-design.mdx')).default
+    case '08-security-detection/01-identity-attack-techniques':
+      return (await import('@/content/modules/08-security-detection/01-identity-attack-techniques.mdx')).default
+    case '08-security-detection/02-defender-for-identity':
+      return (await import('@/content/modules/08-security-detection/02-defender-for-identity.mdx')).default
+    case '08-security-detection/03-crowdstrike-semperis':
+      return (await import('@/content/modules/08-security-detection/03-crowdstrike-semperis.mdx')).default
+    case '08-security-detection/04-kql-identity-hunting':
+      return (await import('@/content/modules/08-security-detection/04-kql-identity-hunting.mdx')).default
+    case '08-security-detection/05-identity-incident-response':
+      return (await import('@/content/modules/08-security-detection/05-identity-incident-response.mdx')).default
+    case '12-labs/01-build-an-ad-lab':
+      return (await import('@/content/modules/12-labs/01-build-an-ad-lab.mdx')).default
+    case '12-labs/02-entra-connect-setup':
+      return (await import('@/content/modules/12-labs/02-entra-connect-setup.mdx')).default
+    case '12-labs/03-conditional-access-lab':
+      return (await import('@/content/modules/12-labs/03-conditional-access-lab.mdx')).default
+    case '12-labs/04-saml-scim-integration':
+      return (await import('@/content/modules/12-labs/04-saml-scim-integration.mdx')).default
+    case '12-labs/05-laps-and-jml-automation':
+      return (await import('@/content/modules/12-labs/05-laps-and-jml-automation.mdx')).default
+    case '12-labs/06-pim-and-access-reviews':
+      return (await import('@/content/modules/12-labs/06-pim-and-access-reviews.mdx')).default
+    case '12-labs/07-cyberark-onboarding':
+      return (await import('@/content/modules/12-labs/07-cyberark-onboarding.mdx')).default
+    case '12-labs/08-okta-sso-lifecycle':
+      return (await import('@/content/modules/12-labs/08-okta-sso-lifecycle.mdx')).default
+    case '12-labs/09-sailpoint-cert-campaign':
+      return (await import('@/content/modules/12-labs/09-sailpoint-cert-campaign.mdx')).default
+    case '12-labs/10-kerberoasting-hunt':
+      return (await import('@/content/modules/12-labs/10-kerberoasting-hunt.mdx')).default
+    case '12-labs/11-stale-account-cleanup':
+      return (await import('@/content/modules/12-labs/11-stale-account-cleanup.mdx')).default
+    case '12-labs/12-fido2-deployment':
+      return (await import('@/content/modules/12-labs/12-fido2-deployment.mdx')).default
+    case '12-labs/13-powerbi-identity-dashboard':
+      return (await import('@/content/modules/12-labs/13-powerbi-identity-dashboard.mdx')).default
     default:
       return null
   }
@@ -135,6 +225,36 @@ const ALL_KNOWN_SECTIONS = new Set([
   '06-powershell/03-tips-tricks',
   '11-cert-roadmap/01-sc300-roadmap',
   '11-cert-roadmap/02-study-strategy',
+  '04-pam/01-pam-fundamentals',
+  '04-pam/02-cyberark',
+  '04-pam/03-beyondtrust-delinea',
+  '04-pam/04-hashicorp-vault',
+  '04-pam/05-cloud-native-pam',
+  '04-pam/06-pam-program-design',
+  '05-iga/01-iga-fundamentals',
+  '05-iga/02-sailpoint',
+  '05-iga/03-okta',
+  '05-iga/04-saviynt-oneidentity-omada',
+  '05-iga/05-entra-id-governance',
+  '05-iga/06-sod-and-rbac-design',
+  '08-security-detection/01-identity-attack-techniques',
+  '08-security-detection/02-defender-for-identity',
+  '08-security-detection/03-crowdstrike-semperis',
+  '08-security-detection/04-kql-identity-hunting',
+  '08-security-detection/05-identity-incident-response',
+  '12-labs/01-build-an-ad-lab',
+  '12-labs/02-entra-connect-setup',
+  '12-labs/03-conditional-access-lab',
+  '12-labs/04-saml-scim-integration',
+  '12-labs/05-laps-and-jml-automation',
+  '12-labs/06-pim-and-access-reviews',
+  '12-labs/07-cyberark-onboarding',
+  '12-labs/08-okta-sso-lifecycle',
+  '12-labs/09-sailpoint-cert-campaign',
+  '12-labs/10-kerberoasting-hunt',
+  '12-labs/11-stale-account-cleanup',
+  '12-labs/12-fido2-deployment',
+  '12-labs/13-powerbi-identity-dashboard',
 ])
 
 /**

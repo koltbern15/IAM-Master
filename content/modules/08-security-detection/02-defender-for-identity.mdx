@@ -1,0 +1,170 @@
+{/* Objectives current as of 2026-06-01. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Implement access management — Identity Protection: on-prem identity signals feed the user-risk score that risk-based Conditional Access consumes
+- **SC-300** Plan and implement a Microsoft Entra hybrid identity solution — monitoring the on-prem directory that syncs to Entra ID
+- **Security+ SY0-701** Objective 4.x — identity threat detection and response (ITDR) tooling on the directory tier
+- **CISSP** Domain 7 (Security Operations) — detection of credential-access, lateral-movement, and domain-dominance attacks
+- **Cross-link** Module 8 §01 (the MITRE ATT&CK techniques MDI detects) and Module 2 §01 Kerberos (the protocol these attacks abuse)
+</HoloPanel>
+
+# Microsoft Defender for Identity <SC300Badge />
+
+Module 8 §01 walked the identity kill chain as an attacker sees it: dump LSASS, pass the hash, DCSync the `krbtgt` key, forge a Golden Ticket, own the domain. This section flips the camera around. Microsoft Defender for Identity (MDI) is the product that watches those same domain controllers and tries to catch each step while it is happening. It is the native, Microsoft-first answer to the question "who is attacking my on-premises Active Directory right now, and how far have they gotten?"
+
+## What it is
+
+<Definition term="Microsoft Defender for Identity (MDI)">A component of Microsoft Defender XDR that detects identity-based attacks against on-premises Active Directory (and now AD CS / AD FS / Entra Connect signals). It works by installing a lightweight sensor directly on the servers it protects — primarily domain controllers — where the sensor reads local authentication traffic, Windows security events, and ETW (Event Tracing for Windows) to surface attacks like Pass-the-Hash, DCSync, and Golden Ticket usage. MDI was formerly named Azure Advanced Threat Protection (Azure ATP).</Definition>
+
+The mental model that matters: MDI is not an endpoint agent and it is not a SIEM. It is a directory-tier detector. Where Microsoft Defender for Endpoint watches the workstation and Microsoft Sentinel ingests everybody's logs, MDI sits on the one piece of infrastructure that every credential attack eventually has to touch — the domain controller — and reads the authentication conversation as it flows through. Because Kerberos and NTLM authentication, directory replication, and LDAP queries all transit the DC, the DC is the single best vantage point for catching identity attacks. MDI's entire design is built on getting a sensor onto that vantage point.
+
+MDI is part of the broader **Microsoft Defender XDR** suite. Its alerts do not live in an isolated console; they roll up into XDR incidents alongside endpoint, email, and cloud-app signals, and — the part SC-300 cares about — they contribute to the identity risk picture that Entra ID Identity Protection and risk-based Conditional Access act on. We will come back to that integration; it is the load-bearing connection between this post-SC-300 depth material and the exam blueprint.
+
+## Why it exists
+
+The on-premises directory is the most attacked surface in most enterprises, and for two decades it was also one of the least instrumented. Kerberos and NTLM were designed in an era when "on the corporate network" was treated as a trust boundary. The protocols log a great deal — event 4768 when a TGT is issued, 4769 when a service ticket is requested, 4776 for NTLM validation, 4624 for logon, 4662 for directory-object access — but those events are scattered across every domain controller, in volumes no human reads, with no built-in correlation that says "this 4769 burst is Kerberoasting" or "this 4662 pattern is DCSync."
+
+MDI exists to do that correlation. It takes the raw, high-volume, low-signal authentication telemetry that AD already produces, adds network-level visibility into the protocol traffic itself, and applies Microsoft's threat models to turn it into a short list of named, kill-chain-mapped alerts. The promise is not "we collect more logs." The promise is "we tell you that the thing that just happened on DC03 is a suspected DCSync, here is the source, here is the target, here is the ATT&CK technique." That translation — from protocol noise to attacker intent — is the whole value proposition.
+
+## How it works under the hood
+
+### Sensor architecture
+
+<Definition term="Defender for Identity sensor">The lightweight agent MDI installs directly on the servers it protects. It is installed on all domain controllers (including read-only domain controllers), and on AD FS, AD CS, and Microsoft Entra Connect servers that are not themselves domain controllers. The sensor reads traffic and events local to the server it runs on, so no port mirroring or SPAN configuration is required. The newer sensor (v3.x) runs on domain controllers on current Windows Server releases; an earlier sensor (v2.x) covers older domain controllers and the AD FS / AD CS / Entra Connect roles.</Definition>
+
+The architectural point to lock in: the sensor analyzes traffic and events **local to the server it runs on**. There is no central appliance sniffing the whole network. This is a deliberate evolution away from the legacy "standalone sensor" model, which required configuring port mirroring (SPAN) to feed a separate server a copy of DC traffic — fragile, hard to scale, and now deprecated. The modern sensor lives on the box and reads what the box sees.
+
+That design has a direct operational consequence that becomes the war story and the most common exam trap in this section: **if a domain controller does not have a sensor, MDI is blind to attacks that authenticate against that DC.** Coverage is per-server, not per-domain. A tenant with sensors on three of seven domain controllers has four blind spots, and an attacker who happens to target an unmonitored DC walks through undetected. The rule is one sensor on every DC, plus the AD FS, AD CS, and Entra Connect servers — anything less is a gap you are choosing to accept.
+
+<ProTip>
+Deploy a sensor on EVERY domain controller, including read-only DCs, plus your AD FS, AD CS, and Entra Connect servers. MDI detection is local to the server the sensor runs on — there is no network-wide tap that backfills the gaps. A partial rollout does not give you partial-but-even coverage; it gives you specific, attacker-discoverable blind spots. Treat sensor coverage like patch coverage: track it, and 100 percent or document the exception.
+</ProTip>
+
+### Data sources
+
+The sensor pulls from three streams, all read locally on the server:
+
+- **Network traffic** to and from the domain controller — the actual Kerberos, NTLM, LDAP, DNS, and RPC protocol conversations. This is how MDI sees the shape of an attack (e.g., a replication request that should only ever come from another DC) rather than just its after-the-fact event.
+- **Windows security events** — the audit log entries the DC already writes. The Kerberos events (4768 for the TGT / AS exchange, 4769 for service tickets / the TGS exchange), NTLM authentication (4776), account logon (4624), and especially directory-service access (4662, which is the event that exposes DCSync-style replication reads) are the high-value ones. MDI needs the right advanced audit policies enabled to see some of these, which is why deployment guides walk you through audit-policy configuration.
+- **ETW (Event Tracing for Windows)** — lower-level kernel/provider traces that add detection fidelity beyond what the security event log alone exposes.
+
+If the audit policy is wrong, MDI's eyes are partially closed — the sensor is installed but a class of detections degrades because the underlying events never get written. Audit-policy configuration is part of deployment, not an optional hardening step.
+
+### Detection categories mapped to the kill chain
+
+MDI organizes its detections along the same kill chain §01 taught, which makes the two sections snap together. Each named alert maps to an attacker phase and, usually, to a MITRE ATT&CK technique:
+
+- **Reconnaissance** — account enumeration, SMB session enumeration, network-mapping (DNS) reconnaissance: the attacker learning the terrain.
+- **Compromised credentials** — brute force, suspected Kerberoasting (including a stealthy-LDAP-search variant of the SPN discovery), and AS-REP-style attacks against the credential layer (§01 T1558.003 / T1558.004).
+- **Lateral movement** — Pass-the-Hash, Pass-the-Ticket, overpass-the-hash, and the exposure/lateral-movement-path analysis described below (§01 T1550.002 / T1550.003).
+- **Domain dominance** — the end-game alerts: **Suspected DCSync attack (replication of directory services)**, **Suspected Golden Ticket usage** (with several detection angles, including a nonexistent-account variant and an encryption-downgrade variant), skeleton key, malicious directory replication, and remote code execution attempts against a DC (§01 T1003.006, T1558.001).
+
+Two precision notes the exam and real incidents both reward. First, alert **names are not eternal** — Microsoft maintains both an XDR-structure alert catalog and a classic catalog, the wording differs between them, and names change release to release, but the underlying alert IDs stay consistent across the two structures. Cite the ID (for example, the Suspected DCSync alert carries external ID 2006; a Suspected Golden Ticket usage variant carries 2027) when you need a stable reference, and re-verify the exact display string against the live security-alerts reference before you quote it in a runbook. Second, every one of these alerts is a detection of a §01 technique — Kerberoasting, DCSync, Golden Ticket — and a setup for a §05 containment step. The kill chain is the spine that runs through the whole module.
+
+### Lateral Movement Paths
+
+<Definition term="Lateral Movement Path (LMP)">A graph MDI builds showing how an attacker could pivot from a non-sensitive entry account to a sensitive (Tier-0) account — typically by chaining shared local-administrator rights and active logon sessions across machines. If a help-desk technician is local admin on a workstation where a Domain Admin has an active session, MDI draws the edge: compromise the technician, harvest the admin's credentials from that session, reach Domain Admin. The LMP view answers &quot;how, concretely, could someone get from here to Domain Admin?&quot; before an attacker has to discover it the hard way.</Definition>
+
+LMPs are MDI's proactive, posture-side feature: not "an attack happened" but "an attack would be easy along this route." They turn the abstract Tier-0 isolation guidance from the privileged-access model into a specific, named list of exposure paths you can go close. The remediation is usually to break the local-admin overlap or to stop privileged accounts from leaving harvestable sessions on lower-tier machines.
+
+### Honeytokens
+
+<Definition term="honeytoken account">A dormant decoy account that MDI is told to treat as a tripwire. No legitimate user or process should ever authenticate as it, so any authentication attempt — a logon, a Kerberos request, an LDAP bind — is almost certainly reconnaissance or an active intrusion. Because the false-positive rate is near zero, a honeytoken alert is one of the highest-fidelity signals in the entire detection stack. In MDI you designate honeytokens through entity tags in the identity settings.</Definition>
+
+Honeytokens are cheap and brutally effective. A legitimate-looking but unused service account named something an attacker would find tempting (`svc-backup-admin`, `sql-sa`) costs nothing to leave sitting in the directory, and the day it lights up you know — with very high confidence — that someone is enumerating or pivoting. Compare that to a brute-force alert, which fires constantly and mostly on noise. The honeytoken's value is precisely that it should be silent forever, so any sound is meaningful.
+
+<ProTip>
+Honeytokens are the best signal-to-noise ratio you can buy in identity detection, because the expected event count is zero. Seed a few attractive-looking dormant accounts, tag them as honeytokens, and wire the alert straight to your highest-priority response channel — do not bury it in the same queue as the noisy brute-force alerts. One honeytoken hit is worth a hundred &quot;atypical sign-in&quot; maybes.
+</ProTip>
+
+### Identity security posture and ITDR recommendations
+
+Beyond live attack detection, MDI surfaces **posture assessments** — standing findings about how attackable your directory is even before anyone attacks it. These call out unsecure account attributes (for example, accounts with weak or downgradeable encryption), legacy protocols still in use, dangerous delegation, and similar exposures. Over time Microsoft has been folding these recommendations into the broader **Microsoft Secure Score** and **Exposure Management** surfaces, so some assessments you might remember living inside the MDI blade now appear in those cross-product views. The product surface here drifts — confirm where a given assessment lives in the current portal before you build a process around its exact location. The concept is stable even when the menu path moves: MDI gives you an indicators-of-exposure view of the directory's attack surface, not just an alert feed.
+
+### Integration into Defender XDR, Identity Protection, and Sentinel <SC300Badge />
+
+This is the paragraph that earns the section its SC-300 badge. MDI does not stand alone:
+
+- **Defender XDR** — MDI alerts surface as part of unified XDR incidents, correlated with endpoint, email, and cloud-app signals, so a single intrusion that touches a laptop and then a DC shows up as one incident, not three disconnected alerts.
+- **Entra ID Identity Protection** — MDI's on-premises identity signals contribute to the **user risk** picture that Identity Protection maintains. That matters enormously for the exam: it means an on-prem compromise MDI catches can elevate a hybrid user's risk level, and a risk-based Conditional Access policy can then react in the cloud — for example, forcing a secure password reset on high user risk or blocking until remediation. The on-prem detector and the cloud policy engine are wired together; an attack on the domain controller can trigger a Conditional Access response. This is the bridge between Module 8's threat-hunting depth and the SC-300 "Implement access management — Identity Protection" objective. (Re-verify the exact integration wording against the current MS Learn doc before a cert sitting; the product names and connector mechanics evolve.)
+- **Microsoft Sentinel** — MDI alerts can be ingested into Sentinel, where they land in tables like `SecurityAlert` and become queryable with KQL alongside the Entra `SigninLogs` and `AuditLogs`. That hand-off is exactly what §04 builds on: MDI is the named-detection layer, Sentinel + KQL is the free-form hunting layer over the same and adjacent data.
+
+### Action accounts and response actions
+
+<Definition term="MDI action account">A configured account — recommended to be a group-managed service account (gMSA) so its password is rotated automatically by Active Directory and never handled by a human — that lets MDI take direct response actions in the directory. With an action account in place, an MDI alert can trigger remediation such as disabling a user, forcing a password reset, or suspending an account, without an analyst manually logging into a DC. It is the muscle behind MDI's response, as opposed to its eyes.</Definition>
+
+Action accounts are the seam between detection (this section) and containment (§05). They let MDI move from "I see a compromised account" to "I disabled the compromised account" inside the directory tier. The gMSA recommendation is not incidental: a privileged response account whose password a human knows is itself an attack target, so binding it to a gMSA keeps the credential out of human hands and on AD's automatic rotation schedule.
+
+### Licensing
+
+MDI is licensed either as the standalone **Microsoft Defender for Identity** product or as part of the larger **Microsoft 365 E5** / **E5 Security** bundles. For most enterprises that already hold E5 for the rest of the security stack, MDI is effectively "already paid for," which is a meaningful part of why it tends to be the default choice over third-party ITDR tools for Microsoft-centric shops — a contrast §03 develops. SKU bundling shifts over time, so confirm the current packaging against the live licensing doc before quoting it to a budget owner.
+
+## War story
+
+<WarStory title="The DCSync MDI Caught on a Tuesday Afternoon">
+A regional financial-services firm — call it 4,000 employees, a single AD forest, full Microsoft E5 — had deployed Defender for Identity sensors on all of its domain controllers as part of a security uplift the year before. The deployment was unglamorous: a sensor on every DC, audit policies configured per the deployment guide, honeytokens seeded, and then mostly forgotten. The kind of control that looks like overhead right up until the afternoon it isn't.
+
+A contractor's laptop was compromised through a phished document. The attacker harvested cached credentials, moved laterally to a server where a backup administrator had left an active session, and from there reached an account that — through years of accreted group nesting nobody had reviewed — held the &quot;Replicating Directory Changes&quot; and &quot;Replicating Directory Changes All&quot; rights. With those rights, the attacker did exactly what §01 describes: issued a `DRSGetNCChanges` replication request to a domain controller to pull password hashes, aiming for the `krbtgt` key so they could forge a Golden Ticket and own the forest permanently.
+
+That replication request is the moment MDI earned its license. A `DRSGetNCChanges` call should only ever come from another domain controller. This one came from a member server. The sensor on the targeted DC saw the request in the live protocol traffic, matched it against the directory-service-access events, and raised a **Suspected DCSync attack (replication of directory services)** alert (external ID 2006) — correlated in Defender XDR with the earlier lateral-movement signals from the same intrusion, so the SOC saw one incident telling a coherent story rather than three orphaned alerts.
+
+The response was fast because the alert was specific. The SOC knew the source account, the targeted DC, and the technique. They disabled the compromised account, isolated the source server, and — critically — treated the `krbtgt` as potentially exposed and queued the double-reset runbook (§05) on the assumption the attacker may have already pulled the key before the alert fired. There was no Golden Ticket cleanup measured in months, because there was no nine-month dwell time. The detector turned a forest-level compromise into a Tuesday-afternoon incident with a same-day containment.
+
+The lesson is the boring one that keeps paying off: the sensor was on every DC, the audit policy was right, and the alert was wired to a SOC that knew what DCSync meant. Any one of those missing — a sensor gap on the targeted DC, an audit-policy hole, an alert nobody triaged — and the same intrusion is the §05 Golden Ticket war story instead of this one. Detection coverage is a choice you make on a quiet day so that the loud day is survivable.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="What is Microsoft Defender for Identity (MDI) and what was it formerly called?" back="A Microsoft Defender XDR component that detects identity-based attacks on-premises by running a sensor on domain controllers (and AD CS / AD FS / Entra Connect servers) and analyzing local AD network traffic, Windows security events, and ETW. It was formerly named Azure Advanced Threat Protection (Azure ATP)." />
+<Flashcard front="Where is the MDI sensor installed and why does the install location matter?" back="Directly on all domain controllers (including read-only DCs) and on AD FS / AD CS / Entra Connect servers. Running on the server lets the sensor read authentication traffic and events local to that server with no port mirroring, but it also means detection is per-server: a DC without a sensor is a blind spot, so every DC needs one." />
+<Flashcard front="Why is the legacy MDI standalone sensor with port mirroring deprecated in favor of the on-server sensor?" back="The standalone model required configuring SPAN/port mirroring to copy domain-controller traffic to a separate analysis server — fragile and hard to scale. The modern sensor runs directly on the DC (or AD FS / AD CS / Entra Connect server) and reads local traffic and events with no mirroring, so coverage is simpler and tied to having a sensor on each server." />
+<Flashcard front="Which domain-dominance attacks does MDI detect?" back="Suspected DCSync (directory-services replication, external ID 2006), Suspected Golden Ticket usage (multiple variants such as nonexistent-account, external ID 2027), skeleton key, malicious directory replication, and remote code execution on a DC, among others. Exact display names differ between the XDR and classic catalogs, but alert IDs stay consistent." />
+<Flashcard front="What is a Lateral Movement Path (LMP) in MDI?" back="A graph MDI builds showing how an attacker could pivot from a non-sensitive entry account to a sensitive (Tier-0) account through shared local-admin rights and active logon sessions, exposing the concrete route to Domain Admin before an attacker has to find it." />
+<Flashcard front="What is a honeytoken account in MDI and why is it high-fidelity?" back="A dormant decoy account tagged (via entity tags in MDI identity settings) as a honeytoken that no legitimate user should ever touch. Because the expected activity is zero, any authentication attempt against it is almost certainly malicious, producing a near-zero-false-positive alert." />
+<Flashcard front="How does MDI relate to Entra ID Identity Protection and risk-based Conditional Access?" back="MDI feeds on-premises identity signals into Microsoft Defender XDR, which contributes to the user-risk signal Entra ID Identity Protection maintains. A risk-based Conditional Access policy can then react in the cloud — for example forcing a secure password reset on high user risk — so an on-prem compromise MDI catches can trigger a cloud access decision." />
+<Flashcard front="What is an MDI action account and why is a gMSA recommended for it?" back="A configured account that lets MDI take direct response actions in AD — disable a user, force a password reset, or suspend an account. A group-managed service account (gMSA) is recommended so AD rotates its password automatically and no human handles the credential, keeping the privileged response account out of attacker reach." />
+<Flashcard front="Which Windows event categories must be audited for MDI to detect attacks effectively?" back="Kerberos authentication events (4768 for the TGT/AS exchange, 4769 for service tickets), NTLM validation (4776), account logon (4624), and directory-service access (4662, which exposes DCSync-style replication reads), among others. Advanced audit policies must be configured during deployment or a class of detections degrades." />
+<Flashcard front="What does MDI identity security posture provide, and where are those findings increasingly surfaced?" back="Posture assessments and exposure recommendations — unsecure account attributes, legacy protocols, weak/downgradeable encryption, dangerous delegation — that describe the directory's attack surface before any attack. Microsoft has been folding these into Microsoft Secure Score and Exposure Management, so some assessments now appear in those cross-product views." />
+<Flashcard front="What licensing includes Defender for Identity?" back="MDI is available standalone as Microsoft Defender for Identity, or as part of the Microsoft 365 E5 / E5 Security bundles. Many Microsoft-centric enterprises already hold E5, which is a major reason MDI is the default identity detector over third-party ITDR tools. Confirm current SKU bundling before quoting it." />
+<Flashcard front="How does MDI fit with Microsoft Sentinel for hunting?" back="MDI alerts surface as Defender XDR incidents and can be ingested into Microsoft Sentinel, where they land in tables such as SecurityAlert and become queryable with KQL alongside Entra SigninLogs and AuditLogs. MDI is the named-detection layer; Sentinel plus KQL is the free-form hunting layer over the same and adjacent data." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "08-security-detection/02-defender-for-identity/q1",
+  prompt: "Your organization runs Defender for Identity but has installed sensors on only 3 of its 7 domain controllers. What is the primary risk?",
+  options: [
+    "None; one sensor per domain is sufficient because sensors share detections across the whole domain.",
+    "Detection blind spots — attacks whose authentication traffic and events land on the 4 unmonitored DCs may go undetected, because the MDI sensor analyzes traffic local to the DC it runs on.",
+    "Duplicate alerts will be generated for the 3 monitored DCs because they overlap.",
+    "The sensors will fail to license until every DC in the domain has one installed."
+  ],
+  correctIndex: 1,
+  explanation: "The MDI sensor reads the authentication traffic and events local to the server it runs on; there is no network-wide tap that backfills uninstrumented DCs. Unmonitored domain controllers are blind spots an attacker can target undetected. Best practice is a sensor on every DC (including RODCs) plus AD FS, AD CS, and Entra Connect servers. Sensors do not duplicate alerts for overlapping coverage, and partial coverage does not block licensing."
+}} />
+
+<Quiz question={{
+  id: "08-security-detection/02-defender-for-identity/q2",
+  prompt: "Defender for Identity raises a Suspected DCSync attack (replication of directory services) alert. At the protocol level, what did the attacker attempt?",
+  options: [
+    "They requested Kerberos service tickets for many SPNs and exported them for offline cracking.",
+    "They forged a Ticket Granting Ticket using the krbtgt account key.",
+    "They used the directory replication protocol (a DRSGetNCChanges request) to make a domain controller replicate password hashes — including krbtgt — to them as if they were another DC.",
+    "They reused a captured NTLM hash to authenticate over NTLM without cracking it."
+  ],
+  correctIndex: 2,
+  explanation: "DCSync (MITRE ATT&CK T1003.006) abuses the MS-DRSR replication protocol via DRSGetNCChanges to pull secrets from a DC, which requires the Replicating Directory Changes rights. A replication request from a non-DC member server is exactly the anomaly MDI watches for. The other options describe Kerberoasting, Golden Ticket, and Pass-the-Hash respectively."
+}} />
+
+<Quiz question={{
+  id: "08-security-detection/02-defender-for-identity/q3",
+  prompt: "A security team tags three never-used accounts as honeytokens in Defender for Identity. Why is an alert on these accounts especially valuable?",
+  options: [
+    "Honeytokens automatically block the source IP address of any attempted authentication.",
+    "Because no legitimate user ever authenticates as them, any sign-in or authentication attempt is almost certainly malicious — a high-fidelity, low-false-positive signal.",
+    "Triggering a honeytoken automatically resets the krbtgt key to invalidate forged tickets.",
+    "Honeytokens reduce the licensing cost of MDI by lowering the monitored account count."
+  ],
+  correctIndex: 1,
+  explanation: "A honeytoken is a dormant decoy account whose expected activity is zero, so any authentication against it is a strong indicator of reconnaissance or active compromise. That near-zero false-positive rate is why a honeytoken hit is one of the most valuable signals in identity detection. Honeytokens do not auto-block IPs, do not reset krbtgt, and do not change licensing."
+}} />
