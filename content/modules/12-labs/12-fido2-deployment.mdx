@@ -2,7 +2,7 @@
 
 <HoloPanel label="COVERS">
 - Touches **SC-300: Plan and implement authentication methods** — passwordless FIDO2/passkey enablement and the authentication methods policy (informational here; this lab is classified as deployment operations, not a graded SC-300 objective)
-- Touches **SC-300: Plan and implement Conditional Access** — enforcing a phishing-resistant authentication strength as a grant control
+- Touches **SC-300: Plan, implement, and manage Microsoft Entra Conditional Access** — enforcing a phishing-resistant authentication strength as a grant control
 - **Security+ SY0-701** Objective 4.6 — Implement and maintain identity and access management (phishing-resistant MFA, passwordless authentication)
 - **CISSP** Domain 5.2 — Manage the identity and access provisioning lifecycle (credential issuance, recovery, and deprovisioning)
 - **Builds on:** Module 2 §05 FIDO2 / WebAuthn / Passkeys (the registration and authentication ceremonies you are now operationalizing) and Lab 03 (Conditional Access — you reuse the break-glass-first, report-only-always discipline here)
@@ -173,7 +173,7 @@ $tap = New-MgUserAuthenticationTemporaryAccessPassMethod \`
 # out-of-band channel to the user (a phone call / in-person), never email or chat.
 $tap | Select-Object Id, TemporaryAccessPass, IsUsableOnce, LifetimeInMinutes, StartDateTime`}</PowerShellBlock>
 
-The user signs in with the TAP — which satisfies a phishing-resistant strength when configured as such, so it works even with your Step 3 policy enforced — goes straight to the security-info page, registers their replacement FIDO2 key, and the one-time TAP is consumed. They are back to phishing-resistant sign-in without an admin ever handing them a password. Confirm the TAP property names and the one-time/lifetime behavior against MS Learn's `New-MgUserAuthenticationTemporaryAccessPassMethod` reference for your module version, and verify in the authentication methods policy that TAP is configured to count as a phishing-resistant on-ramp in your tenant.
+The user signs in with the TAP — which is *not* itself phishing-resistant (the built-in Phishing-resistant MFA strength accepts only FIDO2 / Windows Hello for Business / certificate-based auth, never a TAP, and built-in strengths can't be modified), so this works only because the recovery sign-in isn't in scope of the enforced Step 3 policy — the TAP gets them to the security-info page, where they register their replacement FIDO2 key, and the one-time TAP is consumed. They are back to phishing-resistant sign-in without an admin ever handing them a password. Confirm the TAP property names and the one-time/lifetime behavior against MS Learn's `New-MgUserAuthenticationTemporaryAccessPassMethod` reference for your module version, and remember that a TAP only ever satisfies the **Multifactor authentication** strength — never the **Phishing-resistant MFA** strength, since built-in strengths are fixed and can't be modified — so the recovering user must register a FIDO2 key during the TAP session, and your enforced Step 3 phishing-resistant policy must not block that TAP sign-in (it is scoped to admin roles here, so temporarily exclude the user or hold off on a key the role requires until they have registered one).
 
 ## Validation
 

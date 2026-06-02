@@ -17,7 +17,7 @@ The payoff is breadth. Everything in Modules 2 through 6 leaned on Microsoft Ent
 
 ## Prerequisites
 
-- **A free Okta Developer org.** Sign up at developer.okta.com (the Integrator/Developer Edition is free and self-resettable, which makes it ideal for a lab — you can create, break, and delete freely). This gives you an org URL like `https://dev-12345678.okta.com` and an admin console at `/admin`.
+- **A free Okta Integrator org.** Sign up at developer.okta.com (the **Integrator Free Plan** is free and self-service — you can create, break, and delete orgs freely, which makes it ideal for a lab). This gives you an org URL like `https://dev-12345678.okta.com` and an admin console at `/admin`.
 - **An API token (SSWS).** Generate one in the admin console under **Security → API → Tokens → Create Token**. Copy it immediately — Okta shows the token value exactly once. This token is what the PowerShell steps authenticate with. Treat it like a password (see the ProTip below).
 - **Builds on Module 5 §03.** Keep the Okta concepts section open. Every step here maps to a concept from it: users live in **Universal Directory**, SSO is an **app integration**, and the deactivate/reactivate transitions are **Lifecycle Management** state changes.
 - **SAML/OIDC grounding from Module 2.** The SSO step assumes you know the difference between SAML (assertion-based, the Identifier/ACS/NameID anatomy from §02) and OIDC (token-based, the redirect/client-secret model from §03). You will pick one when you create the app integration.

@@ -19,7 +19,7 @@ This is the lab that maps most directly onto the questions a bank auditor asks f
 ## Prerequisites
 
 - A **dev Entra tenant** with the synced admins from Lab 02. Do not run this against a production tenant — eligibility and review changes touch real role assignments.
-- **Microsoft Entra ID P2** (or a license that includes the governance features, such as Microsoft Entra ID Governance or EMS E5). PIM just-in-time roles and Access Reviews are governance capabilities — they are not in the free tier and not in P1, which only covers Conditional Access. State this clearly to anyone you onboard: P1 buys you Conditional Access, P2-or-Governance buys you PIM and Access Reviews.
+- **Microsoft Entra ID P2** (or a license that includes the governance features, such as Microsoft Entra ID Governance or EMS E5). PIM just-in-time roles and Access Reviews are governance capabilities — they are not in the free tier and not in P1. P1 does include Conditional Access (along with SSPR with writeback, custom RBAC roles, dynamic groups, App Proxy, and more), but PIM and Access Reviews require P2 or Governance. State this clearly to anyone you onboard: P1 buys you Conditional Access; P2-or-Governance buys you PIM and Access Reviews.
 - The **Microsoft.Graph** PowerShell module installed, including the `Microsoft.Graph.Identity.Governance` sub-module, and a sign-in with at least Privileged Role Administrator (or Global Administrator) rights to manage role assignments and PIM settings.
 - The Graph scopes `RoleManagement.ReadWrite.Directory` (to create eligibility), `RoleEligibilitySchedule.ReadWrite.Directory`, `RoleManagementPolicy.ReadWrite.Directory` (to set activation requirements), and `AccessReview.ReadWrite.All` (to create the review).
 - A test user (a synced user from Lab 02) who will become *eligible* for a privileged role, and a privileged group with at least one member to point the access review at.
@@ -72,7 +72,7 @@ Making a user eligible is only half the control. The other half is what they mus
 
 These settings live on the **role management policy** that governs the role, expressed as a set of rules (an `unifiedRoleManagementPolicyRule` for each: the enablement rule that turns on MFA and justification, the approval rule, and the expiration rule that caps activation duration). The policy object model is genuinely intricate — in practice many teams configure these in the portal (PIM → Microsoft Entra roles → Settings → pick the role) because the rule IDs and payloads are easy to get wrong by hand. Know that the Graph surface is `Get-MgPolicyRoleManagementPolicy` / `Get-MgPolicyRoleManagementPolicyRule` and `Update-MgPolicyRoleManagementPolicyRule`, and confirm the exact rule payloads against MS Learn before scripting them.
 
-<PowerShellBlock title="Inspect the role management policy rules for the role">{`Connect-MgGraph -Scopes "RoleManagementPolicy.Read.AzureADGroup","RoleManagement.Read.Directory"
+<PowerShellBlock title="Inspect the role management policy rules for the role">{`Connect-MgGraph -Scopes "RoleManagementPolicy.Read.Directory","RoleManagement.Read.Directory"
 
 # Find the policy that governs Entra-role assignments at tenant scope, then list its rules.
 # (The policy assignment ties a roleDefinitionId to a policyId at a given scope.)
@@ -172,9 +172,9 @@ $definition = @{
     @{ Query = "/groups/$($groupId)/owners"; QueryType = "MicrosoftGraph" }
   )
   Settings = @{
-    RecurrenceSettings = @{
-      RecurrenceType = "quarterly"
-      RecurrenceEndType = "never"
+    Recurrence = @{
+      Pattern = @{ Type = "absoluteMonthly"; Interval = 3; DayOfMonth = 1 }  # every 3 months = quarterly
+      Range   = @{ Type = "noEnd"; StartDate = "2026-06-01" }                  # recurs with no end
     }
     DefaultDecisionEnabled = $true
     DefaultDecision        = "Deny"      # if a member is not reviewed, default to removing access

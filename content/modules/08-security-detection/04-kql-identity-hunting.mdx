@@ -68,7 +68,7 @@ SigninLogs
 | sort by FailedAttempts desc
 </PowerShellBlock>
 
-Four operators carry most of the load. `where` filters rows. `project` selects (and renames or computes) columns — its cousin `extend` adds a computed column without dropping the others. `summarize` collapses many rows into aggregates: `count()` for row counts, `dcount()` for distinct counts, `make-set()` to collect distinct values into an array, `arg_max()` to return the whole row that has the maximum of some expression per group. The `by` clause names the grouping keys, and `bin(TimeGenerated, 1h)` is the special grouping key that buckets rows into fixed time windows so you can see bursts over time.
+Four operators carry most of the load. `where` filters rows. `project` selects (and renames or computes) columns — its cousin `extend` adds a computed column without dropping the others. `summarize` collapses many rows into aggregates: `count()` for row counts, `dcount()` for distinct counts, `make_set()` to collect distinct values into an array, `arg_max()` to return the whole row that has the maximum of some expression per group. The `by` clause names the grouping keys, and `bin(TimeGenerated, 1h)` is the special grouping key that buckets rows into fixed time windows so you can see bursts over time.
 
 The single most important habit is the one shown in stage 1: **filter by time first.** Log Analytics partitions data by time, so a leading `where TimeGenerated > ago(7d)` lets the engine skip every partition outside the window before it reads a single other column. Put any other filter first and you force a far larger scan.
 

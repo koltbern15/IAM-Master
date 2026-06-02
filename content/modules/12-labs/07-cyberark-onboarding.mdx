@@ -40,7 +40,7 @@ A **Safe** is the unit of access control in CyberArk. It is the container that h
 
 In PVWA, create the Safe (give it a clear name like `LAB-Windows-Admins`), then add **Safe members** with explicit authorizations — separate the people who may *use/retrieve* a credential from those who may *manage* it, and grant the **CPM user** the management authorizations so it can rotate. The principle to carry out of this step: the Safe is the boundary; least privilege is expressed by who you add to it and with which authorizations.
 
-If you script Safe creation later, the `psPAS` cmdlets are `New-PASSafe` and `Add-PASSafeMember`. Establish the API session first with `New-PASSession` (it authenticates you to PVWA and returns the token the rest of the cmdlets reuse).
+If you script Safe creation later, the `psPAS` cmdlets are `Add-PASSafe` and `Add-PASSafeMember`. Establish the API session first with `New-PASSession` (it authenticates you to PVWA and returns the token the rest of the cmdlets reuse).
 
 <PowerShellBlock title="Authenticate to CyberArk and create a Safe (psPAS)">{`# psPAS talks to the CyberArk REST API. Install once: Install-Module psPAS -Scope CurrentUser
 # Privilege Cloud uses an OAuth/Identity sign-in; self-hosted may use CyberArk/LDAP auth.
@@ -52,7 +52,7 @@ $baseUri = 'https://your-subdomain.privilegecloud.cyberark.cloud'
 New-PASSession -BaseURI $baseUri -Credential (Get-Credential)
 
 # Create the Safe that will hold the privileged account
-New-PASSafe -SafeName 'LAB-Windows-Admins' \`
+Add-PASSafe -SafeName 'LAB-Windows-Admins' \`
             -Description 'Lab Windows domain/local admin accounts' \`
             -NumberOfVersionsRetention 5
 
