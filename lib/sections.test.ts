@@ -16,16 +16,16 @@ interface RawModule {
 const MODULES = modulesJson as RawModule[]
 
 // Flattened expected slugs straight from modules.json (the source of truth for
-// which sections exist / their order). 47 authored sections across modules
-// 01/02/03/04/05/06/08/11/12.
+// which sections exist / their order). 61 authored sections across modules
+// 01/02/03/04/05/06/07/08/09/10/11/12.
 const EXPECTED: { moduleId: string; slug: string }[] = MODULES.flatMap((m) =>
   m.sections.map((slug) => ({ moduleId: m.id, slug }))
 )
 
 describe('lib/sections — getOrderedSections', () => {
-  it('returns exactly the 47 authored sections in curriculum order', () => {
+  it('returns exactly the 61 authored sections in curriculum order', () => {
     const ordered = getOrderedSections()
-    expect(ordered).toHaveLength(47)
+    expect(ordered).toHaveLength(61)
     expect(ordered.map((s) => `${s.moduleId}/${s.slug}`)).toEqual(
       EXPECTED.map((e) => `${e.moduleId}/${e.slug}`)
     )

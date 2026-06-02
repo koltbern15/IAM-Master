@@ -1,0 +1,153 @@
+{/* Control citations verified against primary sources (45 CFR 164.312, Regulation (EU) 2016/679, FedRAMP/NIST 800-53B, OMB M-22-09) as of 2026-06-01. Re-confirm any number against the source-of-record before relying on it in an audit. */}
+
+<HoloPanel label="COVERS">
+- **CISSP** Domain 1 (Security and Risk Management) — legal, regulatory, and privacy compliance (HIPAA, GDPR) and federal authorization (FedRAMP)
+- **CISSP** Domain 5 (Identity and Access Management) — access control safeguards mapped to privacy and federal control sets
+- **Security+ SY0-701** Objective 5.x — Governance, Risk, and Compliance: applicable regulations, standards, and frameworks
+- **HIPAA** Security Rule — Technical Safeguards at 45 CFR 164.312 and Administrative Safeguards at 45 CFR 164.308
+- **GDPR** — Regulation (EU) 2016/679, Articles 5, 25, 32, and the data-subject rights (Articles 15-20)
+- **FedRAMP** — cloud authorization built on NIST SP 800-53 Rev. 5 baselines (Low / Moderate / High) and FIPS 199 categorization
+- **VOSB/GOV** — FedRAMP plus 800-53 plus 800-63B fluency is the credential differentiator for an SDVOSB selling identity services into federal and DoD-adjacent work
+</HoloPanel>
+
+# Privacy & Federal: HIPAA, GDPR, FedRAMP
+
+The last section was about money — cards, ledgers, and the regulators who guard them. This one is about people and the government: the personal health data HIPAA protects, the personal data of every EU resident that GDPR governs, and the federal authorization regime (FedRAMP) you have to speak fluently if you want to sell identity services to an agency. Three very different bodies of law, written on three different continents of intent, and yet they all keep asking the same small set of IAM questions: who is this person, what are they allowed to touch, can you prove who touched what, and can you find and remove their access on demand.
+
+For Kolton specifically, this section is the bridge between today's banking work and tomorrow's consulting practice. HIPAA and GDPR show up the moment a client handles patient or EU data. FedRAMP is the language of every federal contract — and for an SDVOSB chasing the gov market, being able to say "Moderate baseline, FIPS 199 categorization, 800-53 Rev. 5 control set, phishing-resistant MFA per M-22-09" without flinching is what separates a vendor who gets a meeting from one who gets a contract.
+
+## HIPAA Security Rule — the access controls live at 45 CFR 164.312
+
+HIPAA is two rules that matter to IAM. The Privacy Rule governs how protected health information (PHI) may be used and disclosed. The **Security Rule** governs how *electronic* PHI (ePHI) is protected, and it is the one with the access controls. It lives in **45 CFR Part 164, Subpart C**, and it is organized into three families of safeguards: **Administrative**, **Physical**, and **Technical**. The technical safeguards — the ones a systems analyst actually configures — are at **45 CFR 164.312**.
+
+The Security Rule is deliberately technology-neutral. It does not tell you to buy a specific product or set a specific timeout value. Instead it sets *standards* (the outcomes you must achieve) and, under each standard, *implementation specifications* (the specific measures), each flagged as either **Required** or **Addressable**. That Required-versus-Addressable distinction is the single most misunderstood thing in HIPAA, so we will hammer it.
+
+### The technical safeguards at 164.312
+
+The Access Control standard is **45 CFR 164.312(a)(1)**, and it carries four implementation specifications:
+
+| 164.312 citation | Implementation specification | Required or Addressable | IAM mechanism that satisfies it |
+|---|---|---|---|
+| (a)(2)(i) | Unique User Identification | **Required** | One named account per human; no shared logins to ePHI systems |
+| (a)(2)(ii) | Emergency Access Procedure | **Required** | The break-glass account and the documented procedure to use it |
+| (a)(2)(iii) | Automatic Logoff | Addressable | Idle-session timeout / screen lock on EHR workstations |
+| (a)(2)(iv) | Encryption and Decryption | Addressable | Encryption of ePHI at rest within the application/database |
+| (b) | Audit Controls | (standard) | Logging of access to ePHI — who viewed which record, when |
+| (c)(1) | Integrity | (standard) | Controls that prevent improper alteration/destruction of ePHI |
+| (d) | Person or Entity Authentication | (standard) | Verifying a user is who they claim — MFA, credentials |
+| (e)(1) | Transmission Security | (standard) | TLS / encryption of ePHI in transit |
+
+<Definition term="Addressable implementation specification">
+In the HIPAA Security Rule, Addressable does NOT mean optional. A covered entity must assess whether the specification is a reasonable and appropriate safeguard for its environment, and then EITHER implement it, OR document why it is not reasonable and appropriate and implement an equivalent alternative measure that achieves the same standard. Skipping it silently is a violation. By contrast, a Required specification must always be implemented, full stop. The number-one HIPAA audit trap is treating Addressable as a synonym for ignore.
+</Definition>
+
+Notice what is hiding in that table. **Unique User Identification (Required)** is the same control PCI calls 8.2.1 and 800-53 calls IA-4 — one identity per human, no shared accounts. **Emergency Access Procedure (Required)** is the formal acknowledgment that healthcare needs break-glass: a clinician treating a coding patient cannot wait for a ticket approval, so HIPAA *requires* you to have an emergency access path — and, by implication, to log and review its use. **Person or Entity Authentication** at (d) is where MFA lives. The Security Rule does not mandate MFA by name, but "verify the person is who they claim" is exactly the outcome MFA produces, and Office for Civil Rights (OCR) enforcement and guidance have moved steadily toward expecting it.
+
+### The administrative safeguards are where JML lives
+
+The technical safeguards get the attention, but the joiner-mover-leaver controls — the heart of IAM — are in the **Administrative** safeguards at **45 CFR 164.308**:
+
+- **164.308(a)(3) Workforce Security** — authorization and/or supervision of workforce members who access ePHI, a **workforce clearance procedure** (deciding whether access is appropriate), and **termination procedures** (removing access when employment ends). That last one is the leaver control, and it is a textbook audit finding when it lags.
+- **164.308(a)(4) Information Access Management** — access authorization, access establishment, and access modification. This is provisioning and the mover control: granting the right access at hire and changing it on role change.
+
+<Definition term="Required vs Addressable (HIPAA)">
+A two-tier scheme under each Security Rule standard. REQUIRED specifications (e.g., Unique User Identification, Emergency Access Procedure) must always be implemented. ADDRESSABLE specifications (e.g., Automatic Logoff, Encryption) must be implemented if reasonable and appropriate, or replaced by a documented equivalent. Both tiers are mandatory to address; only the implementation flexibility differs.
+</Definition>
+
+<WarStory title="The shared workstation in the ED">
+A regional hospital ran a fast-paced emergency department on a fleet of shared workstations. To keep clinicians moving, someone disabled the EHR auto-logoff (the Addressable Automatic Logoff spec) and let staff stay signed in under a single generic clinical account — defeating Unique User Identification, the Required spec. It worked beautifully until a patient complained that a neighbor who happened to be a nurse there had looked at her chart. The audit logs showed the access, but every entry was the generic account. There was no way to attribute the view to a person, no automatic logoff to limit exposure, and no documented rationale for skipping the Addressable timeout. What started as one privacy complaint became a finding against two safeguards at once: a Required unique-ID failure and an undocumented Addressable-spec decision. The fix was not exotic — per-user logins, badge-tap fast switching, and a short idle timeout — but the lesson stuck: the convenience workaround is exactly what an investigator pulls the thread on.
+</WarStory>
+
+## GDPR — access and data-minimisation principles for personal data
+
+The EU General Data Protection Regulation, **Regulation (EU) 2016/679**, is not a security framework the way 800-53 is. It is a data-protection law, and most of it is about lawful basis, consent, and the rights of individuals. But several of its articles land squarely on IAM, because you cannot protect personal data you cannot control access to, and you cannot honor a data-subject right you cannot service from your identity stores.
+
+The principles in **Article 5** set the tone. Two of them are direct IAM analogues:
+
+- **Article 5(1)(c) — data minimisation.** Personal data must be adequate, relevant, and limited to what is necessary. This is least privilege expressed for *data*: do not collect, retain, or expose more personal data than the purpose requires — the same instinct that drives least-privilege access design.
+- **Article 5(1)(f) — integrity and confidentiality.** Personal data must be processed with appropriate security, including protection against unauthorised access. This is the access-control principle stated as a data-protection duty.
+
+Two articles turn those principles into design obligations:
+
+- **Article 25 — data protection by design and by default.** Build privacy and access restriction into systems from the start, with the most privacy-protective settings as the default. For an IAM practitioner this means default-deny access, least-privilege roles out of the box, and access reviews baked into the system rather than bolted on.
+- **Article 32 — security of processing.** This is the article that explicitly names access control. It requires appropriate technical and organisational measures, including the ability to ensure ongoing confidentiality, integrity, availability, and resilience of processing systems, and a process for regularly testing and evaluating those measures. When a GDPR-driven audit asks "show me your access controls," Article 32 is the hook.
+
+<Definition term="Data subject (GDPR)">
+The identified or identifiable natural person whose personal data is being processed — defined in Article 4 alongside controller (who decides why and how data is processed) and processor (who processes on the controller's behalf). The data subject is the person whose rights the regulation protects, and the person whose identity and access data your IAM systems must be able to locate, export, correct, and delete on request.
+</Definition>
+
+### Data-subject rights that IAM has to service
+
+The rights in **Chapter 3** are where IAM stops being abstract. To honor them, you have to be able to reach into identity and access data and act on a single individual:
+
+- **Article 15 — right of access.** The subject can demand to know what personal data you hold and who you have disclosed it to. You must be able to produce the answer, which means your access logs and identity records have to be findable per-subject.
+- **Article 16 — rectification.** Correct inaccurate personal data.
+- **Article 17 — erasure ("right to be forgotten").** Delete the subject's personal data when there is no lawful basis to keep it — including, where applicable, identity and account records.
+- **Article 20 — data portability.** Export the subject's data in a structured, machine-readable format.
+
+The connective insight: every one of these rights presumes you can pivot your entire data estate around one identity. If you cannot answer "everywhere this person's data lives, and everyone who accessed it," you cannot comply. Good IAM — unique identifiers, clean account-to-person mapping, real audit logging — is the precondition for GDPR compliance, not a separate workstream.
+
+## FedRAMP — the federal authorization regime and your gov differentiator
+
+FedRAMP (the Federal Risk and Authorization Management Program, run by GSA) is the standardized way the U.S. government assesses, authorizes, and continuously monitors the security of **cloud service offerings (CSOs)** used by federal agencies. The core principle is "do once, use many": a cloud service gets authorized once against a federal control baseline, and agencies can then reuse that authorization rather than each re-assessing from scratch.
+
+Historically there were two authorization paths: a **JAB Provisional Authorization to Operate (P-ATO)** granted by the Joint Authorization Board, and an **Agency ATO** granted by an individual agency that sponsors the service. FedRAMP modernization under the **FedRAMP Authorization Act** (enacted as part of the FY2023 National Defense Authorization Act) has been reshaping the governance model, so treat the JAB-versus-board specifics as a moving target and confirm the current program structure before quoting it in a proposal. What has not changed is the control foundation underneath, which is the part that matters for IAM.
+
+<Definition term="ATO and P-ATO">
+An Authorization to Operate (ATO) is the formal risk-acceptance decision by an authorizing official that permits a system to operate. In FedRAMP, an Agency ATO is granted by a sponsoring agency for its own use; a Provisional ATO (P-ATO) was the Joint Authorization Board's government-wide provisional authorization that agencies could leverage. Either way, the authorization rests on a security assessment of the system against a defined NIST 800-53 control baseline.
+</Definition>
+
+### The three baselines, FIPS 199, and where IAM concentrates
+
+FedRAMP defines control sets at three impact levels — **Low, Moderate, and High** — plus a tailored set (often called FedRAMP Tailored / Li-SaaS) for low-impact software-as-a-service. Which baseline applies is not a guess; it is driven by a **FIPS 199** categorization.
+
+<Definition term="FIPS 199 categorization">
+FIPS Publication 199 is the federal standard that categorizes an information system by the potential impact (Low, Moderate, or High) of a loss of CONFIDENTIALITY, INTEGRITY, or AVAILABILITY. The overall system impact is the high-water mark across the three. That categorization then selects the corresponding NIST SP 800-53 control baseline — Low, Moderate, or High — which is the set of controls the system must implement and be assessed against.
+</Definition>
+
+The baselines themselves are not invented by FedRAMP; they are the **NIST SP 800-53 Rev. 5** control sets defined in **NIST SP 800-53B**. The control count climbs sharply with impact level, with the Moderate baseline running into the low hundreds of controls and High higher still — treat any exact count as approximate and pull the current FedRAMP baseline workbook before quoting a number. The **Moderate baseline is the realistic commercial and SDVOSB target**: it is what most agencies require for systems handling sensitive-but-not-classified data, and it is a serious-but-achievable bar, whereas High is for the most sensitive federal workloads.
+
+Here is why this section sits next to the others: FedRAMP weights the **Access Control (AC)** and **Identification and Authentication (IA)** families heavily, and the authenticator-strength expectations track **NIST SP 800-63B Authenticator Assurance Levels (AAL)**. On top of that, **OMB Memorandum M-22-09** (the federal Zero Trust strategy, issued January 26, 2022) requires **phishing-resistant MFA** for federal staff, contractors, and partners — explicitly pointing at FIDO2/WebAuthn and PIV credentials and pushing agencies off SMS and voice one-time codes. So the federal IAM story is consistent end to end: 800-53 says manage authenticators and require MFA, 800-63B says how strong (AAL), and M-22-09 says specifically phishing-resistant for the federal workforce.
+
+<ProTip>
+Two traps to never fall into. First: Addressable is not optional. If a HIPAA audit catches you treating Automatic Logoff or Encryption as skippable without a documented rationale and an equivalent measure, that is a finding even though the spec says Addressable. Second, for the consulting side: FedRAMP Moderate is the baseline to aim your messaging at. Saying you can support a Moderate authorization — FIPS 199 categorization, the 800-53B Moderate control set, AC and IA family coverage, and phishing-resistant MFA per M-22-09 — is a concrete, credible federal pitch. Vaguely promising High when you have never staffed a High assessment is how an SDVOSB loses credibility in the first meeting.
+</ProTip>
+
+## Recall drill
+
+<Flashcard front="Where in the CFR are HIPAA Security Rule technical safeguards, and what is the access-control citation?" back="45 CFR Part 164, Subpart C is the Security Rule. The Technical Safeguards are at 45 CFR 164.312, and the Access Control standard specifically is 45 CFR 164.312(a)(1)." />
+<Flashcard front="What are the four implementation specifications under HIPAA 164.312(a) Access Control, and which are Required?" back="Unique User Identification (Required), Emergency Access Procedure (Required), Automatic Logoff (Addressable), and Encryption and Decryption (Addressable). The first two must always be implemented; the last two must be implemented if reasonable or replaced by a documented equivalent." />
+<Flashcard front="In HIPAA, what does an Addressable implementation specification actually obligate you to do?" back="Addressable does not mean optional. The covered entity must implement it if reasonable and appropriate, or document why not and implement an equivalent alternative that meets the standard. Required specifications must always be implemented." />
+<Flashcard front="Which GDPR article explicitly names security of processing and access control, and which principle is the least-privilege analogue for personal data?" back="Article 32 (Security of processing) requires appropriate technical and organisational measures including access control. Article 5(1)(c) data minimisation is the personal-data least-privilege analogue, and 5(1)(f) is integrity and confidentiality." />
+<Flashcard front="Which GDPR data-subject rights most directly depend on IAM and identity-data handling?" back="Article 15 right of access, Article 16 rectification, Article 17 erasure (the right to be forgotten), and Article 20 data portability. All require locating, exporting, correcting, or deleting a subject's identity and access data and proving who accessed it." />
+<Flashcard front="What are the three FedRAMP impact baselines and what determines which one applies to a system?" back="Low, Moderate, and High. The level is set by a FIPS 199 categorization of the impact of losing confidentiality, integrity, or availability, and it maps to the matching NIST SP 800-53 Rev. 5 control set defined in 800-53B. FedRAMP Tailored / Li-SaaS covers low-impact SaaS." />
+<Flashcard front="Which NIST 800-53 families does FedRAMP weight most for identity, and what backs the MFA strength expectation?" back="The Access Control (AC) and Identification and Authentication (IA) families. Authenticator strength tracks NIST SP 800-63B Authenticator Assurance Levels (AAL), and OMB M-22-09 requires phishing-resistant MFA (FIDO2/WebAuthn or PIV) for the federal workforce." />
+<Flashcard front="Which HIPAA administrative safeguards cover the workforce access lifecycle (joiner-mover-leaver)?" back="45 CFR 164.308(a)(3) Workforce Security (authorization and supervision, workforce clearance, termination procedures) and 164.308(a)(4) Information Access Management (access authorization, establishment, and modification)." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "09-compliance/03-privacy-and-federal/q1",
+  prompt: "Under the HIPAA Security Rule, the Automatic Logoff implementation specification is marked Addressable. What does that obligate a covered entity to do?",
+  options: [
+    "Nothing — Addressable means the specification is optional",
+    "Implement it exactly as written with no exceptions permitted",
+    "Implement it if reasonable and appropriate, or document why not and adopt an equivalent alternative measure",
+    "Obtain prior written approval from OCR before implementing it"
+  ],
+  correctIndex: 2,
+  explanation: "Addressable specifications such as Automatic Logoff at 164.312(a)(2)(iii) are not optional. The covered entity must implement the measure if it is reasonable and appropriate, or document the rationale for not doing so and implement an equivalent alternative that meets the standard. Required specifications such as Unique User Identification must always be implemented."
+}} />
+
+<Quiz question={{
+  id: "09-compliance/03-privacy-and-federal/q2",
+  prompt: "An SDVOSB wants its identity SaaS authorized for a typical federal agency handling moderate-impact data. Which FedRAMP baseline and underlying categorization apply?",
+  options: [
+    "The High baseline, selected on the basis of PCI-DSS scoping rules",
+    "The Moderate baseline, selected by a FIPS 199 categorization and realized through the NIST 800-53 Rev. 5 control set defined in 800-53B",
+    "The Low baseline automatically, because all SaaS offerings default to Low",
+    "No baseline at all, because FedRAMP does not rely on NIST 800-53"
+  ],
+  correctIndex: 1,
+  explanation: "The applicable baseline (Low, Moderate, or High) is determined by a FIPS 199 impact categorization and is realized through the matching NIST SP 800-53 Rev. 5 control set defined in 800-53B. Moderate is the common commercial and SDVOSB target for sensitive-but-unclassified federal data. PCI-DSS is unrelated to FedRAMP baseline selection, and FedRAMP is built directly on 800-53."
+}} />

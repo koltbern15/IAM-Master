@@ -72,6 +72,20 @@ const SECTION_TITLES: Record<string, string> = {
   '12-labs/11-stale-account-cleanup': 'Automated Stale Account Cleanup',
   '12-labs/12-fido2-deployment': 'Enterprise FIDO2 / Passkey Deployment',
   '12-labs/13-powerbi-identity-dashboard': 'Build a Power BI Identity Dashboard',
+  '07-cloud-iam/01-aws-iam': 'AWS IAM: Policy Evaluation & Identity Center',
+  '07-cloud-iam/02-azure-rbac': 'Azure RBAC: The Resource Authorization Layer',
+  '07-cloud-iam/03-gcp-iam': 'Google Cloud IAM',
+  '07-cloud-iam/04-multi-cloud-strategy': 'Multi-Cloud Identity Strategy',
+  '07-cloud-iam/05-ciem': 'CIEM: Cloud Infrastructure Entitlement Management',
+  '09-compliance/01-control-frameworks': 'The Control Frameworks: NIST 800-53 & CSF 2.0',
+  '09-compliance/02-financial-and-payment': 'Financial & Payment: PCI-DSS, SOX 404, FFIEC',
+  '09-compliance/03-privacy-and-federal': 'Privacy & Federal: HIPAA, GDPR, FedRAMP',
+  '09-compliance/04-iam-controls-matrix': 'The IAM Controls Matrix: Framework, Control, Evidence',
+  '09-compliance/05-audit-prep-playbook': 'The Audit Prep Playbook',
+  '10-program-leadership/01-maturity-and-roadmap': 'IAM Maturity & Roadmap',
+  '10-program-leadership/02-stakeholders-and-budget': 'Stakeholders & Budget',
+  '10-program-leadership/03-metrics-and-rfp': 'Metrics & RFP Design',
+  '10-program-leadership/04-career-architecture': 'IAM Career Architecture',
 }
 
 /** Sections whose material is SC-300 exam-aligned (surfaces an SC-300 badge). */
@@ -89,6 +103,8 @@ const SC300_SECTIONS = new Set<string>([
   '12-labs/03-conditional-access-lab',
   '12-labs/04-saml-scim-integration',
   '12-labs/06-pim-and-access-reviews',
+  '07-cloud-iam/02-azure-rbac',
+  '10-program-leadership/03-metrics-and-rfp',
 ])
 
 /**

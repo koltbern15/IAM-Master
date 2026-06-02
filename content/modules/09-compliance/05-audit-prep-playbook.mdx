@@ -1,0 +1,153 @@
+{/* Audit-prep guidance and control identifiers current as of 2026-06-01. Re-verify cadence and control numbers against the governing standard (PCI SSC, PCAOB, FFIEC, your audit firm's PBC list) before any real engagement. */}
+
+<HoloPanel label="COVERS">
+- **REAL JOB** — This is the capstone for the day job. When the SOX auditor, the PCI QSA, or the FFIEC examiner walks in, you are the one who has to turn the controls in the prior four sections into *evidence* and survive the walkthrough. Everything here is what you will actually be asked to produce at Richwood Bank.
+- **CISSP** Domain 1 (Security & Risk Management) — security audits, assessments, and the auditor relationship; gathering and presenting evidence
+- **CISSP** Domain 5 (Identity and Access Management) — provisioning, review, and accountability as the controls these audits test
+- **CISSP** Domain 6 (Security Assessment and Testing) — design vs. operating effectiveness, sampling, and reporting findings
+- **Security+ SY0-701** Objective 5.x (Governance, Risk, and Compliance) — audit and assessment, attestation, and remediation
+- **Operational tie-back** — every evidence artifact here maps to the **Evidence Artifact** column of the controls matrix in section 04; the playbook is that matrix in motion
+</HoloPanel>
+
+# The Audit Prep Playbook
+
+The first four sections of this module taught you the controls — the families, the requirements, the citations, and the matrix that crosswalks them. This section teaches you the part that actually decides whether an audit goes well: turning those controls into evidence, and producing that evidence under time pressure without volunteering yourself into extra scope.
+
+Here is the uncomfortable truth most practitioners learn the hard way. Auditors do not grade your security. They grade your *evidence that the control operated*. A perfect access-review process that you cannot prove ran is, to an auditor, an exception. A mediocre process with a clean signed-off export every quarter passes. The whole game is producing credible, dated, complete evidence that maps to the control being tested — and being able to walk an auditor through it without contradicting yourself. This section is the operational arm of section 04: the matrix says *what* control exists and *what artifact* proves it; the playbook says *how* you produce that artifact, *who* owns it, and *how* you survive the walkthrough.
+
+## The audit lifecycle — know where you are at all times
+
+Whether it is a SOX 404 ICFR audit, a PCI-DSS assessment, or an FFIEC IT examination, the lifecycle rhymes. Knowing which phase you are in tells you what you should be doing and what you should not be saying.
+
+| Phase | What happens | Your job |
+|---|---|---|
+| Scoping | The auditor defines which systems, processes, and time period are in scope; you confirm the in-scope financially significant or cardholder systems | Confirm scope precisely; do not expand it casually |
+| PBC request | The auditor issues the Provided-By-Client list — the evidence they want you to hand over | Map each request to an artifact and an owner; start a tracker |
+| Evidence collection | You gather and submit the listed artifacts (access listings, recert exports, tickets, configs) | Produce complete, dated evidence that reflects the period under review |
+| Walkthrough / interviews | The auditor interviews control owners and traces a transaction or user end to end (the test of one) | Run a clean control narrative; answer only what is asked |
+| Testing | The auditor tests design effectiveness, then operating effectiveness against a sample of the population | Provide the sampled items quickly; surface nothing extra |
+| Findings / exceptions | The auditor documents control gaps as exceptions or findings | Understand each finding; do not argue facts, argue context |
+| Remediation / management response | You write a response with root cause, corrective action, owner, and target date | Feed the fix back into the section-04 matrix as a control improvement |
+
+<Definition term="PBC list (Provided-By-Client)">
+The set of evidence the auditor formally requests the client to provide — access listings, recertification exports, joiner/mover/leaver tickets, policy screenshots, configuration exports — usually issued ahead of fieldwork and added to during it. The PBC list is your project plan for the audit: every line is an artifact you owe, and every artifact has an owner and a source system. Treat the PBC as the master checklist, and track each item from requested to delivered to accepted. Note what the PBC is *not* — it never contains anything internal to the audit firm, such as their staffing or budget; those are never client deliverables.
+</Definition>
+
+<Definition term="Design effectiveness vs. operating effectiveness">
+Two distinct tests an auditor runs on the same control. **Design effectiveness** asks: if this control operated exactly as designed, would it actually prevent or detect the risk? It is evaluated largely through the walkthrough and a single example — the test of one. **Operating effectiveness** asks: did the control actually operate that way, consistently, across the whole audit period? It is evaluated by pulling a sample from the population of events (for example, ten terminations out of the year's terminations) and testing each. A control can pass design and fail operating effectiveness — the process is sound on paper, but it was skipped in three of the ten sampled months. Most IAM findings are operating-effectiveness failures.
+</Definition>
+
+A few more terms you will hear in every fieldwork conversation. The **population** is the complete set of events a control governed during the period — every termination, every new hire, every privileged activation. The **sample** is the subset the auditor selects to test; sample sizes scale with control frequency and risk, and you do not get to pick which items they choose. The **test of one** is the walkthrough — a single end-to-end trace used to confirm the control is *designed* correctly before operating-effectiveness sampling begins. When an auditor says "walk me through one," they are testing design, not yet effectiveness.
+
+## Evidence collection — what auditors actually ask IAM for
+
+This is the heart of the playbook. For each request, you need to know what the artifact is, where it comes from, and what it has to prove. The table below is the IAM slice of a typical PBC list. (The "where to get it" column points at systems you already learned to operate in the identity-platform modules — this section does not re-teach the exports themselves, only what the auditor wants from them.)
+
+| Auditor request | Artifact | Where to get it (system) | Owner |
+|---|---|---|---|
+| Full user access listing for an in-scope system | User-to-role/entitlement export, complete population | Entra ID / on-prem AD / the app's admin console | IAM team |
+| Proof access is reviewed on a cadence | Signed-off access-review / recertification campaign export with dates | Entra ID Access Reviews / IGA tool / GRC platform | IAM + system owner |
+| Joiner / Mover / Leaver provisioning | JML tickets with approvals | ITSM (ticketing) system | IAM + HR |
+| Terminated-user removal timeliness | Termination tickets matched to the HR termination feed with disable timestamps | ITSM + HRIS + directory audit log | IAM + HR |
+| Privileged access governance | PIM eligible-vs-active config and activation logs with justification | Entra PIM / PAM platform | IAM / PAM team |
+| Privileged session accountability | PAM session recordings and break-glass usage logs | PAM platform / SIEM | Security ops |
+| Authentication configuration | MFA coverage report and Conditional Access policy export | Entra ID admin center | IAM team |
+| Password / lockout configuration | Password policy and lockout settings export or screenshot | Entra ID / Group Policy | IAM team |
+| Separation of duties | SoD conflict matrix plus the exception / mitigating-control log | GRC tool / IGA / spreadsheet of record | IAM + business owners |
+
+Two of these deserve emphasis because auditors lean on them and practitioners under-prepare for them.
+
+The **access-review / recertification export is the single most-requested IAM evidence artifact**, and the one most likely to generate a finding. It must prove that a responsible owner actually reviewed each user's access and attested to it, with dates, on the required cadence — recall that PCI-DSS 4.0 requires reviewing all user accounts and access at least once every six months, while SOX user access reviews commonly run quarterly or annually depending on how the control was designed. The artifact existing is not enough. If every manager clicked Approve on every user inside the same minute, with no comments and no removals, the auditor reads that as a rubber-stamp and treats the control as ineffective even though the export exists.
+
+The **terminated-user evidence** is the classic timeliness test. The auditor takes the HR termination feed (the population of leavers), samples it, and checks each sampled person's directory account: was it disabled, and was it disabled within the required window? The evidence you produce is the directory disable timestamp matched against the HR termination date. If the directory shows a departed employee still enabled, that is one of the most common findings in any IAM audit — and one of the easiest to pre-empt with an automated leaver workflow tied to the HR feed.
+
+<Definition term="Orphaned account">
+An account with no matching active owner or HR record — a departed employee whose account was never disabled, a service account for a decommissioned application, or a directory object that no human or system claims. Orphaned accounts are a recurring audit finding because they represent unowned, unreviewed, standing access: nobody is accountable for them, so nobody reviews them, and they violate both account-management and least-privilege expectations at once. The fix is reconciliation — periodically matching the full account population against the HR feed and a system-of-record for service accounts, then disabling or assigning an owner to every exception.
+</Definition>
+
+## The auditor walkthrough — how to run it
+
+The walkthrough is where many practitioners lose points they earned with good controls, because they talk too much. Run it deliberately.
+
+Prepare a short **control narrative** for each in-scope control before fieldwork — a few sentences describing what the control is, who performs it, how often, and what evidence it produces. The narrative keeps your answers consistent across multiple interviews; auditors compare what different people told them, and contradictions become findings.
+
+Run the walkthrough as a screen-shared **test of one**: trace a single in-scope user end to end. Pick a recent joiner, then show the access request, the approval, the provisioning action, and the most recent access review that covered them. One clean trace demonstrates the whole control chain is designed correctly. Have the **system owner present** for systems you do not own day to day, so you are not guessing at someone else's process on the record.
+
+Two discipline rules matter more than anything technical. First, **answer only the question asked**. If the auditor asks how terminations are processed, describe terminations — do not volunteer that service-account reviews are a bit behind. You are not lying by omission; you are staying in scope, and scope creep invented in a walkthrough is scope you now have to defend. Second, **keep a tracker of every artifact handed over**: what was requested, what you sent, when, and to whom. When the auditor later asks for "the access listing" you can prove which one, as of which date, you already provided — and you avoid sending three slightly different versions that look like a control gap.
+
+<WarStory title="Audit week, and the access review that never ran">
+A regional bank's Q1 SOX fieldwork opened with the auditor's first PBC item: the prior quarter's user access review for the core banking platform, signed off by the application owner. The IAM analyst pulled the IGA campaign export and felt fine — until he opened it. The Q4 campaign had been launched, but the application owner had gone on leave in December, the campaign was reassigned to a delegate who never opened it, and it auto-closed at the deadline with every line in a default "no response" state. There was a campaign, with dates. There was no review.
+
+The honest move was the right one: he flagged it to his manager before the auditor found it, and they pulled the directory audit log and the HR feed to show that no inappropriate access had actually been granted or retained during the gap. The auditor still wrote it up — a control that does not operate is a control that does not operate — but as a deficiency with a clear root cause and a compensating analysis, not a material weakness. The management response wrote itself: root cause was no backup reviewer when the owner went on leave; corrective action was a named alternate approver and an alert when a campaign passes 50% incomplete at the halfway mark; owner was the IAM lead; target date was before the next campaign.
+
+What saved the quarter was not the control. It was that the team kept the underlying logs continuously, so when the recertification artifact failed they could still reconstruct the truth. The lesson stuck: the recert export is the evidence the auditor asks for first, and a launched-but-unreviewed campaign is worse than no campaign, because it looks like a control until you open it.
+</WarStory>
+
+## The top recurring IAM audit findings — pre-empt them
+
+These are the exceptions that show up audit after audit across SOX, PCI, FFIEC, and HIPAA engagements alike. Learn them as a pre-audit self-assessment: walk this list before the auditor does, and most of your findings disappear before fieldwork starts.
+
+| Finding | Root cause | Fix |
+|---|---|---|
+| Terminated users still enabled past the required window | Manual offboarding not tied to the HR feed | Automate the leaver workflow from HRIS; alert on directory accounts with no active HR match |
+| Access reviews not performed, late, or rubber-stamped | No backup reviewer; no evidence of genuine analysis | Named alternates, mid-campaign alerts, and require comments/removals as evidence of review |
+| Shared / generic / service accounts with interactive logon and no owner | Convenience accounts created and never governed | Assign an owner to every account; block interactive logon for service accounts; vault and rotate credentials |
+| Standing excessive privilege (permanent Global Admins, no JIT) | Privileged roles assigned active rather than eligible | Move privileged roles to PIM eligible/just-in-time with approval and time limits |
+| SoD conflicts with no documented compensating control | No SoD matrix, or conflicts accepted informally | Maintain an SoD conflict matrix; document a mitigating control and an owner for every accepted exception |
+| Orphaned accounts (no matching HR record) | No periodic reconciliation against the system of record | Scheduled reconciliation of the account population against HR and a service-account registry |
+| Stale guest / B2B accounts | External access granted and never expired | Access packages with expiration; recurring guest access reviews |
+| Missing or incomplete provisioning approval evidence | Access granted out-of-band, outside the ticketing flow | Enforce request-and-approve through the ITSM/IGA workflow; no manual grants without a ticket |
+| MFA gaps (service accounts, legacy auth, mis-scoped break-glass) | Coverage assumed rather than measured | Run an MFA coverage report; disable legacy auth; confirm break-glass exclusions are intentional and monitored |
+
+Notice that nearly every fix is also an *evidence improvement*: automating the leaver workflow does not just close the timeliness gap, it produces the dated disable record that proves the control. That is the through-line of this whole module — a well-designed control is one that generates its own audit evidence as a byproduct of operating.
+
+## Remediation and the management response
+
+When a finding lands, the response is a small, structured document, and getting its shape right matters as much as the fix. A complete management response has four elements: the **root cause** (why the control failed, not just that it failed), the **corrective action** (the specific change that prevents recurrence), an accountable **owner** (a named person, not a team), and a **target date** (realistic and tracked to closure).
+
+There is also a fork in the road that learners often miss. A finding can be **remediated** — you fix the control and it now operates — or it can be **accepted with a compensating control**, where the original control gap stands but a documented alternative control reduces the risk to an acceptable level, with management formally owning that decision. Remediation closes the gap; a compensating control manages a gap you are choosing to live with. Auditors treat the two very differently, and so should you: never quietly accept a gap that should have been remediated, and never claim remediation when all you have is a workaround.
+
+Finally, close the loop. Every finding is data about your control set, so feed it back into the section-04 matrix: update the control objective, the evidence artifact, the owner, and the cadence so the gap that bit you this year is governed next year. The matrix is the map; the playbook is the patrol; findings are how you redraw the map.
+
+<ProTip>
+Keep a standing, always-current evidence binder instead of assembling evidence when the PBC list arrives. Audit timelines are short, and the evidence must reflect the period under review — assemble it at audit time and you risk producing stale, incomplete, or contradictory artifacts under pressure. A continuously maintained binder (current access listings, the latest recertification exports, MFA coverage and Conditional Access exports, the SoD matrix, and the JML/termination evidence pulled on a schedule) turns audit week from a fire drill into a copy-paste. The best-run IAM shops treat the binder as a living deliverable, refreshed every review cycle, so that when the auditor asks for the access review as of last quarter, it is already sitting there, signed and dated.
+</ProTip>
+
+## Recall drill
+
+<Flashcard front="What is a PBC list in an audit?" back="Provided-By-Client list — the set of evidence the auditor formally requests the client to provide, such as access listings, recertification exports, JML tickets, and policy screenshots, usually issued ahead of fieldwork and added to during it. It is your master checklist; each line is an artifact you owe, with an owner and a source system." />
+<Flashcard front="What is the difference between design effectiveness and operating effectiveness in a control test?" back="Design effectiveness asks whether the control, as designed, would prevent or detect the risk — evaluated largely through the walkthrough and a single example. Operating effectiveness asks whether it actually operated that way, consistently, across the whole period — evaluated by testing a sample drawn from the population. Most IAM findings are operating-effectiveness failures." />
+<Flashcard front="What is the single most-requested IAM audit evidence artifact, and what must it prove?" back="The access review or recertification export. It must prove a responsible owner actually reviewed each user's access and attested, with dates, on the required cadence (PCI every six months, the SOX UAR cycle). A rubber-stamped review with no evidence of genuine analysis is a finding even though the artifact exists." />
+<Flashcard front="Name three of the most common recurring IAM audit findings." back="Terminated users not removed within the required window; access reviews not performed or rubber-stamped; and standing or excessive privileged access with no PIM or just-in-time. Others include orphaned or shared accounts, SoD conflicts without a compensating control, and MFA gaps on service accounts or legacy auth." />
+<Flashcard front="What is an orphaned account and why is it an audit finding?" back="An account with no matching active owner or HR record — a departed employee never disabled, or a service account for a decommissioned app. It is a finding because it represents unowned, unreviewed, standing access that violates both account-management and least-privilege expectations. The fix is periodic reconciliation against the HR feed and a service-account registry." />
+<Flashcard front="How should you run an auditor walkthrough, or test of one?" back="Trace a single in-scope user end to end — access request, approval, provisioning, and the most recent review covering them — usually via screen-share, with the system owner present. Answer only the question asked, do not volunteer extra scope, and keep a tracker of every artifact handed over with dates." />
+<Flashcard front="What four elements belong in a management response to an audit finding?" back="Root cause (why the control failed), corrective action (the specific change that prevents recurrence), an accountable named owner, and a realistic target date tracked to closure. The response also states whether the gap is being remediated or accepted under a documented compensating control." />
+<Flashcard front="Why keep a standing evidence binder instead of assembling evidence at audit time?" back="Because audit timelines are short and evidence must reflect the period under review. A continuously maintained binder of current access listings, recertification exports, configuration exports, and JML/termination evidence turns audit week into a copy-paste rather than a scramble, and reduces the risk of producing stale, incomplete, or contradictory artifacts under pressure." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "09-compliance/05-audit-prep-playbook/q1",
+  prompt: "An auditor receives a quarterly access review export where every manager clicked Approve on every user within the same minute, with no comments and no removals. What finding is this most likely to generate?",
+  options: [
+    "No finding; an approval is an approval and the artifact exists",
+    "A rubber-stamped review finding — no evidence the reviewer actually analyzed the access",
+    "A password-policy finding, because approvals relate to credentials",
+    "An encryption finding, because review exports must be encrypted at rest"
+  ],
+  correctIndex: 1,
+  explanation: "Recertification must show evidence of genuine review — some changes, comments, time spent across reviewers, or removals over time. Uniform instant approvals indicate a rubber-stamp, which auditors treat as an ineffective control even though the artifact technically exists. The existence of the export is not the same as the control operating."
+}} />
+
+<Quiz question={{
+  id: "09-compliance/05-audit-prep-playbook/q2",
+  prompt: "Which item is NOT typically part of an IAM PBC (Provided-By-Client) evidence request?",
+  options: [
+    "User access listings for in-scope systems",
+    "Access recertification sign-off exports",
+    "The auditor's internal staffing budget for the engagement",
+    "Terminated-user removal evidence matched to the HR feed"
+  ],
+  correctIndex: 2,
+  explanation: "The PBC list is evidence the client provides about its own controls — access listings, recertification exports, and termination evidence are all standard items. The auditor's internal staffing or budget is internal to the audit firm and is never a client deliverable, so it would never appear on a PBC request."
+}} />

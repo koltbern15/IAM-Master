@@ -1,0 +1,167 @@
+{/* Objectives current as of 2026-06-01. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **Security+ SY0-701** Objective 4.6 — Cloud identity providers and cloud IAM concepts (policy-based access at scale)
+- **CISSP** Domain 5 (Identity and Access Management) — authorization at scale, federation, and service (non-human) accounts
+- **No SC-300.** Google Cloud is not on the SC-300 exam. This section is here so your cloud IAM mental model spans all three major providers; treat it as Security+/CISSP-relevant breadth, not SC-300 study material.
+</HoloPanel>
+
+# Google Cloud IAM
+
+You have now seen two entitlement models. AWS starts at an implicit deny, lets an explicit Deny in any policy win outright, and then makes the request pass through a stack of guardrails (SCPs, permission boundaries, session policies) that only ever *restrict*. Azure is additive — the union of every role assignment at and above a resource's scope — with deny assignments layered on top to block. Google Cloud is the third distinct model, and the cleanest of the three to reason about: allow policies are purely additive, and a newer layer of deny policies is evaluated *first* and overrides them. If you can hold all three in your head at once, you understand cloud authorization better than most working engineers.
+
+## What it is
+
+Google Cloud IAM answers the same three-part question every cloud authorization system answers: **who** (the principal) can do **what** (the role) on **which resource**. The artifact that ties those together is a policy.
+
+<Definition term="allow policy (IAM policy)">In Google Cloud, an allow policy — historically just called the IAM policy — is a collection of bindings attached to a resource. Each binding maps one or more principals to a single role, optionally with an IAM Condition. The allow policy is the answer to who can do what on this resource. It only ever grants; it has no concept of an inline deny.</Definition>
+
+A principal in Google Cloud can be a Google account (a human user), a Google group, a Google Workspace or Cloud Identity domain, a service account (a non-human workload identity), or — through federation — an external identity such as an AWS role or an OIDC token from GitHub Actions. A role is a named collection of permissions, and each permission corresponds to a single API method (for example `storage.objects.get`). You almost never grant individual permissions; you grant roles, and roles carry the permissions.
+
+The thing to internalize early is that Google Cloud separates the *binding* (the allow policy on a resource) from the *role* (the bundle of permissions). The same role — say `roles/storage.objectViewer` — can be bound to different principals on thousands of different buckets, and Google maintains the contents of that role centrally. You manage who gets the role and where; Google manages what the role can do.
+
+## Why it exists
+
+Google built this model for the same reason AWS and Microsoft built theirs: the old per-machine, per-server notion of access does not survive contact with a planet-scale cloud. When a single organization runs tens of thousands of resources across hundreds of projects, you cannot manage access resource-by-resource by hand. You need (1) a hierarchy so that a policy set once at the top flows down, (2) reusable roles so that "read-only access to Cloud Storage" means the same thing everywhere, and (3) a way to give *workloads* identities that are not tied to a human and not protected by a stored password.
+
+The deny-policy layer exists for a more specific reason. For most of Google Cloud's history, IAM had no way to express "this principal must *never* be able to do X, no matter what roles they accumulate." Allow policies are additive — if someone is granted Owner at the organization, that grant flows down to every project, and a well-meaning admin lower in the tree cannot subtract from it. Google added IAM deny policies to give security teams a true ceiling: a deny rule that is checked before any allow and that an inherited admin role cannot override. That is defense in depth — the ability to guarantee a prohibition independent of how permissions were granted.
+
+## How it works under the hood
+
+### The resource hierarchy and policy inheritance
+
+Google Cloud resources live in a strict hierarchy, and IAM policies set higher up flow down to everything beneath.
+
+<Definition term="GCP project">A project is the fundamental organizing and billing unit in Google Cloud. Resources (VMs, buckets, databases) belong to exactly one project, billing attaches to the project, APIs are enabled per project, and IAM allow policies can be set at the project level. A project has a name and a globally unique project ID. Almost everything you build in Google Cloud lives inside a project.</Definition>
+
+<Definition term="organization node">The organization is the root node of the resource hierarchy, tied to a Cloud Identity or Google Workspace domain. It represents the company. Below it you can create folders (often mapped to departments or environments) and projects. An allow policy or deny policy set at the organization node is inherited by every folder, project, and resource beneath it.</Definition>
+
+The four levels, top to bottom, are **organization, then folder(s), then project, then individual resource.** Folders are optional and can be nested; the organization and project levels are the load-bearing ones. Policy inheritance is the key behavior: a binding set at a parent node applies to every descendant. The effective allow policy for any resource is the **union** of the resource's own policy and the policies of all of its ancestors. Grant someone `roles/viewer` at the organization, and they can view resources in every project in the company without a single project-level grant.
+
+This union-and-inherit design is exactly parallel to Azure's management-group → subscription → resource-group → resource scope inheritance you saw in the previous section. The vocabulary differs (organization/folder/project versus management group/subscription/resource group), but the mental model — set broad policy high, narrow grants low, effective access is the union — is the same.
+
+### The evaluation model: additive allow, deny evaluated first
+
+Here is the heart of the Google Cloud model and the deliberate contrast with the other two clouds.
+
+**Allow policies are purely additive.** There is no implicit deny that some policy must overcome, and there is no boundary that intersects the grant down. If you hold a role anywhere at or above a resource, you have its permissions on that resource. Two role bindings combine by union; you can never lose a permission by also being granted some other role. The only way to *not* have a permission under the allow model is to simply not be granted any role that contains it.
+
+That left a gap: how do you guarantee someone can never perform an action, even if a broad role is granted to them somewhere up the tree? Google's answer is the deny policy.
+
+<Definition term="IAM deny policy">A deny policy is a set of deny rules attached to the organization, a folder, or a project. Each rule names principals, denied permissions, and optionally a condition. Deny policies are evaluated before allow policies: if an applicable deny rule matches the request, the action is blocked regardless of any role the principal holds. Deny rules can also list exception principals who are exempt from the denial.</Definition>
+
+So the full evaluation order is short and worth memorizing: **IAM checks all applicable deny policies first; if any deny rule applies to the principal and permission, the request is denied. Only if no deny applies does IAM then check the union of all applicable allow policies; if a binding grants the permission, the request is allowed; otherwise it is denied for lack of a grant.** Deny always supersedes allow, and inherited deny policies are honored the same way inherited allow policies are. (Source: Google Cloud, "Deny policies" and "IAM policy types.")
+
+<ProTip>
+Line up all three clouds on the single axis of how a "no" is expressed. **AWS:** an explicit Deny in any policy wins immediately, and the request must additionally clear each restrictive guardrail (SCP, permission boundary, session policy). **Azure:** allow is additive (union of role assignments), and a deny assignment overrides it. **Google Cloud:** allow is additive (union of bindings), and a deny policy — checked first — overrides it. All three give a deny the final word; the difference is in how *allow* is built up. AWS layers restrictive boundaries that an allow must pass through; Azure and GCP simply union the grants and let an explicit deny sit on top.
+</ProTip>
+
+### Roles: basic, predefined, and custom
+
+Google Cloud offers three kinds of roles, and the exam-relevant point is knowing which to reach for.
+
+- **Basic roles** — Owner, Editor, and Viewer. These predate the granular IAM system and are extremely broad (Editor can modify almost anything in a project; Owner adds the ability to manage access and billing). They are convenient for quick experiments and discouraged for production because they grant far more than any single job needs. Treat them as a least-privilege smell.
+- **Predefined roles** — granular, Google-managed roles scoped to a specific service, named like `roles/storage.objectViewer` or `roles/compute.instanceAdmin`. These are the recommended default. Because Google maintains them, when a service adds a new permission Google folds it into the appropriate predefined roles for you, so your grants stay current without effort.
+- **Custom roles** — roles you compose from individual permissions when no predefined role fits the job precisely. The cost is maintenance: a custom role is a static list of permissions you own, so when Google ships a new permission for a service, your custom role does *not* automatically pick it up the way a predefined role would. You have to track and update it yourself. Reach for a custom role only when predefined roles are genuinely too broad or too narrow, and budget for the upkeep.
+
+The progression to teach yourself: start from predefined roles, drop to custom only when you must, and avoid basic roles in anything that matters.
+
+### Service accounts and the key-exfiltration problem
+
+Most identities in a mature cloud are not people.
+
+<Definition term="service account">A service account is a special, non-human account that an application or workload (a Compute Engine VM, a Cloud Run service, a Cloud Function) uses to authenticate to Google Cloud APIs. It is identified by an email address rather than a username, and it has its own IAM roles. Workloads run as a service account the way a person signs in as a user.</Definition>
+
+A service account proves its identity with a credential. The dangerous-but-easy path is a **user-managed service account key**: a long-lived JSON file containing a private key that you download and hand to the workload. The safe paths are short-lived tokens issued on demand.
+
+<ProTip>
+Downloaded service account JSON keys are the single most common Google Cloud credential-exfiltration vector. They are long-lived, static, and have no built-in expiry — so a key committed to a Git repo, baked into a container image, or left on a developer laptop is standing access to your cloud until someone notices and revokes it. Prefer **service account impersonation** (a principal with `iam.serviceAccounts.getAccessToken` requests a short-lived token for the service account) for human and in-cloud workflows, and **Workload Identity Federation** for anything running outside Google Cloud. The rule of thumb: if you are creating a JSON key, stop and ask what short-lived alternative you are skipping.
+</ProTip>
+
+Service account **impersonation** lets an already-authenticated principal — a human, or another workload — call `iam.serviceAccounts.getAccessToken` to obtain a short-lived access token for a service account it is allowed to act as. Nothing is downloaded; the token expires on its own; and the right to impersonate is itself an IAM grant you can audit and revoke. This is the modern least-privilege pattern that replaces the JSON key for most use cases.
+
+### Workload Identity Federation — the keystone for multi-cloud
+
+The remaining problem is workloads that run *outside* Google Cloud and still need to call Google Cloud APIs — an application on AWS, a job in Azure, a GitHub Actions pipeline. The naive answer is to download a service account key and ship it to that environment, which is exactly the exfiltration risk above, now stored in someone else's cloud.
+
+<Definition term="workload identity federation">Workload Identity Federation lets an external identity — an AWS IAM role, an Azure or Microsoft Entra workload, a GitHub Actions OIDC token, or any OIDC/SAML identity provider — exchange its existing token for short-lived Google Cloud credentials, without any service account key. You configure a workload identity pool that trusts the external issuer, map the external identity's attributes, and the external workload then impersonates a Google Cloud service account using a token it already has.</Definition>
+
+This is the keystone for the multi-cloud strategy section that follows. The principle is the same one you will see across every cloud: **trust an external issuer's tokens, exchange them for short-lived credentials in the target cloud, and never store a long-lived key.** An AWS-hosted workload can call Google Cloud APIs by presenting its AWS identity; a GitHub Actions workflow can deploy to Google Cloud by presenting the OIDC token GitHub mints for the run — no secret in the repository, nothing to leak.
+
+A separate, similarly named feature trips people up. **Workload Identity Federation for GKE** (the current name; it was previously called GKE Workload Identity) is not the same thing. It maps a Kubernetes service account inside a GKE cluster to a Google Cloud service account so that pods receive Google Cloud credentials automatically, without relying on the node's identity or a mounted key. Federation-for-GKE is about pods inside Google's own Kubernetes; Workload Identity Federation (the general feature) is about identities *outside* Google Cloud. Same words, different jobs — keep them separate.
+
+### Right-sizing: IAM Recommender and Policy Analyzer
+
+Because allow policies are additive and inheritance is generous, Google Cloud principals tend to accumulate more access than they use over time. The **IAM Recommender** analyzes actual permission usage and recommends removing the excess to move a principal toward least privilege — the same purpose AWS IAM Access Analyzer's unused-access findings serve. **Policy Analyzer** answers the inverse question for auditors: *who* can access *what*, by querying effective access across the hierarchy. Together they are Google Cloud's native bridge to the CIEM (Cloud Infrastructure Entitlement Management) discipline you will meet at the end of this module — the same right-sizing idea, generalized across all three clouds by dedicated tooling.
+
+## War story
+
+<WarStory title="The Service Account Key in the Public Repo">
+A 60-person SaaS startup ran its product on Google Cloud and its CI/CD on a third-party platform. Early on, before anyone had heard of Workload Identity Federation, an engineer needed the deploy pipeline to push container images to Artifact Registry and roll out Cloud Run revisions. The fast path was obvious: create a service account, grant it the roles it needed, download the JSON key, and paste it into the CI system's secret store. It worked on the first try, and everyone moved on.
+
+Two years and a lot of turnover later, a different engineer was setting up a personal sandbox to reproduce a build locally. To save time, they copied the deploy scripts — and the service account key embedded in one of them — into a personal GitHub repository so they could run the pipeline from their laptop. The repo was public. They did not notice.
+
+Within hours, automated scrapers that crawl GitHub for credential patterns found the key. The first sign of trouble was a billing alert: Compute Engine spend in the project had spiked overnight as an attacker spun up cryptomining instances using the leaked credential. The service account had been granted broader roles than the deploy actually needed — including the ability to create instances — because in the early rush nobody had trimmed it to least privilege. The blast radius was the union of every role that key carried.
+
+Containment took the rest of the day: disable and delete the leaked key, audit Cloud Audit Logs for everything the key had touched, tear down the attacker's instances, and rotate every other credential that had lived alongside it in the same scripts. The cleanup was the easy part. The hard part was that nobody could say with confidence what *else* the attacker had read during the window the key was live, because the service account's permissions were so broad.
+
+The remediation rebuilt the deploy identity from scratch. The CI platform supported OIDC, so the team configured Workload Identity Federation: a workload identity pool that trusted the CI provider's OIDC issuer, mapped to a service account scoped down to exactly the deploy permissions and nothing else. No key was downloaded. The pipeline authenticated by presenting the short-lived OIDC token the CI system already minted per run. The standing JSON key — the thing that had been exfiltrated, the thing that had no expiry — simply no longer existed.
+
+The lesson generalizes across clouds. The AWS equivalent is a long-lived IAM user access key checked into a repo; the Azure equivalent is a service principal client secret in a config file. In every case the fix is the same shape: stop storing long-lived static credentials, trust an OIDC issuer, and exchange tokens for short-lived credentials. The key you never created is the key that cannot leak.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="List the GCP resource hierarchy levels from top to bottom." back="Organization, folder, project, resource. IAM allow policies set at a higher node are inherited by all descendants; the effective access on any resource is the union of its own policy and all ancestor policies." />
+<Flashcard front="How do GCP IAM allow policies combine, and how do deny policies change that?" back="Allow policies are purely additive (a union) across the hierarchy. IAM deny policies are evaluated before allow policies; if an applicable deny rule matches, the action is blocked regardless of any allow grant." />
+<Flashcard front="Compare GCP basic, predefined, and custom roles." back="Basic roles (Owner, Editor, Viewer) are legacy and overly broad. Predefined roles are granular, Google-managed, per-service, and the recommended default. Custom roles are user-composed for cases predefined roles do not cover, but you must maintain them yourself as new permissions ship." />
+<Flashcard front="What is a GCP service account and how should workloads authenticate with it?" back="A non-human account used by a workload (VM, app, function), identified by an email address. Best practice is service account impersonation or workload identity federation for short-lived credentials, avoiding downloaded long-lived JSON keys, which are a major exfiltration risk." />
+<Flashcard front="What does GCP Workload Identity Federation do?" back="It lets external identities (AWS roles, Entra workloads, GitHub Actions OIDC, any OIDC or SAML provider) exchange an existing token for short-lived GCP credentials by impersonating a service account, eliminating the need to store service account keys outside Google Cloud." />
+<Flashcard front="What is the fundamental resource-owning and billing unit in GCP?" back="The project. Resources belong to a project, billing attaches to a project, and APIs and IAM policies are configured per project. Projects sit under optional folders and an organization node." />
+<Flashcard front="Why are downloaded service account keys considered high risk in GCP?" back="They are long-lived static credentials with no built-in expiry, so if leaked (committed to code, baked into an image, exfiltrated) they grant standing access until someone revokes them. Google recommends impersonation or federation for short-lived tokens instead." />
+<Flashcard front="What is the difference between GCP Workload Identity Federation and Workload Identity Federation for GKE?" back="Workload Identity Federation lets external (non-Google) identities impersonate a service account from outside Google Cloud. Workload Identity Federation for GKE maps Kubernetes service accounts to GCP service accounts so pods get credentials without node keys. Similar names, different jobs." />
+<Flashcard front="What does the GCP IAM Recommender do?" back="It analyzes actual permission usage and recommends removing excess permissions to move principals toward least privilege, similar in purpose to AWS IAM Access Analyzer unused-access findings." />
+<Flashcard front="In a GCP allow policy, what does a binding connect?" back="A binding connects one or more principals (members) to a single role on a resource, optionally with an IAM Condition. The resource's allow policy is the set of such bindings, combined additively with inherited ancestor bindings." />
+<Flashcard front="What is service account impersonation in GCP and why use it?" back="A principal that holds iam.serviceAccounts.getAccessToken on a service account can request a short-lived access token to act as that account, with nothing downloaded and an automatic expiry. It replaces long-lived JSON keys for human and in-cloud workflows and the right to impersonate is itself an auditable, revocable IAM grant." />
+<Flashcard front="What does GCP Policy Analyzer answer that IAM Recommender does not?" back="Policy Analyzer answers the auditor question of who can access what by querying effective access across the resource hierarchy. IAM Recommender answers the right-sizing question of which granted permissions are going unused and could be removed." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "07-cloud-iam/03-gcp-iam/q1",
+  prompt: "A team needs a workload running on an on-premises server to call Google Cloud APIs. A junior engineer proposes downloading a service account JSON key and storing it on the server. What is the better practice and why?",
+  options: [
+    "Downloading the JSON key is fine; it is the standard, supported approach for on-prem workloads.",
+    "Use Workload Identity Federation so the external workload exchanges its existing identity token for short-lived GCP credentials, avoiding a long-lived key that can be exfiltrated.",
+    "Grant the server the basic Owner role to simplify access and avoid managing permissions.",
+    "Embed the key directly in the application source code so it is portable across servers."
+  ],
+  correctIndex: 1,
+  explanation: "Downloaded service account keys are long-lived static secrets and a top exfiltration risk. Workload Identity Federation lets the external workload exchange its own OIDC or SAML token for short-lived GCP credentials with no stored key. Granting Owner violates least privilege, and embedding a key in source code is worse because it spreads the standing credential further."
+}} />
+
+<Quiz question={{
+  id: "07-cloud-iam/03-gcp-iam/q2",
+  prompt: "In GCP, a principal is granted roles/storage.admin at the organization node. A separate IAM deny policy denies storage.buckets.delete for that principal at a specific project. Can the principal delete a bucket in that project?",
+  options: [
+    "Yes, because the organization-level admin role is inherited down to the project and the broader grant wins.",
+    "Yes, because IAM deny policies do not apply to permissions that come from an inherited role.",
+    "No, because IAM deny policies are evaluated before allow policies, so an applicable deny rule blocks the action despite the inherited admin role.",
+    "No, because organization-level roles are never inherited by individual projects."
+  ],
+  correctIndex: 2,
+  explanation: "GCP allow policies are additive and inherited down the hierarchy, so the organization-level storage.admin role would normally permit the deletion. But IAM deny policies are evaluated first; an applicable deny rule blocks the action regardless of any allow grant, so the deletion is denied in that project."
+}} />
+
+<Quiz question={{
+  id: "07-cloud-iam/03-gcp-iam/q3",
+  prompt: "An engineer is choosing a role to grant a CI pipeline that only needs to read objects from one Cloud Storage bucket. Which role type best fits least privilege with the least ongoing maintenance?",
+  options: [
+    "The basic Editor role, because it is simple and covers any storage action the pipeline might need later.",
+    "The predefined role roles/storage.objectViewer, which is granular, Google-managed, and updated automatically as the service evolves.",
+    "A custom role listing every storage permission, because custom roles are always the most secure option.",
+    "The basic Owner role, so the pipeline never hits a permissions error during deploys."
+  ],
+  correctIndex: 1,
+  explanation: "A predefined role scoped to the exact job (read-only object access) gives least privilege, and because Google maintains predefined roles, new permissions are folded in automatically with no upkeep. Basic Editor and Owner are far too broad, and a custom role would meet least privilege but adds a maintenance burden you only take on when no predefined role fits."
+}} />

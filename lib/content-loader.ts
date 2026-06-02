@@ -91,6 +91,20 @@ const AUTHORED_SECTIONS = new Set([
   '12-labs/11-stale-account-cleanup',
   '12-labs/12-fido2-deployment',
   '12-labs/13-powerbi-identity-dashboard',
+  '07-cloud-iam/01-aws-iam',
+  '07-cloud-iam/02-azure-rbac',
+  '07-cloud-iam/03-gcp-iam',
+  '07-cloud-iam/04-multi-cloud-strategy',
+  '07-cloud-iam/05-ciem',
+  '09-compliance/01-control-frameworks',
+  '09-compliance/02-financial-and-payment',
+  '09-compliance/03-privacy-and-federal',
+  '09-compliance/04-iam-controls-matrix',
+  '09-compliance/05-audit-prep-playbook',
+  '10-program-leadership/01-maturity-and-roadmap',
+  '10-program-leadership/02-stakeholders-and-budget',
+  '10-program-leadership/03-metrics-and-rfp',
+  '10-program-leadership/04-career-architecture',
 ])
 
 // Static map for sections that have been authored. Webpack resolves these
@@ -197,6 +211,34 @@ async function loadAuthoredComponent(
       return (await import('@/content/modules/12-labs/12-fido2-deployment.mdx')).default
     case '12-labs/13-powerbi-identity-dashboard':
       return (await import('@/content/modules/12-labs/13-powerbi-identity-dashboard.mdx')).default
+    case '07-cloud-iam/01-aws-iam':
+      return (await import('@/content/modules/07-cloud-iam/01-aws-iam.mdx')).default
+    case '07-cloud-iam/02-azure-rbac':
+      return (await import('@/content/modules/07-cloud-iam/02-azure-rbac.mdx')).default
+    case '07-cloud-iam/03-gcp-iam':
+      return (await import('@/content/modules/07-cloud-iam/03-gcp-iam.mdx')).default
+    case '07-cloud-iam/04-multi-cloud-strategy':
+      return (await import('@/content/modules/07-cloud-iam/04-multi-cloud-strategy.mdx')).default
+    case '07-cloud-iam/05-ciem':
+      return (await import('@/content/modules/07-cloud-iam/05-ciem.mdx')).default
+    case '09-compliance/01-control-frameworks':
+      return (await import('@/content/modules/09-compliance/01-control-frameworks.mdx')).default
+    case '09-compliance/02-financial-and-payment':
+      return (await import('@/content/modules/09-compliance/02-financial-and-payment.mdx')).default
+    case '09-compliance/03-privacy-and-federal':
+      return (await import('@/content/modules/09-compliance/03-privacy-and-federal.mdx')).default
+    case '09-compliance/04-iam-controls-matrix':
+      return (await import('@/content/modules/09-compliance/04-iam-controls-matrix.mdx')).default
+    case '09-compliance/05-audit-prep-playbook':
+      return (await import('@/content/modules/09-compliance/05-audit-prep-playbook.mdx')).default
+    case '10-program-leadership/01-maturity-and-roadmap':
+      return (await import('@/content/modules/10-program-leadership/01-maturity-and-roadmap.mdx')).default
+    case '10-program-leadership/02-stakeholders-and-budget':
+      return (await import('@/content/modules/10-program-leadership/02-stakeholders-and-budget.mdx')).default
+    case '10-program-leadership/03-metrics-and-rfp':
+      return (await import('@/content/modules/10-program-leadership/03-metrics-and-rfp.mdx')).default
+    case '10-program-leadership/04-career-architecture':
+      return (await import('@/content/modules/10-program-leadership/04-career-architecture.mdx')).default
     default:
       return null
   }
@@ -255,6 +297,20 @@ const ALL_KNOWN_SECTIONS = new Set([
   '12-labs/11-stale-account-cleanup',
   '12-labs/12-fido2-deployment',
   '12-labs/13-powerbi-identity-dashboard',
+  '07-cloud-iam/01-aws-iam',
+  '07-cloud-iam/02-azure-rbac',
+  '07-cloud-iam/03-gcp-iam',
+  '07-cloud-iam/04-multi-cloud-strategy',
+  '07-cloud-iam/05-ciem',
+  '09-compliance/01-control-frameworks',
+  '09-compliance/02-financial-and-payment',
+  '09-compliance/03-privacy-and-federal',
+  '09-compliance/04-iam-controls-matrix',
+  '09-compliance/05-audit-prep-playbook',
+  '10-program-leadership/01-maturity-and-roadmap',
+  '10-program-leadership/02-stakeholders-and-budget',
+  '10-program-leadership/03-metrics-and-rfp',
+  '10-program-leadership/04-career-architecture',
 ])
 
 /**

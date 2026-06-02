@@ -1,0 +1,184 @@
+{/* Objectives current as of 2026-06-01. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **Security+ SY0-701** Objective 4.6 — Cloud identity providers and cloud IAM concepts (policy-based access control)
+- **CISSP** Domain 5 (Identity and Access Management) — implement and manage authorization mechanisms (policy evaluation, least privilege at scale)
+- **Not on SC-300** — AWS is outside the SC-300 (Microsoft Identity and Access Administrator) exam scope. This section carries no SC-300 badge; do not study it for that exam. It is here because cloud IAM is a job skill, and AWS owns the policy-evaluation model you are most likely to be quizzed on in interviews and in Security+/CISSP cloud objectives.
+</HoloPanel>
+
+# AWS IAM: Policy Evaluation & Identity Center
+
+AWS Identity and Access Management is the authorization engine for the largest cloud on the planet, and its policy-evaluation logic is the single most misunderstood mechanism in cloud IAM. People who can recite the OAuth dance from memory will still tell you, confidently and incorrectly, that an explicit Allow can override a Deny in AWS. It cannot. This section exists to get that order exactly right, because it is the thing AWS-adjacent interviews probe and the thing that determines whether a misconfigured policy quietly grants an attacker your S3 buckets.
+
+## What it is
+
+AWS IAM controls who (which principal) can perform which actions on which resources, and under what conditions. It is built on four primitives.
+
+<Definition term="IAM identity primitives">AWS IAM has four core objects. **Users** are long-lived identities with a name and optional access keys/passwords. **Groups** are collections of users for attaching policies in bulk (a group is not itself a principal you can grant access to a resource). **Roles** are identities with no permanent credentials that are *assumed* to obtain temporary credentials via AWS STS. **Policies** are JSON documents that define permissions and are attached to the other three.</Definition>
+
+The most important shift in modern AWS practice is that **roles are the default, not users**. An IAM user carries long-lived access keys — a static secret that, if leaked into a Git commit or a laptop backup, grants standing access until someone notices and rotates it. A role carries no permanent credentials; a principal *assumes* it through the Security Token Service (STS) and receives temporary credentials that expire (commonly within an hour to a few hours). Workloads on EC2, Lambda, and ECS get roles via instance/task profiles. Humans should get roles through federation rather than holding IAM user keys. When you see an architecture leaning on IAM user access keys in 2026, treat it as technical debt.
+
+<Definition term="IAM role">An IAM identity that has a permissions policy (what it can do) but no long-lived credentials. A principal — a user, another role, an AWS service, or a federated identity — assumes the role through `sts:AssumeRole` (or a federation variant) and receives temporary, automatically expiring credentials. Roles are the cloud-native way to grant access because there is no static secret to leak.</Definition>
+
+A role actually carries *two* separate policy documents, and conflating them is a classic mistake.
+
+<Definition term="trust policy">The trust policy (the role's `AssumeRole` trust relationship) answers one question: **who is allowed to assume this role?** It is a resource-based policy attached to the role whose `Principal` element names the accounts, users, services, or federated identities permitted to assume it. It is entirely separate from the role's *permissions* policy, which answers a different question: **what can the role do once assumed?** Trust policy = who can become the role; permissions policy = what the role can then do.</Definition>
+
+## Why it exists
+
+Long-lived credentials do not scale and do not fail safe. In a single-account world you could hand each engineer an IAM user and move on. In an enterprise running dozens or hundreds of accounts, that model produces thousands of static keys nobody can inventory, a permissions sprawl nobody can reason about, and no central place to revoke access when someone leaves. AWS IAM, and the org-level controls layered on top of it, exist to make access *temporary by default*, *centrally governed*, and *deny-biased* — so that the safe outcome (no access) is what you get when something is misconfigured or omitted.
+
+That deny bias is the whole philosophy: every request begins denied, access must be affirmatively granted, and any single explicit Deny ends the conversation. The model is built so that forgetting to write a policy locks things down rather than opening them up.
+
+## How it works under the hood
+
+### Policy types and where they attach
+
+Before the evaluation order makes sense, you have to know the pieces being evaluated. AWS has several policy types, and only two of them ever *grant* access.
+
+| Policy type | Attaches to | Grants access? | Role |
+| --- | --- | --- | --- |
+| Identity-based policy | User, group, or role | Yes | The primary way to grant permissions to a principal |
+| Resource-based policy | A resource (S3 bucket, KMS key, SQS queue) | Yes | Grants access to a resource; includes a `Principal` element naming who it applies to |
+| Permission boundary | A user or role | No | A managed policy that caps the *maximum* an identity-based policy can grant |
+| Service Control Policy (SCP) | Org root, OU, or account | No | Organizations guardrail capping permissions for principals in member accounts |
+| Resource Control Policy (RCP) | Org root, OU, or account | No | Organizations guardrail capping permissions *on resources* (S3, STS, KMS, SQS, Secrets Manager at launch) |
+| Session policy | Passed inline when assuming a role | No | Further restricts a specific assumed-role session |
+
+The thing to burn into memory: **the four guardrail types — SCPs, RCPs, permission boundaries, and session policies — never grant anything. They only filter.** Every actual Allow must originate in an identity-based or resource-based policy. RCPs are the newest of these: AWS introduced Resource Control Policies in November 2024 as an org-wide way to set the maximum permissions on resources (a data-perimeter complement to SCPs, which cap what principals can do).
+
+<Definition term="permission boundary">A managed policy attached to an IAM user or role that defines the *maximum* permissions that identity can ever have. The identity's effective permissions are the **intersection** of its identity-based policy and its boundary: an action is allowed only if *both* permit it. A boundary grants nothing on its own — attach a boundary that allows `s3:*` to a user with no identity policy, and the user can do nothing, because the intersection with an empty identity policy is empty.</Definition>
+
+<Definition term="Service Control Policy (SCP)">An AWS Organizations policy attached to the org root, an organizational unit (OU), or an account that sets the maximum permissions available to IAM principals in the affected member accounts. SCPs filter; they never grant. They do **not** affect the management account, and they do **not** restrict service-linked roles. The default `FullAWSAccess` SCP allows everything, so a deny-list strategy works by attaching SCPs that explicitly deny specific actions on top of it.</Definition>
+
+<Definition term="resource-based policy">A policy attached directly to a resource — an S3 bucket policy, a KMS key policy, an SQS queue policy — rather than to a principal. Its defining feature is a `Principal` element naming who the policy applies to. Identity-based policies have no `Principal` element because they are already attached to the principal. Within one account, a resource-based policy can grant access on its own; across accounts it is one of the two halves required for access.</Definition>
+
+### The policy evaluation logic — get this exactly right
+
+This is the heart of the section and the exam trap. AWS evaluates an authorization request in a specific, deny-biased order. The order below is the one AWS documents in the IAM User Guide under "Policy evaluation logic," and it is the one to drill verbatim.
+
+1. **Default: implicit deny.** Every request starts denied. Nothing is permitted until a policy affirmatively allows it.
+2. **Collect every applicable policy.** AWS gathers all SCPs, RCPs, resource-based policies, identity-based policies, permission boundaries, and session policies that apply, and evaluates them together — it does not stop at the first match.
+3. **An explicit Deny anywhere wins.** If *any* applicable policy contains an explicit `Deny` that matches the request, the final decision is **deny** — full stop. No Allow anywhere can override it. This is the rule people get wrong.
+4. **If there is no explicit Deny, every applicable guardrail must allow.** The request now has to survive each boundary type that is present, and the Allow itself must come from an identity-based or resource-based policy:
+   - **Organizations SCP** — if SCPs apply, an SCP must allow the action (an SCP that does not allow it is an implicit deny at the org level). SCPs filter; they never grant.
+   - **Resource-based policy** — within the *same account*, an Allow in *either* the identity-based policy *or* the resource-based policy is sufficient (their permissions form a union). *Cross-account*, the union shortcut disappears: both the identity-based policy in the caller's account and the resource-based policy in the resource's account must allow it.
+   - **Permission boundary** — if a boundary is attached to the principal, the action must fall within it (boundary AND identity policy must both allow). The boundary caps; it never grants.
+   - **Session policy** — if the request comes from an assumed-role session with a session policy, the action must be within that too.
+   - **Identity-based policy** — must allow, unless a resource-based policy independently allowed it in the same account per the union rule above.
+5. **If nothing explicitly allows, implicit deny denies the request.**
+
+The exam-correct one-liner to memorize: **explicit Deny wins → then SCP → resource-based policy → permission boundary → session policy → identity-based policy must each allow → otherwise implicit Deny.** Said another way: explicit deny always beats explicit allow; the guardrail types (SCP, RCP, boundary, session policy) only ever *restrict*; and the actual grant must come from an identity-based or resource-based policy.
+
+<AWSIAMEvalDiagram />
+
+The diagram animates exactly this flow. Click each step to read what that gate does. Notice the shape of it: the very first decision is "is there an explicit Deny?" and a yes there short-circuits straight to DENY no matter what every other policy says. Everything after the deny check is a series of gates that each must say "allow." Miss one gate, and you fall through to implicit deny.
+
+<ProTip>
+The fastest way to never get an AWS policy-evaluation question wrong: remember that **only identity-based and resource-based policies grant; SCPs, RCPs, permission boundaries, and session policies only take away.** If a question hands you a boundary or an SCP that "allows ec2:*" and asks whether the principal can launch instances, the answer is almost always no — because a guardrail allowing something is not the same as a policy granting it. Look for the actual identity- or resource-based Allow, then confirm no explicit Deny and no guardrail is filtering it out.
+</ProTip>
+
+### AWS Organizations and SCPs
+
+AWS Organizations groups many accounts under one management account for consolidated billing and central governance. The structure is a tree: a **root** at the top, **organizational units (OUs)** that group accounts, and member **accounts** as leaves. The management account is special — it pays the consolidated bill and is *not* constrained by SCPs, which is precisely why you do not run workloads in it.
+
+SCPs attach at the root, an OU, or an individual account, and they **filter** the permissions available to IAM principals in the affected member accounts. They are guardrails, not grants. Two strategy patterns exist. A **deny-list** strategy keeps the default `FullAWSAccess` SCP in place and layers explicit denies on top (for example, deny the ability to disable CloudTrail, or deny use of regions you do not operate in). An **allow-list** strategy removes `FullAWSAccess` and explicitly allows only the services you sanction — more restrictive but far more operational overhead. Most organizations run deny-list. Remember the two exemptions: SCPs do not touch the management account, and they do not restrict service-linked roles.
+
+### AWS IAM Identity Center
+
+IAM users are per-account and long-lived — exactly the wrong model when you have 40 accounts and 400 employees. **AWS IAM Identity Center** (formerly AWS SSO) is the recommended way to manage workforce (human) access across many accounts at once.
+
+The pattern: an external identity provider — Entra ID, Okta, Ping — federates into Identity Center via SAML for authentication and SCIM for user/group provisioning (see Module 2 for SCIM and SAML, Module 3 for Entra ID as the IdP). Inside Identity Center you define **permission sets** — named collections of policies — and assign a permission set to a user or group *for a specific account*. When a user signs in, they get a portal listing the accounts and roles they can reach, and clicking through hands them short-lived role credentials. No IAM users, no static keys, one place to deprovision when someone leaves. This is the model to recommend whenever a multi-account question comes up.
+
+### IAM Access Analyzer
+
+IAM Access Analyzer is the built-in least-privilege tooling, and it does several distinct things. Its **external access findings** analyze resource-based policies to flag resources shared outside your zone of trust — an S3 bucket readable by an account outside your org, for instance. Its **unused access findings** flag roles that have not been used, access keys gone stale, and permissions granted but never exercised — the right-sizing signal that bridges directly into the CIEM section later in this module. Access Analyzer also does **policy validation** (linting a policy against best practices and grammar) and **policy generation** (building a least-privilege policy from observed CloudTrail activity). It is the free floor for least privilege in AWS before you reach for a dedicated CIEM tool.
+
+### Cross-account roles
+
+The canonical cross-account pattern: a principal in account A assumes a role in account B via `sts:AssumeRole`. The role in account B has a **trust policy** naming account A (or a specific principal in it) as allowed to assume it, and a **permissions policy** granting what the role can do in B. Account A's principal must also have an identity policy allowing `sts:AssumeRole` on that role. Two-sided by design — both accounts have to agree.
+
+When the assuming party is a *third party* (a SaaS vendor managing resources in your account), you add an **`ExternalId`** condition to the trust policy. This defeats the **confused-deputy problem**: without it, if the vendor uses the same role ARN for many customers, an attacker who is also a customer of that vendor could potentially trick the vendor into assuming *your* role. Requiring a unique `ExternalId` that only you and the vendor know prevents that cross-customer confusion.
+
+One hard limit worth memorizing: **role chaining caps the session at one hour.** When you use temporary credentials from one assumed role to assume a *second* role (chaining), the resulting session is limited to a maximum of one hour regardless of either role's configured `MaxSessionDuration` — and a `DurationSeconds` request above one hour fails. The 12-hour maximum applies only to the *initial* assumption from user credentials, not to chained assumptions.
+
+<WarStory title="The S3 Bucket That an Explicit Deny Could Not Save">
+A mid-size fintech inherited an AWS estate during an acquisition. The acquired team had been disciplined about one thing: every S3 bucket holding regulated data had a bucket policy with an explicit `Deny` on `s3:GetObject` unless the request came from inside the corporate VPC endpoint. Tidy, defensible, and the kind of control an auditor likes.
+
+What nobody had mapped was the *identity* side. A data-science role, created years earlier for a one-off migration, still carried a broad `s3:*` identity policy across all buckets and — critically — had a trust policy that allowed a partner analytics vendor's account to assume it, with no `ExternalId`. The vendor used a single shared role ARN across all of its customers.
+
+The team's mental model was "the bucket Deny protects the data." It did, against the wrong threat. The Deny was scoped to require the VPC endpoint — but the vendor's legitimate traffic *came through an approved path*, so the Deny did not match and never fired. The real exposure was the confused-deputy gap: any other customer of that analytics vendor could, in principle, get the vendor's platform to assume the shared role into this account and reach the broad `s3:*` identity grant. No explicit Deny existed for *that* path, so evaluation fell through the guardrails to the identity policy's Allow — and granted it.
+
+Remediation took a week. They added a unique `ExternalId` to the trust policy, scoped the role's permissions policy from `s3:*` down to two named buckets with read-only actions, attached a permission boundary so the role could never be widened again past that ceiling, and turned on IAM Access Analyzer, which immediately flagged the role as both externally accessible and largely unused. The lesson the team wrote on the whiteboard: an explicit Deny only protects the paths it actually matches. Authorization is decided by the *whole* policy set, and a broad identity-based Allow plus a sloppy trust policy will quietly outflank a narrow bucket Deny every time.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="What are the four core identity primitives in AWS IAM?" back="Users, groups, roles, and policies. Roles (assumed via STS for temporary, expiring credentials) are the cloud-native default; long-lived IAM user access keys are discouraged because a leaked static key grants standing access until rotated." />
+<Flashcard front="In AWS policy evaluation, what always wins regardless of any Allow?" back="An explicit Deny. If any applicable policy (identity-based, resource-based, SCP, RCP, permission boundary, or session policy) returns an explicit Deny that matches the request, the final decision is deny. Explicit deny always overrides explicit allow." />
+<Flashcard front="State the AWS policy evaluation order in one line." back="Start at implicit deny; an explicit Deny anywhere wins; otherwise the request must be allowed by each applicable guardrail in turn (Organizations SCP, then resource-based policy, then permission boundary, then session policy, then identity-based policy); if nothing allows, implicit deny denies it." />
+<Flashcard front="Do permission boundaries and SCPs ever grant permissions?" back="No. Boundaries, SCPs, RCPs, and session policies only restrict (set a maximum). The actual grant must come from an identity-based or resource-based policy. This is the most common AWS exam trap." />
+<Flashcard front="What is an AWS permission boundary?" back="A managed policy attached to an IAM user or role that sets the maximum permissions that identity can have. The effective permissions are the intersection of the boundary and the identity-based policy. It grants nothing on its own." />
+<Flashcard front="Same-account: where can the Allow come from for an action on a resource?" back="From either the identity-based policy on the principal or the resource-based policy on the resource (their permissions form a union). Either one allowing is sufficient, absent an explicit deny." />
+<Flashcard front="Cross-account: what must be true for a principal in account A to act on a resource in account B?" back="BOTH the identity-based policy in account A AND the resource-based policy in account B must allow the action. Cross-account requires allows on both sides; the same-account union shortcut does not apply." />
+<Flashcard front="What does an SCP do, and what does it NOT affect?" back="A Service Control Policy sets the maximum permissions for IAM principals in member accounts of an Organizations OU or account. It filters, never grants. It does not affect the management account or service-linked roles." />
+<Flashcard front="What is the difference between a role's trust policy and its permissions policy?" back="The trust policy defines who is allowed to assume the role (the sts:AssumeRole principal). The permissions policy defines what the role can do once assumed. They are separate documents answering separate questions." />
+<Flashcard front="What is AWS IAM Identity Center and how does it differ from IAM users?" back="Identity Center (formerly AWS SSO) manages workforce access across many accounts by federating an external IdP via SAML and SCIM and assigning permission sets to users or groups per account, issuing short-lived credentials. IAM users are per-account and long-lived; Identity Center is the recommended human-access model." />
+<Flashcard front="Name the two finding types in AWS IAM Access Analyzer." back="External access findings (resources shared outside your zone of trust, derived from resource-based policy analysis) and unused access findings (unused roles, access keys, and permissions for least-privilege right-sizing). It also does policy validation and policy generation from CloudTrail." />
+<Flashcard front="What problem does ExternalId solve in a cross-account role trust policy?" back="The confused-deputy problem. When a third party assumes a role in your account, requiring a unique ExternalId prevents another customer of that third party from tricking it into accessing your resources." />
+<Flashcard front="What is a Resource Control Policy (RCP) in AWS Organizations?" back="An Organizations guardrail introduced in November 2024 that sets the maximum permissions on AWS resources (S3, STS, KMS, SQS, and Secrets Manager at launch) across the org. Like an SCP it only restricts and never grants; it complements SCPs by capping access on the resource side." />
+<Flashcard front="What is the session-duration limit on role chaining in AWS?" back="One hour. When temporary credentials from one assumed role are used to assume a second role (role chaining), the session is capped at one hour regardless of either role's MaxSessionDuration. The 12-hour maximum applies only to the initial assumption from user credentials." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "07-cloud-iam/01-aws-iam/q1",
+  prompt: "An IAM role has an identity-based policy that explicitly Allows s3:DeleteObject on a bucket. The bucket's resource-based policy says nothing about this principal. An SCP attached to the account's OU explicitly Denies all s3:Delete actions. What is the result when the role tries to delete an object?",
+  options: [
+    "Allowed — the identity-based policy explicitly allows the action.",
+    "Allowed — resource-based policy silence defaults to permitting the identity policy.",
+    "Denied — the SCP contains an explicit Deny, and an explicit deny in any applicable policy overrides all Allows.",
+    "Denied — because the resource-based policy did not also allow the action."
+  ],
+  correctIndex: 2,
+  explanation: "Explicit Deny always wins in AWS policy evaluation. Even though the identity-based policy allows the delete, the SCP's explicit Deny on the delete actions overrides it. SCPs filter the permissions available to member-account principals, and an explicit Deny there is final regardless of any Allow elsewhere."
+}} />
+
+<Quiz question={{
+  id: "07-cloud-iam/01-aws-iam/q2",
+  prompt: "A developer attaches a permission boundary to an IAM user that allows ec2 and s3 actions. The user has no identity-based policy attached. The developer expects the user to be able to launch EC2 instances. What actually happens?",
+  options: [
+    "The user can launch EC2 instances because the boundary allows the EC2 actions.",
+    "The user can do nothing — a permission boundary sets a maximum but grants nothing; an identity-based or resource-based policy must provide the actual Allow.",
+    "The user gets full administrator access by default.",
+    "The boundary is ignored because no identity policy exists."
+  ],
+  correctIndex: 1,
+  explanation: "A permission boundary only caps the maximum permissions; it never grants them. Effective permissions are the intersection of the boundary and the identity-based policy. With no identity-based policy, the intersection is empty and the user can do nothing."
+}} />
+
+<Quiz question={{
+  id: "07-cloud-iam/01-aws-iam/q3",
+  prompt: "A principal in account A needs to read an S3 bucket in account B. Account A's identity-based policy allows s3:GetObject. Account B's bucket policy does not mention account A. What is the result?",
+  options: [
+    "Allowed — account A's identity policy is sufficient.",
+    "Allowed — same-account union rules apply across accounts.",
+    "Denied — cross-account access requires BOTH the identity-based policy in account A AND the resource-based policy in account B to allow it.",
+    "Denied — S3 never permits cross-account reads."
+  ],
+  correctIndex: 2,
+  explanation: "For cross-account access the same-account union shortcut does not apply. Both the caller's identity-based policy and the resource's resource-based policy must independently allow the action. Account B's bucket policy is silent, so the request is denied."
+}} />
+
+<Quiz question={{
+  id: "07-cloud-iam/01-aws-iam/q4",
+  prompt: "An organization with 40 AWS accounts wants employees to log in once with their Entra ID credentials and get appropriately scoped, short-lived access to specific accounts. Which AWS service is the recommended fit?",
+  options: [
+    "Create matching IAM users with access keys in each of the 40 accounts.",
+    "AWS IAM Identity Center, federating Entra ID via SAML and SCIM and assigning permission sets per account.",
+    "Attach a permission boundary in each account.",
+    "Use an SCP to grant the employees access."
+  ],
+  correctIndex: 1,
+  explanation: "IAM Identity Center is built for multi-account workforce access: federate an external IdP (Entra ID) via SAML and SCIM, then assign permission sets to users or groups for specific accounts, issuing short-lived credentials. IAM users with access keys are per-account and long-lived (discouraged); SCPs and permission boundaries only restrict, never grant."
+}} />

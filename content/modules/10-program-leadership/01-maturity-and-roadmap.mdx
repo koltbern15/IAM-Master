@@ -1,0 +1,172 @@
+{/* SEEDED SCAFFOLDING — personalize me. This is a starting point, not a lecture. Frameworks cited at concept level; confirm any specific level label, control number, or examiner expectation against current source before you publish or bill from it. Maturity-model labels (Gartner especially) are paraphrased shapes, not copyrighted quotes. */}
+
+<HoloPanel label="HOW TO USE THIS">
+
+This section is a **workbench, not a chapter.** You are going to walk out of it with two artifacts you can reuse forever: a filled-in **IAM maturity self-assessment** and a sequenced **roadmap** that turns the assessment into a fundable plan. Everything below is built around tables you complete from your own environment — Richwood Bank today, and a paying client tomorrow.
+
+Read the prose to understand the move, then do the work in the templates. The placeholders are deliberately empty or marked for confirmation; filling them honestly is the whole point. When a row says "confirm," that is your cue to check a source or your own environment before you assert it to a board or a client.
+
+</HoloPanel>
+
+# IAM Maturity & Roadmap
+
+There is a question every IAM leader eventually gets asked, usually by someone who controls budget: *"Are we good at this?"* It is a terrible question because it has no defensible answer in that form. "Pretty good" is not a number, "we have MFA" is not a program, and "trust me" is not evidence an examiner accepts. A maturity model is how you convert that sprawling, unanswerable question into a repeatable, comparable scorecard — and a scorecard is the on-ramp to a roadmap and a budget ask you can actually defend.
+
+This section gives you the scorecard and the roadmap. The rest of the module spends them.
+
+## Why maturity models exist
+
+Maturity models come out of capability-maturity thinking — the lineage most people trace to **CMMI** and its five-level shape: *Initial → Managed → Defined → Quantitatively Managed → Optimizing.* The exact level names vary by model, so treat that ladder as the *shape* of the idea, not gospel labels to quote in a board deck. (Confirm the exact level names of whatever model you adopt before you put them on a slide.)
+
+The shape is what matters. A level-1 capability is ad hoc and reliant on heroes; a level-5 capability is measured, optimized, and boring in the best way. Putting a capability on that ladder does three things a vague self-assessment cannot:
+
+- It is **repeatable** — score it the same way next year and the delta is real, not vibes.
+- It is **comparable** — you can line up Authentication against Identity Governance and see which is actually further behind.
+- It is **defensible** — a level with evidence behind it survives an examiner, an auditor, or a skeptical CFO in a way "we're solid on access" never will.
+
+<Definition term="capability maturity model">
+A repeatable scale — commonly five levels, from ad hoc/Initial up to optimized/Optimizing in the CMMI lineage — used to rate how consistently and effectively a capability is performed. It lets you compare current state to a target state and justify the investment needed to close the gap.
+</Definition>
+
+## The maturity models that matter for IAM
+
+You do not need to invent a model. You need to pick a credible lens and apply it consistently. Four are worth knowing:
+
+| Lens | What it is | When to reach for it |
+|---|---|---|
+| **CMMI-style 5-level scale** | The generic ad-hoc→optimized ladder. | Your default scoring scale for the self-assessment below. Free, intuitive, universally understood. |
+| **Gartner IAM Maturity Model** | A vendor maturity model commonly described as a five-level scale running from an initial/ad-hoc state up to an optimized/transformational one. | When a client already speaks Gartner. Paraphrase the *shape* — the exact level names are paywalled, revised over time, and copyrighted, so confirm before quoting any specific label. |
+| **NIST CSF 2.0 Tiers** | A free, citable maturity lens. Four Tiers: Tier 1 Partial → Tier 2 Risk Informed → Tier 3 Repeatable → Tier 4 Adaptive. | When you want a public, defensible reference — especially for the identity-relevant pieces (see below). Published February 2024. |
+| **IDPro / vendor self-assessments** | Practitioner-built IAM maturity questionnaires. | As a cross-check or a ready-made question bank. Confirm any specific IDPro scoring detail against the current source. |
+
+The NIST one earns special mention because it is free, current, and maps cleanly onto identity work. NIST CSF 2.0 added a **Govern (GV)** function alongside the original five, and the identity-relevant controls live mainly under **Protect**, in the **PR.AA** category — *Identity Management, Authentication, and Access Control.* When you need a citation a regulator respects, "scored against NIST CSF 2.0 Tiers, PR.AA and GV" beats any vendor model.
+
+<Definition term="target operating model">
+The agreed future-state design of how IAM should run — the people, processes, and technology you are aiming the roadmap *at*. Your "target" maturity levels are this model expressed as a score per capability. It is set by risk appetite and budget, not by a wish to max everything.
+</Definition>
+
+**The banking lens.** In a regulated bank, "maturity" is not purely your opinion — it is partly defined by examiner expectations. Federal banking examiners publish IT examination guidance covering authentication and access management, and an examiner's view of "adequate" becomes a floor under your target state. Treat the relevant FFIEC IT examination guidance as an input to your *target* column, not just an afterthought — and confirm the exact current booklet name and content before you cite it in a finding-response or a client deliverable.
+
+<ProTip>
+Pick **one** scale and use it for every row. The single most common self-assessment mistake is scoring Authentication on a Gartner scale and Identity Governance on a NIST tier — now your "gaps" are not comparable and the whole matrix is noise. Consistency of scale beats choice of scale.
+</ProTip>
+
+## The capability domains to score
+
+These are the **rows** of your assessment — the IAM capabilities worth scoring independently. Notice that they are, almost exactly, the modules of this curriculum. That is not an accident: the curriculum *is* the capability map.
+
+| Capability domain | What "good" looks like | Curriculum cross-reference |
+|---|---|---|
+| Authentication & MFA | Phishing-resistant MFA broadly deployed; legacy auth retired. | Mod 2-3 |
+| Authorization (RBAC/ABAC) | Access modeled to roles/attributes, not hand-assigned. | Mod 3, Mod 5 |
+| Identity lifecycle (Joiner-Mover-Leaver) | Automated provisioning/deprovisioning tied to HR as source of truth. | Mod 3, Mod 5 |
+| Privileged access (PAM) | Privileged accounts vaulted; standing privilege minimized; just-in-time where possible. | Mod 4 |
+| Identity governance (access reviews, SoD) | Recurring certifications that actually revoke; segregation-of-duties enforced. | Mod 5 |
+| Directory & federation | Clean directory; SSO coverage; federation governed. | Mod 2-3 |
+| Secrets & workload identity | Machine/service identities and secrets managed, not hardcoded. | Mod 6-7 |
+| Identity threat detection & response | Risky sign-ins detected; identity incidents have a response path. | Mod 8 |
+| Governance, policy & ownership | Documented policy, named owners, board-level reporting. | Mod 9-10 |
+
+You can split or merge these for your environment — a small bank may fold "secrets/workload" into one line; a federal client may need it broken out. The point is that each row is a thing you can score on its own and own separately.
+
+## Current-vs-target ("gap") assessment
+
+The work is the **delta.** For each domain you score where you are today (current), where you need to be for your risk appetite (target), and the gap between them is the candidate work.
+
+The mistake to avoid is targeting "level 5 everywhere." A bank does not need its conference-room-display identity provisioning at the same maturity as its wire-transfer admin access. **Target is risk-driven and budget-bounded.** Over-investing a low-risk capability to level 5 is wasted money you could have spent closing a level-1 gap that an examiner is going to find.
+
+### Template 1 — IAM Maturity Self-Assessment
+
+> Score each domain on a single 1-5 scale. `Gap = Target − Current`. `Evidence` is what proves the current score (a config export, a report, a policy doc) — no evidence means the score is an opinion. `Priority` is your first-pass instinct; the roadmap below will pressure-test it.
+
+**Level legend (confirm wording against your chosen model before publishing):**
+
+| Level | One-line meaning |
+|---|---|
+| 1 — Initial | Ad hoc, manual, hero-dependent. No documented process. |
+| 2 — Managed | Done, but inconsistently; some documentation; reactive. |
+| 3 — Defined | Documented, standardized process applied org-wide. |
+| 4 — Quantitatively Managed | Measured with metrics; performance tracked against targets. |
+| 5 — Optimizing | Continuously improved; automated; metrics drive change. |
+
+| Capability domain | Current (1-5) | Target (1-5) | Gap | Evidence / Notes | Priority |
+|---|---|---|---|---|---|
+| Authentication & MFA | _ | _ | _ | _ | _ |
+| Authorization (RBAC/ABAC) | _ | _ | _ | _ | _ |
+| Identity lifecycle (JML) | _ | _ | _ | _ | _ |
+| Privileged access (PAM) | _ | _ | _ | _ | _ |
+| Identity governance (reviews/SoD) | _ | _ | _ | _ | _ |
+| Directory & federation | _ | _ | _ | _ | _ |
+| Secrets & workload identity | _ | _ | _ | _ | _ |
+| Identity threat detection & response | _ | _ | _ | _ | _ |
+| Governance, policy & ownership | _ | _ | _ | _ | _ |
+
+<ProTip>
+"Target" is not "maximum." Write the target for each domain *before* you look at the current score, while you are still thinking about risk — otherwise you will anchor the target to where you already are and quietly let "good enough today" set the bar.
+</ProTip>
+
+## Roadmap sequencing
+
+A scored matrix is a to-do list, not a plan. Sequencing turns the list into a plan. The instinct to "do the biggest gap first" is usually wrong, because the biggest gap is often the most expensive, slowest, and most dependent on prerequisites you have not built yet.
+
+Order initiatives by **value × risk-reduction, relative to cost × effort** — high-value, high-risk-reduction, low-cost work goes first — while honoring **dependencies.** You cannot run a meaningful access-review campaign before you have a clean identity inventory to review. You vault privileged accounts (PAM) before you try to do sophisticated privilege analytics on them. Sequencing that ignores dependencies produces a roadmap that stalls in month three.
+
+Two principles make the order defensible:
+
+- **Wave/horizon planning.** Group initiatives into *Now / Next / Later* (or 0-6-12-18 month horizons). Horizons give stakeholders a story without committing you to false precision two years out.
+- **Quick wins fund the marathon.** Lead with one or two visible, cheap, high-credibility wins (retire legacy auth; deprovision a backlog of orphaned accounts). They build the trust — and sometimes the budget — for the slower governance work behind them.
+
+If you want a named prioritization method to anchor this, portfolio approaches like weighted-shortest-job-first / cost-of-delay capture the same value-over-effort instinct; confirm the specifics of any named framework before you present it as the method you used.
+
+### Template 2 — Roadmap
+
+| Initiative | Capability domain | Horizon (Now/Next/Later) | Depends on | Est. effort | Value / risk rationale | Owner |
+|---|---|---|---|---|---|---|
+| _ | _ | _ | _ | _ | _ | _ |
+| _ | _ | _ | _ | _ | _ | _ |
+| _ | _ | _ | _ | _ | _ | _ |
+| _ | _ | _ | _ | _ | _ | _ |
+| _ | _ | _ | _ | _ | _ | _ |
+
+> Seed it from your highest-gap, highest-priority rows in Template 1. For each, ask: *does anything have to be true before this can start?* That answer is the "Depends on" column, and it is what forces the right order.
+
+### Template 3 — Roadmap one-pager prompts
+
+A board does not read a roadmap table; it reads a narrative. Answer these in plain English and you have the executive one-pager that sits on top of the table:
+
+1. **Where are we?** One sentence summarizing the current-state pattern (e.g., "strong on authentication, weak on governance and privileged access").
+2. **Where do we need to be, and why?** The target state in risk terms — tie it to the examiner bar and the bank's risk appetite.
+3. **What is the single biggest unmanaged risk right now?** Name it. This is your headline.
+4. **What are the 1-2 quick wins in the next quarter?** The visible proof of momentum.
+5. **What is the marathon work behind the quick wins?** The Next/Later horizon items and roughly what they cost.
+6. **What do you need from this room?** The ask — money, headcount, a decision, or air cover.
+
+## Personalize it — Richwood Bank, the Guard, and the consulting client
+
+This is the part no AI can do for you. Answer these from your own environment:
+
+- **Per domain, what is your real current state at Richwood?** Be honest where evidence is thin — an unscored "we think it's a 3" row is a finding waiting to happen.
+- **What does the relevant FFIEC IT examination guidance actually expect** for authentication and access management, and how does that set the *target* column? (Confirm the current booklet before you write it into a deliverable.)
+- **Where is the privileged-access gap you already know about** from Modules 2 and 4 (the krbtgt / Tier-0 / PAM exposure)? Which roadmap horizon does it belong in, and what does it depend on?
+- **As a consultant, how do you run this exact assessment as a paid engagement?** What is the input you ask the client for, what is the deliverable (this scored matrix plus the roadmap one-pager), and how many days is it scoped at? The frameworks above *are* the product — Module 10's last section turns them into a billable line item.
+
+<WarStory title="PROMPT-SHELL: the assessment that changed the budget conversation (fill from your own experience)">
+Write the real story here once you have run one assessment end to end. Use this shell:
+
+- **The trigger.** What prompted the assessment? (An exam finding? A new CISO? A breach scare? A client engagement?)
+- **The surprise.** Which domain scored lower than leadership assumed — and what was the evidence that made the low score undeniable?
+- **The reframe.** How did putting current-vs-target on one page change the budget or priority conversation? What got funded that "we should probably look at access reviews" never would have?
+- **The lesson.** What would you score or sequence differently next time?
+
+Keeping this as a lived story — not a template — is what makes you credible in front of the next board or the next client.
+</WarStory>
+
+## Recall drill
+
+<Quiz question={{ id: "10-program-leadership/01-maturity-and-roadmap/q1", prompt: "Your IAM maturity assessment scores Identity Governance at current level 1 and Authentication/MFA at current level 4. The board asks why you are not pushing MFA to level 5 next year. What is the best-defended answer?", options: ["MFA is already strong; investment should go to the lowest-maturity, highest-risk domain (Identity Governance), because target maturity is risk-driven, not maximum everywhere.", "We should raise every domain to level 5 simultaneously for consistency across the program.", "MFA to level 5 first, because authentication is always the top priority regardless of other gaps.", "Maturity scores are subjective, so the sequencing of investment does not really matter."], correctIndex: 0, explanation: "Target maturity is set by risk appetite and budget, not a race to level 5. A domain already at level 4 yields diminishing returns; the level-1 governance gap is the larger unmanaged risk and the right next investment." }} />
+
+<Flashcard front="What is a capability maturity model, in one sentence?" back="A repeatable scale (commonly five levels, Initial through Optimizing in the CMMI lineage) used to rate how consistently and effectively a capability is performed, so you can compare current vs target state and justify investment to close the gap." />
+<Flashcard front="Why is the target maturity level rarely level 5 everywhere?" back="Target maturity is risk- and budget-driven. Over-investing a low-risk capability to level 5 wastes money. Target equals the level that satisfies the organization's risk appetite and regulatory bar, set per domain." />
+<Flashcard front="Which free, citable framework gives an IAM-applicable maturity lens via Tiers, and what are they?" back="NIST CSF 2.0 (published February 2024), Tiers 1-4: Partial, Risk Informed, Repeatable, Adaptive. The identity-relevant controls sit under the Protect function in the PR.AA category (Identity Management, Authentication, and Access Control), with the new Govern function on top." />
+<Flashcard front="Name three IAM capability domains you would score in a maturity assessment." back="Any of: Authentication/MFA, Identity Lifecycle (Joiner-Mover-Leaver), Privileged Access (PAM), Identity Governance (access reviews/SoD), Directory and Federation, or Identity Threat Detection and Response." />
+<Flashcard front="What is the core rule for sequencing an IAM roadmap?" back="Order initiatives by value times risk-reduction relative to cost and effort, while honoring dependencies (clean identity inventory before access reviews; PAM before privilege analytics). Fund the marathon with early, visible quick wins." />

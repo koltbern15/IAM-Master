@@ -1,0 +1,185 @@
+{/* Objectives current as of 2026-06-01. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **CISSP** Domain 5 (Identity and Access Management) — federated identity management, identity-as-a-service, and establishing trust across organizational and cloud boundaries
+- **NIST SP 800-207** (Zero Trust Architecture) — identity as the control plane, with consistent identity-centric policy applied across every environment
+- *(No SC-300 — multi-cloud strategy is not a Microsoft SC-300 objective. The patterns here are vendor-neutral architecture, drawn from each provider's own federation and landing-zone guidance.)*
+</HoloPanel>
+
+# Multi-Cloud Identity Strategy
+
+The first three sections of this module taught you three cloud entitlement engines in isolation: AWS (explicit-deny-wins, then each guardrail must allow), Azure RBAC (additive allow, deny assignments override), and GCP IAM (additive allow, deny policies evaluated first). Each is internally coherent. The problem this section solves is what happens when one organization runs in all three at once — which, in 2026, is the normal state of an enterprise, not the exotic one.
+
+## What it is
+
+Multi-cloud identity strategy is the discipline of governing *one* set of identities — humans and workloads — consistently across AWS, Azure, and GCP, so that you do not end up with three disconnected islands of access, each with its own admins, its own long-lived credentials, and its own ungoverned drift.
+
+The naive end state, the one teams fall into by accident, looks like this: a separate set of local users in each cloud, a separate root or Global Administrator credential per cloud sitting in a password manager, a separate pile of access keys per cloud baked into CI pipelines, and three separate audit logs nobody correlates. Every one of those is a standing liability. Three clouds means three blast radii, three credential-rotation chores, three onboarding/offboarding processes that fall out of sync the day someone leaves.
+
+A coherent strategy collapses that. There is **one source of truth for human identity**, federated into each cloud. There are **no long-lived credentials stored cross-cloud** — workloads in one cloud reach another by exchanging short-lived tokens. There is **one governed baseline** (a landing zone) that every account, subscription, and project is born into. And there is **one place the logs land** so that a single analyst can answer "who did what, where" across all three.
+
+<Definition term="control plane">In identity architecture, the control plane is the layer where access decisions are made and policy is enforced — as opposed to the data plane, where the actual workload runs. A multi-cloud identity strategy treats *identity itself* as the control plane: rather than trusting the network perimeter of any one cloud, every request is authenticated and authorized against a consistent identity-centric policy regardless of which cloud it lands in. This is the central idea of NIST SP 800-207 Zero Trust Architecture.</Definition>
+
+## Why it exists
+
+The reasons organizations end up multi-cloud are rarely a tidy architectural choice. A company acquires another that standardized on a different cloud. A data-science team wants a service that only one provider offers well. A regulator or customer demands a second provider for resilience. A SaaS product the business depends on happens to run somewhere else. The result is the same: identity sprawl that nobody designed and everybody now has to govern.
+
+Without a strategy, the failure modes are predictable. Offboarding becomes a manual checklist across three consoles, and the checklist is never complete — orphaned access is the most common audit finding in multi-cloud shops. Credentials proliferate because the fastest way to make a workload in AWS talk to a bucket in GCP is to paste a GCP service-account key into the AWS workload, and now you have a long-lived Google credential living in someone else's cloud with no expiry. Admin models diverge: the person who is a tightly-scoped operator in Azure is an accidental Owner-equivalent in GCP because nobody mapped the roles.
+
+The strategy exists to make identity, not the network and not the individual cloud account, the unit of governance. That framing is exactly NIST SP 800-207's: in Zero Trust, you do not trust a request because of where it came from; you trust it because of *who* (or *what*) it is, proven each time, and authorized against policy. A single identity control plane is how you make that practical when "where it came from" might be any of three clouds.
+
+## How it works under the hood
+
+### One human IdP, federate everywhere
+
+The dominant pattern for workforce access is blunt and effective: pick **one** workforce identity provider — for most enterprises that is Microsoft Entra ID (see Module 3) or Okta — make it the single source of truth for employee, contractor, and partner identities, and federate it into each cloud's access layer. Lifecycle (joiner-mover-leaver), MFA, Conditional Access, and risk-based policy all live in that one IdP. Each cloud trusts the IdP's assertion rather than maintaining its own user store.
+
+The federation paths differ per cloud, but the shape is the same — SAML or OIDC for authentication, SCIM for provisioning where the cloud supports it:
+
+- **Into AWS:** the IdP federates into **AWS IAM Identity Center** (see Module 7 -> AWS IAM) via SAML for sign-in and SCIM for user/group provisioning. Permission sets map federated groups to scoped, short-lived role credentials across many accounts. No IAM users, no access keys.
+- **Into Azure:** if your IdP is Entra ID, you are already native — Azure Resource Manager authorizes the Entra-issued token directly (see Module 7 -> Azure RBAC). If your IdP is Okta or another, you federate it into Entra ID and let Entra remain the token issuer for Azure.
+- **Into GCP:** the IdP federates in via **Workforce Identity Federation**, GCP's mechanism for letting an external SAML or OIDC IdP (Entra ID, Okta, AD FS, and others) authenticate *human* users for single sign-on to the Cloud Console and gcloud. It is syncless — GCP does not store the user accounts — which is a deliberate contrast with the older directory-sync model into Cloud Identity / Google Workspace.
+
+<Definition term="workforce identity federation">A GCP capability that lets you authenticate your workforce — human users such as employees, contractors, and partners — using an external SAML 2.0 or OIDC identity provider, granting them single sign-on access to Google Cloud without creating or synchronizing Google-managed user accounts. It is the *human-user* counterpart to GCP Workload Identity Federation, which serves non-human workloads. The two share the token-exchange idea but differ in subject: one carries a person through SSO, the other carries a machine through automated token exchange.</Definition>
+
+Cross-link the mechanics you already know: SAML, OIDC, and SCIM are taught in Module 2 (Protocols); Entra ID as the IdP, Conditional Access, and PIM are taught in Module 3 (Microsoft Identity). The multi-cloud value-add is the discipline of pointing all three clouds at *one* of those IdPs instead of three.
+
+### Workload identity across clouds — no static keys
+
+Humans are the easy half. The harder, more dangerous half is workloads talking across cloud boundaries: an application in AWS that needs to read a GCS bucket, a GitHub Actions pipeline that deploys to all three, an Azure function that calls an AWS API. The lazy answer — store a long-lived key for the other cloud — is the single most common source of cross-cloud credential exfiltration. A leaked GCP service-account key or AWS access key sitting in a CI variable or a container image grants standing access with no expiry.
+
+The correct pattern is **token exchange against a trusted OIDC issuer**, producing short-lived credentials with nothing stored:
+
+- An **AWS-hosted workload reaching GCP** uses **GCP Workload Identity Federation** (see Module 7 -> GCP IAM): GCP is configured to trust AWS's identity, the AWS workload presents its own AWS-signed token, and GCP's STS exchanges it for short-lived GCP credentials that let it impersonate a service account. No GCP key ever lands in AWS.
+- A **workload reaching Azure** from outside Entra uses an **Entra workload identity federated credential** — Entra is configured to trust an external OIDC issuer (another cloud, GitHub) and exchanges that issuer's token for an Entra token, so the workload authenticates without an Entra client secret.
+- A **GitHub Actions pipeline reaching all three** uses the GitHub OIDC issuer: each cloud is configured to trust `token.actions.githubusercontent.com` for a specific repository and branch, and each hands back its own short-lived credential per run.
+
+<ProTip>The whole multi-cloud secrets problem reduces to one rule: **trust an OIDC issuer, exchange its token for short-lived credentials in the target cloud, and never store a long-lived key for one cloud inside another.** One human IdP for people, per-cloud workload federation for machines, and you have zero standing cross-cloud secrets to rotate, leak, or hunt for during an incident.</ProTip>
+
+The unifying principle across both halves is the same one from sections 01 and 03: prefer short-lived, federated credentials over long-lived stored ones. AWS STS, GCP service-account impersonation, GCP Workload Identity Federation, and Entra federated credentials are all instances of one idea — exchange a proof of identity for a credential that expires soon.
+
+### Landing zones — governed by default
+
+You cannot bolt governance onto a sprawling, hand-built cloud after the fact and expect it to hold. The landing-zone pattern flips the order: you build a governed baseline *first*, and every workload is deployed into it.
+
+<Definition term="landing zone">A pre-architected, governed, multi-account (AWS) or multi-subscription (Azure) or multi-project (GCP) baseline that you deploy into before any workload lands. It establishes the recurring building blocks of cloud governance: an identity boundary, environment separation (prod / non-prod / sandbox), policy guardrails that cap what can be configured, and centralized logging — so that governance is the default state of a new account rather than something retrofitted later.</Definition>
+
+Each provider ships an opinionated landing-zone framework, and although the vocabulary differs, the common shape is unmistakable:
+
+| Cloud | Landing-zone framework | Account/scope model | Guardrail mechanism |
+| --- | --- | --- | --- |
+| AWS | AWS Control Tower (Landing Zone) | Organizations: management account, OUs, member accounts | Service Control Policies (and Resource Control Policies) |
+| Azure | Cloud Adoption Framework (CAF) enterprise-scale landing zones | Management-group hierarchy over subscriptions | Azure Policy + management-group-scoped role assignments |
+| GCP | Enterprise foundations blueprint (cloud foundation) | Organization -> folders -> projects | Organization Policy Service |
+
+Every one of them carves out a dedicated **identity/management boundary** (a separate account, subscription, or project that hosts the federation config and core admin roles), separates **environments** into their own OUs / management groups / folders, applies **policy guardrails** that constrain what can be built, and routes **logs to a central location**. Learn the shape once and you can read any of the three.
+
+### Guardrails parity
+
+The guardrail mechanisms are worth lining up explicitly, because the temptation is to think each cloud invented something unique. They did not — they built three implementations of the same idea, and crucially **none of them grants access**; they all *cap* configuration or permission ceilings:
+
+- **AWS** — Service Control Policies (SCPs) and the newer org-wide resource guardrails set the maximum permissions available to principals in member accounts. They filter; an action still needs an actual Allow from an identity- or resource-based policy (Module 7 -> AWS IAM).
+- **Azure** — Azure Policy governs what resource *configurations* are allowed (deny public IPs, require tags), and management-group-scoped role assignments shape who can do what across whole subscription groups (Module 7 -> Azure RBAC).
+- **GCP** — the Organization Policy Service applies org-, folder-, or project-level constraints on resource configuration and behavior, inherited down the hierarchy (Module 7 -> GCP IAM).
+
+Hold the three entitlement models side by side and the contrast that ran through sections 01-03 snaps into focus:
+
+| Cloud | How Allows combine | How a Deny works |
+| --- | --- | --- |
+| AWS | Identity- and resource-based policies union (same account) | Explicit Deny anywhere wins; then SCP, boundary, session policy must *each* allow |
+| Azure RBAC | Additive — union of all role assignments at and above the scope | A deny assignment overrides allows (created by managed apps / Blueprints, not by hand) |
+| GCP IAM | Additive — union of a resource's bindings and all inherited ancestor bindings | IAM deny policies are evaluated *before* allows; an applicable deny blocks the action |
+
+All three let a deny win; the difference is in how allows accumulate and where the deny comes from. Knowing this table cold is what lets one engineer reason correctly about an access decision in any of the three without re-learning the model each time.
+
+### Consistency tactics
+
+Strategy is only as good as the operational habits that hold it together. Four tactics carry most of the weight:
+
+1. **Standardized naming.** Adopt one role/permission/account naming convention across clouds (`prod-app-reader`, not `Reader` in one place and `objectViewer` in another with no relation). It makes a multi-cloud access review readable by a human.
+2. **Infrastructure-as-code for every assignment.** Define role assignments, permission sets, and policy bindings in Terraform (or each cloud's native IaC), never by hand in the console. Click-ops drift is invisible; code drift shows up in a diff and a pull request.
+3. **A single cross-cloud posture/CIEM tool.** One tool that normalizes AWS, Azure, and GCP entitlements into a single view of who-can-do-what is how you catch over-permissioning before it becomes an incident. That is the subject of the next section (Module 7 -> CIEM).
+4. **Centralized log aggregation.** Route **AWS CloudTrail**, **Azure Activity Log**, and **GCP Cloud Audit Logs** into one SIEM so a single analyst can correlate an identity's activity across all three clouds — both to detect cross-cloud attacks and to produce one coherent audit trail.
+
+## War story
+
+<WarStory title="The Acquisition That Brought a Second Cloud and a Pasted Key">
+A regional financial-services firm, roughly 900 employees, ran almost entirely on Microsoft — Entra ID for identity, Azure for infrastructure, the whole stack governed through Conditional Access and PIM. Then they acquired a smaller fintech that had been born on AWS. Overnight, the firm was multi-cloud, and nobody had planned for it.
+
+The immediate pressure was a nightly data job: a workload in the acquired company's AWS account needed to push reconciliation files into an Azure storage account and read a few records back from a GCP BigQuery dataset the data team had spun up for analytics. A contractor wired it up the fast way. He created an Azure service principal with a client secret and pasted the secret into the AWS workload's environment variables. For GCP, he downloaded a service-account JSON key and dropped it into the same AWS container image. It worked by Friday. Everyone moved on.
+
+Eight months later the firm's first integrated cloud-security review ran a CIEM scan and a log correlation across the now-connected environments. Two findings landed hard. First, the AWS container image — which had been pushed to a registry and pulled to a handful of build agents — carried a long-lived GCP service-account key with BigQuery dataset access and a long-lived Azure client secret with write access to a storage account holding reconciliation data. Neither had ever been rotated. Neither had an expiry. The key had been sitting in image layers that several people could pull. Second, the offboarding for two engineers who had left the acquired company had been done only in AWS IAM — their access in the Azure and GCP sides, granted ad hoc during the integration scramble, had never been removed. They had been gone for months with live cross-cloud access nobody was watching.
+
+Nothing had been breached, as far as the logs showed. But the firm had built exactly the standing-liability sprawl this section warns about: long-lived credentials for one cloud living inside another, and an offboarding process that covered one cloud out of three.
+
+The remediation was the strategy, applied deliberately. They made Entra ID the single workforce IdP and federated it into AWS IAM Identity Center (SAML + SCIM, permission sets) and into GCP via Workforce Identity Federation, so human offboarding became one action in one place. They tore out the pasted Azure secret and the downloaded GCP key: the AWS workload now uses GCP Workload Identity Federation to get short-lived GCP credentials and an Entra federated credential to reach Azure — zero stored cross-cloud keys. They stood up CAF and Control Tower landing-zone baselines so new accounts and subscriptions inherited guardrails by default, and they routed CloudTrail, Azure Activity Log, and GCP audit logs into the one SIEM the bank already ran. The integration that had taken one Friday to wire up insecurely took about a quarter to re-architect correctly — which is the usual ratio, and the usual lesson: a strategy designed in before the second cloud arrives is cheap; one retrofitted after is not.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="What is the dominant pattern for human identity across multiple clouds?" back="One workforce IdP (Entra ID or Okta) as the single source of truth, federated into each cloud's access layer via SAML/OIDC and SCIM: into AWS IAM Identity Center permission sets, natively into Azure, and into GCP via Workforce Identity Federation. Lifecycle, MFA, and policy all live in the one IdP." />
+<Flashcard front="What is the secretless pattern for workloads that span clouds?" back="Trust an OIDC issuer and exchange its token for short-lived credentials in the target cloud (GCP Workload Identity Federation, Entra federated credentials, GitHub Actions OIDC), so no long-lived key for one cloud is ever stored inside another." />
+<Flashcard front="Define a landing zone." back="A pre-architected, governed multi-account/subscription/project baseline (identity boundary, environment separation, policy guardrails, centralized logging) that you deploy into before any workload lands, so governance is the default rather than a retrofit." />
+<Flashcard front="Name the landing-zone framework for each major cloud." back="AWS Control Tower (Landing Zone), Azure Cloud Adoption Framework enterprise-scale landing zones, and the Google Cloud enterprise foundations blueprint (cloud foundation)." />
+<Flashcard front="Map the guardrail mechanism in each cloud." back="AWS uses Service Control Policies (and Resource Control Policies); Azure uses Azure Policy plus management-group-scoped role assignments; GCP uses the Organization Policy Service. All three cap configuration or permission ceilings; none of them grants access." />
+<Flashcard front="How do the three clouds differ in how Allows combine and how a Deny works?" back="AWS: identity/resource policies union same-account, an explicit Deny anywhere wins, then SCP/boundary/session must each allow. Azure: additive union of role assignments, deny assignments override. GCP: additive union of bindings, deny policies evaluated first. All let a deny win; the allow models differ." />
+<Flashcard front="What is the difference between workforce and workload identity federation?" back="Workforce identity federation authenticates human users from an external IdP for SSO into the cloud. Workload identity federation lets a non-human workload exchange its token for short-lived cloud credentials. Same token-exchange idea, different subject: a person via SSO versus a machine via automated exchange." />
+<Flashcard front="Why is centralized log aggregation part of a multi-cloud identity strategy?" back="AWS CloudTrail, Azure Activity Log, and GCP Cloud Audit Logs each record identity and access events. Routing all three into one SIEM gives a single place to correlate an identity's cross-cloud activity, detect cross-cloud threats, and produce one coherent audit trail." />
+<Flashcard front="What does it mean to treat identity as the control plane, and which standard frames it?" back="It means access decisions are made and enforced against a consistent identity-centric policy regardless of which cloud or network a request comes from, rather than trusting a perimeter. NIST SP 800-207 Zero Trust Architecture is the framing: trust the proven who/what, not the where." />
+<Flashcard front="Why is pasting a long-lived key for one cloud into a workload in another cloud dangerous?" back="It creates a standing credential with no expiry living outside its home cloud (often in CI variables or container image layers), where it can be pulled or exfiltrated and grants ongoing access nobody rotates. Federation with short-lived tokens removes the stored key entirely." />
+<Flashcard front="What is the common structural shape every cloud landing zone shares?" back="A dedicated identity/management boundary hosting federation and core admin roles, environment separation into OUs/management-groups/folders, policy guardrails that cap what can be built, and centralized logging. Learn the shape once and you can read AWS, Azure, or GCP foundations." />
+<Flashcard front="Name two consistency tactics that hold a multi-cloud identity strategy together operationally." back="Define every role assignment and policy binding as infrastructure-as-code (Terraform) so drift shows up in a diff, and adopt one standardized role/permission/account naming convention across clouds so a multi-cloud access review is readable. A single cross-cloud CIEM tool and centralized log aggregation round it out." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "07-cloud-iam/04-multi-cloud-strategy/q1",
+  prompt: "An enterprise runs workloads in AWS, Azure, and GCP and wants employees to authenticate once and reach all three. What is the recommended identity strategy?",
+  options: [
+    "Maintain a separate set of local users and passwords in each cloud.",
+    "Use one workforce IdP such as Entra ID as the source of truth and federate it into each cloud via SAML/OIDC and SCIM (AWS IAM Identity Center permission sets, native Azure, GCP SSO via Workforce Identity Federation).",
+    "Share a single root or admin credential across all three clouds.",
+    "Require employees to memorize three separate credential sets, one per cloud."
+  ],
+  correctIndex: 1,
+  explanation: "The dominant multi-cloud pattern is a single workforce IdP federated into every cloud's access layer, giving one identity source, consistent SSO and MFA, and centralized joiner-mover-leaver lifecycle via SCIM. Separate local accounts or shared root credentials defeat governance and least privilege and make offboarding a multi-console manual chore."
+}} />
+
+<Quiz question={{
+  id: "07-cloud-iam/04-multi-cloud-strategy/q2",
+  prompt: "Which set correctly pairs each cloud with its landing-zone framework?",
+  options: [
+    "AWS Lighthouse, Azure Control Tower, GCP Foundations.",
+    "AWS Control Tower, Azure Cloud Adoption Framework enterprise-scale landing zones, GCP enterprise foundations blueprint.",
+    "AWS Organizations only, Azure Policy only, GCP Projects only.",
+    "All three use the same AWS Control Tower service."
+  ],
+  correctIndex: 1,
+  explanation: "AWS uses Control Tower (Landing Zone), Azure uses the Cloud Adoption Framework enterprise-scale landing zones, and GCP uses the enterprise foundations blueprint. Each establishes a governed multi-account or multi-project baseline with policy guardrails and centralized identity and logging before workloads land."
+}} />
+
+<Quiz question={{
+  id: "07-cloud-iam/04-multi-cloud-strategy/q3",
+  prompt: "A workload running in AWS needs to read a Google Cloud Storage bucket. A contractor proposes downloading a GCP service-account JSON key and storing it in the AWS workload's environment. What is the better cross-cloud approach and why?",
+  options: [
+    "Storing the JSON key in AWS is fine because it is encrypted at rest there.",
+    "Use GCP Workload Identity Federation so the AWS workload exchanges its own AWS-signed token for short-lived GCP credentials, with no long-lived GCP key ever stored in AWS.",
+    "Grant the AWS workload the GCP basic Owner role to keep things simple.",
+    "Create a shared service account whose key is committed to the application source code for portability."
+  ],
+  correctIndex: 1,
+  explanation: "A downloaded service-account key is a long-lived static secret living outside its home cloud, where it can be pulled from image layers or CI variables and never expires. GCP Workload Identity Federation has GCP trust the AWS identity and exchange the AWS token for short-lived GCP credentials, so nothing is stored cross-cloud. Granting Owner violates least privilege; committing a key to source is worse still."
+}} />
+
+<Quiz question={{
+  id: "07-cloud-iam/04-multi-cloud-strategy/q4",
+  prompt: "A security lead wants every new AWS account, Azure subscription, and GCP project to be created already inside an identity boundary, with environment separation, policy guardrails, and centralized logging in place. Which concept describes this approach?",
+  options: [
+    "A Conditional Access policy applied per cloud.",
+    "A landing zone — a pre-architected, governed baseline you deploy into before any workload lands, so governance is the default rather than a retrofit.",
+    "A permission boundary attached to each user.",
+    "A single shared admin account used to manage all three clouds."
+  ],
+  correctIndex: 1,
+  explanation: "A landing zone establishes the governed baseline (identity/management boundary, environment separation, policy guardrails, centralized logging) up front, so new accounts, subscriptions, and projects inherit governance by default. AWS implements it with Control Tower, Azure with CAF enterprise-scale landing zones, and GCP with the enterprise foundations blueprint."
+}} />

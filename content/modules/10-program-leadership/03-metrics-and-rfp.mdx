@@ -1,0 +1,211 @@
+{/* Seeded scaffolding — personalize from your own environment. Cert objectives current as of 2026-06-01; re-verify the SC-300 outline before a sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Plan and implement identity governance — the *reporting* layer of access reviews, entitlement management, and privileged access (this section's governance-metrics half maps here; the RFP half does not)
+- **Program leadership** Measuring an IAM program: operational metrics vs KPIs vs KRIs, and the one-slide executive dashboard
+- **Procurement** Designing an IAM RFP and scoring vendors with a defensible weighted matrix
+- **Mapping** Identity metrics traced to control families — NIST SP 800-53 Rev.5 **AC** (Access Control) and **IA** (Identification and Authentication)
+</HoloPanel>
+
+# Metrics &amp; RFP Design
+
+You cannot run a program you cannot measure, and you cannot buy a tool you cannot score. This section gives you two reusable consulting artifacts: a metrics catalog plus a one-slide executive dashboard, and an RFP requirements template plus a weighted scoring matrix. Everything here is a starting point. The tables are seeded with examples and placeholders. Your job is to delete what does not fit your environment, fill in the targets that match your real risk appetite, and turn the scaffolding into something you would actually put in front of your board or a client.
+
+A note before you start: every number in here that looks specific (a 24-hour deprovisioning SLA, a target percentage) is illustrative, not a standard. Treat them as prompts, not facts. Replace them with the numbers you can defend.
+
+## Metrics, KPIs, and KRIs are not the same thing <SC300Badge />
+
+The fastest way to lose a board's attention is to report the wrong kind of number to the wrong audience. Three distinct things get lumped together as "metrics," and keeping them straight is what makes your reporting land.
+
+<Definition term="key risk indicator (KRI)">A leading indicator that risk exposure is rising *before* an incident occurs. Unlike a KPI (which measures how you performed against a target after the fact), a KRI is meant to give you early warning. Example: a rising count of legacy-authentication sign-ins is a KRI for credential-stuffing exposure — it tells you the attack surface is growing before anyone is breached.</Definition>
+
+- **Operational metric** — a raw count or measurement. "We have 1,420 active accounts." True, but it answers no question on its own. This is the data layer; it feeds the other two.
+- **KPI (Key Performance Indicator)** — performance measured against a target. "94% of terminations were deprovisioned within SLA, against a 98% target." This is lagging and outcome-focused. It tells you whether the program is doing its job.
+- **KRI (Key Risk Indicator)** — a leading signal that risk is rising. "Legacy-auth sign-ins are up 30% quarter over quarter." This is forward-looking. It tells you where the next problem is forming.
+
+The audience determines which you report. Your IT operations team lives in operational metrics. Your CISO and risk committee want KPIs (are we meeting our commitments?) and KRIs (where is risk trending?). The board wants a tiny handful of KRIs translated into business risk, plus the trend line and the ask.
+
+<ProTip>
+Report trend and risk, not telemetry. A dashboard that says "MFA coverage rose from 82% to 91% this quarter, closing the gap on our highest-residual-risk control" tells a story. A dashboard that dumps 40 raw counts from your IdP says "I do not know what matters." The executive version is storytelling backed by evidence, not a data export.
+</ProTip>
+
+### The IAM metrics catalog (pick from this, do not report all of it)
+
+This is a menu, not a checklist. Choose the handful that map to your highest-risk capability domains (the same domains you scored in the maturity assessment in section 01). Tie each metric back to the NIST control family it evidences so your reporting traces to a control, not just a vibe. The "Target/SLA" column is deliberately seeded with illustrative numbers for you to overwrite.
+
+| Metric | Type (Op/KPI/KRI) | Audience | Target/SLA (illustrative — set your own) | Maps to control (NIST 800-53) | Data source |
+|---|---|---|---|---|---|
+| Mean time to provision new access | KPI | IT Ops, app owners | &lt; 1 business day | AC-2 (Account Management) | ITSM / IGA |
+| % of terminations deprovisioned within SLA | KPI | CISO, Audit | 98% within 24h | AC-2, PS-4 | HR feed + IGA |
+| Orphaned / stale account count | KRI | CISO, Audit | Trend to zero | AC-2 | Directory recon |
+| % of accounts with an assigned owner | KPI | Audit | 100% | AC-2 | IGA |
+| % of access reviews completed on time | KPI | CISO, Audit | 95% | AC-2, AC-6 | IGA / Entra access reviews |
+| Access-review revocation rate | KRI / KPI | CISO | Non-zero (see below) | AC-6 (Least Privilege) | Access reviews |
+| Open / aged Segregation-of-Duties violations | KRI | Audit, Risk | Trend down, age &lt; 30d | AC-5 (Separation of Duties) | IGA / GRC |
+| % of privileged accounts under PAM | KPI | CISO | 100% | AC-6, IA-2 | PAM tool |
+| Standing-privilege accounts eliminated (JIT adoption) | KPI | CISO | Trend up | AC-6 | PAM / PIM |
+| MFA coverage % | KPI | CISO, Board | 100% of users | IA-2 | IdP sign-in logs |
+| Phishing-resistant MFA coverage % | KPI / KRI | CISO | Trend up | IA-2 | IdP |
+| Legacy-auth sign-in count trend | KRI | CISO | Trend to zero | IA-2 | IdP |
+| Password-reset helpdesk ticket volume / cost | Op / KPI | Finance, IT Ops | Trend down | IA-5 (Authenticator Mgmt) | Helpdesk |
+| Risky sign-ins detected | KRI | CISO | Monitored | IA-2, AC-7 | Identity Protection / SIEM |
+| Mean time to detect / respond to identity incidents | KPI | CISO | Set per IR plan | IR-4 | SIEM / SOAR |
+| % of apps integrated with SSO | KPI | CISO | Trend up | IA-2, AC-3 | IdP app catalog |
+| Automation coverage % (provisioning / deprovisioning) | KPI | CISO, Finance | Trend up | AC-2 | IGA |
+
+<Definition term="segregation of duties (SoD)">A control principle requiring that no single person holds a combination of access that would let them both commit and conceal an error or fraud (for example, the ability to both create a vendor and approve payment to it). In IAM, SoD shows up as toxic-combination policies enforced at access-request time and audited in access reviews. NIST 800-53 references it as AC-5, Separation of Duties.</Definition>
+
+One row deserves a second look. A **non-zero access-review revocation rate is a healthy sign**, not a failure. If your reviews come back "100% completed, zero revocations" every quarter, the reviews are almost certainly being rubber-stamped. A real review, where managers actually look, produces some removals. Reporting revocation rate (and reviewer challenge rate) alongside completion percentage is what separates a governance program that works from one that just generates a compliance artifact.
+
+### Personalization prompt — your metrics
+
+Answer these about your own environment before building your dashboard:
+
+1. Which 6 metrics would you put on your IAM executive dashboard, and why those six? (Pick from the catalog; tie each to a capability domain from section 01.)
+2. For each, what is the *defensible* target — the number you can justify to an examiner or a CFO, not the aspirational one?
+3. Which two are KRIs (early warning) versus KPIs (performance)? Are you reporting any leading indicators at all, or only lagging ones?
+4. Where does each metric's data actually come from today — and is that source trustworthy, or is it a manual spreadsheet someone updates by hand?
+
+## The one-slide executive dashboard
+
+The discipline of "one slide, six tiles" forces you to decide what matters. If everything is on the dashboard, nothing is. Use RAG (red/amber/green) status, a trend arrow, and a one-line "so what" per tile. Close with a single ask.
+
+Copy this mock and fill in your real numbers:
+
+| Tile | Metric | Value | RAG | Trend | So what |
+|---|---|---|---|---|---|
+| 1 | MFA coverage | 91% | Amber | Up | 9% of users still password-only — our top residual auth risk |
+| 2 | Terminations deprovisioned within 24h | 94% | Amber | Up | Closing toward 98% target; one HR-feed gap remains |
+| 3 | Access reviews completed on time | 96% | Green | Flat | Governance cadence holding |
+| 4 | Privileged accounts under PAM | 78% | Red | Up | 22% of admin access still standing — board-level exposure |
+| 5 | Open SoD violations (aged &gt; 30d) | 4 | Amber | Down | Two require role redesign, not just revocation |
+| 6 | Legacy-auth sign-ins (KRI) | -30% QoQ | Green | Down | Attack surface shrinking; on track to block by Q4 |
+
+**The ask:** _[One sentence. Example: "Approve $X to complete PAM rollout (tile 4) — the largest remaining unmanaged risk."]_
+
+Notice what this is not: it is not a list of how many tickets the team closed. Executives do not fund activity; they fund risk reduction. Every tile answers "so what for the business," and the slide ends by asking for exactly one thing.
+
+<WarStory title="PROMPT-SHELL: the dashboard that finally got funded (fill from your own experience)">
+Use this as a template to write up a real reporting win or miss from your time at Richwood Bank or a prior role. Answer in your own words:
+
+- What were you reporting *before* you cleaned up the dashboard — and why was it not landing with leadership?
+- Which metric, reframed as business risk, finally moved a decision? (For example: did translating "22% of admin accounts have standing privilege" into "here is the unmanaged exposure" unlock PAM budget?)
+- What did you cut from the report, and what did adding a trend arrow or a "so what" line change about how it was received?
+- What is the one reporting lesson you would give a consulting client standing up their first IAM dashboard?
+
+Write it once. It becomes both a teaching story and a slide in your consulting pitch.
+</WarStory>
+
+## RFP design: getting the right tool, defensibly
+
+When you move from "we should improve PAM" to "we are going to buy something," procurement begins. Three document types front-run that purchase, and they are not interchangeable:
+
+- **RFI (Request for Information)** — you are still learning the market. Open-ended. "Tell us what your platform does." Use it early, when you are not yet ready to commit to requirements.
+- **RFP (Request for Proposal)** — you know what you need and want competing proposals scored against it. This is where the weighted matrix lives.
+- **RFQ (Request for Quote)** — you know *exactly* what you want and are comparing on price. Commoditized purchases.
+
+For an IAM platform selection, you almost always want an RFP. Here is the anatomy:
+
+1. **Background and objectives** — who you are, what problem you are solving, what success looks like.
+2. **Scope** — what is in, what is explicitly out.
+3. **Requirements** — split into **mandatory** (a "no" disqualifies) and **desirable** (scored, not pass/fail), each traced to a capability domain from section 01.
+4. **Technical requirements** — connector/integration coverage, deployment model, scalability, the specifics.
+5. **Security and compliance requirements** — vendor assurance artifacts (SOC 2 Type II, ISO/IEC 27001, and FedRAMP authorization for federal work), data residency, breach notification.
+6. **SLAs** — uptime, support response, incident handling.
+7. **Pricing template** — a fixed format so you can compare apples to apples (see the budget section's TCO framing — license + implementation + run).
+8. **Implementation and support expectations** — onboarding, professional services, training.
+9. **Evaluation methodology** — *disclosed to bidders.* You tell them how you will score, which keeps the process fair and defensible.
+
+The single most important authoring skill: **write requirements as testable, weighted statements**, not vague wishes. "The system should be secure" is unscoreable. "The system shall support phishing-resistant MFA (FIDO2/WebAuthn) for all administrative sign-ins" is testable — a vendor either demonstrates it or does not.
+
+For the federal / VOSB angle (developed further in section 04): government procurement runs through the Federal Acquisition Regulation (FAR) and SBA set-aside rules. Confirm any specific FAR clause or dollar threshold against the current regulation before you cite it in a real solicitation — those numbers change.
+
+### RFP requirements template
+
+| Req ID | Requirement (testable) | Mandatory / Desirable | Weight | How scored |
+|---|---|---|---|---|
+| R-01 | The system shall provision and deprovision accounts via SCIM to our top 10 SaaS apps | Mandatory | — | Pass/fail demo |
+| R-02 | The system shall support FIDO2/WebAuthn phishing-resistant MFA for admin sign-ins | Mandatory | — | Pass/fail demo |
+| R-03 | The system should automate access-review campaigns with reviewer delegation | Desirable | 15 | 1-5 demo rating |
+| R-04 | The system should enforce SoD toxic-combination policies at request time | Desirable | 15 | 1-5 demo rating |
+| R-05 | The vendor shall hold a current SOC 2 Type II report | Mandatory | — | Evidence review |
+| R-06 | The system should provide JIT / time-bound privileged access | Desirable | 20 | 1-5 demo rating |
+| R-07 | The system should offer prebuilt connectors for our core LOB apps | Desirable | 10 | Connector count |
+
+Fill in your own R-IDs against your real shortlist of needs. The weights on the desirable rows feed straight into the scoring matrix below — and they must be agreed *before* anyone sees a demo.
+
+<Definition term="weighted scoring matrix">A vendor-selection tool where each evaluation criterion is assigned a weight (importance), each bidder is rated against each criterion (typically 1-5), and the weighted score is the sum of weight times rating across all criteria. It makes a selection defensible by quantifying fit against criteria everyone agreed to in advance, rather than relying on gut feel or the loudest voice in the room.</Definition>
+
+### RFP weighted scoring matrix
+
+This reuses the desirable requirements above as scoring rows. Weights are agreed up front; each vendor gets a 1-5 rating per criterion; weighted score = weight times rating. The worked example below shows the arithmetic — swap in your real criteria and ratings.
+
+| Criterion | Weight | Vendor A score (1-5) | Vendor B score (1-5) | Weighted A | Weighted B |
+|---|---|---|---|---|---|
+| Access-review automation (R-03) | 15 | 5 | 3 | 75 | 45 |
+| SoD enforcement (R-04) | 15 | 4 | 2 | 60 | 30 |
+| JIT privileged access (R-06) | 20 | 5 | 4 | 100 | 80 |
+| Connector coverage (R-07) | 10 | 3 | 4 | 30 | 40 |
+| Vendor stability / roadmap | 20 | 4 | 3 | 80 | 60 |
+| Total cost of ownership (scored separately) | 20 | 2 | 5 | 40 | 100 |
+| **Weighted total** | **100** | — | — | **385** | **355** |
+
+A few defensibility rules baked into that table:
+
+- **Score technical fit and cost separately.** Notice TCO is its own row, scored independently. A cheaper vendor (B) can win on cost while losing on capability — surfacing both lets the decision-makers weigh the trade-off honestly instead of letting price quietly dominate.
+- **Use independent scorers** and have each document a rationale per score. Average them.
+- **Agree the weights before the demos.** If cost should matter more, raise its weight up front — do not re-score capability downward after the fact to make your preferred vendor win. That after-the-fact thumb on the scale is exactly the bias the matrix exists to prevent.
+
+<WarStory title="PROMPT-SHELL: the RFP that picked the wrong tool (fill from your own experience)">
+Write up a tool-selection that went sideways — yours, or one you watched. Answer:
+
+- What got weighted too heavily or too lightly? (Did a flashy demo inflate a capability score? Did someone fall in love with a vendor before the criteria were set?)
+- Where did the requirements turn out to be vague instead of testable, and what did that cost during implementation?
+- Was technical fit kept separate from cost, or did price quietly win?
+- If you re-ran the selection, what would you change about the matrix or the process — and how would you sell that discipline to a consulting client running their first RFP?
+</WarStory>
+
+### Personalization prompt — your RFP
+
+1. Pick one real tool selection you face (PAM, IGA, access-review tooling). Draft five testable requirement statements for it.
+2. Which of your requirements are truly *mandatory* (a "no" kills the deal) versus *desirable* (scored)? Be honest — over-stuffing the mandatory list shrinks your field to nobody.
+3. What weights would you assign, and who needs to sign off on those weights *before* the first demo?
+4. For your consulting business: how would you package "RFP design and vendor-scoring facilitation" as a fixed-fee deliverable? What is the artifact you hand the client at the end?
+
+## Quiz
+
+<Quiz question={{
+  id: "10-program-leadership/03-metrics-and-rfp/q1",
+  prompt: "Your quarterly access-review campaign reports 100% completed on time and zero revocations. What is the most likely interpretation a mature program would flag?",
+  options: [
+    "The program is perfect and needs no further attention.",
+    "Likely rubber-stamping — reviewers are approving everything without scrutiny; a healthy campaign almost always produces some revocations.",
+    "Access reviews are unnecessary and should be discontinued to save reviewer time.",
+    "The zero revocations proves access was provisioned perfectly at the joiner stage."
+  ],
+  correctIndex: 1,
+  explanation: "A non-zero revocation rate is evidence that reviews are real and reviewers are actually scrutinizing access. The 100%-completed, zero-revocation pattern is the classic rubber-stamp signature. The fix is to report revocation rate and reviewer challenge rate alongside completion percentage, not just completion."
+}} />
+
+<Quiz question={{
+  id: "10-program-leadership/03-metrics-and-rfp/q2",
+  prompt: "You are scoring two IGA vendors with a weighted matrix. Vendor A scores higher on capability, but Vendor B is far cheaper and you personally prefer B. How do you keep the selection defensible?",
+  options: [
+    "Override the matrix and pick Vendor B, because cost always wins in the end.",
+    "Re-score Vendor A downward on a few criteria until Vendor B comes out ahead.",
+    "Use the disclosed weights and documented rationale; if cost should matter more, that belongs in the weights agreed before scoring, with cost scored separately from technical fit — not as an after-the-fact adjustment.",
+    "Cancel the RFP and sole-source to Vendor B to avoid the comparison."
+  ],
+  correctIndex: 2,
+  explanation: "Defensibility comes from agreeing weights up front, scoring technical fit and cost independently, and documenting a rationale for each score. Adjusting scores after the fact to favor a preference is exactly the bias a weighted matrix exists to prevent."
+}} />
+
+## Recall drill
+
+<Flashcard front="What is the difference between a KPI and a KRI?" back="A KPI measures performance against a target after the fact (lagging/outcome) — for example, percent of access reviews completed on time. A KRI is a leading indicator that risk exposure is rising before an incident occurs — for example, a climbing legacy-authentication sign-in count signaling growing attack surface." />
+<Flashcard front="Give two IAM identity-lifecycle metrics worth reporting." back="Mean time to deprovision; percent of terminations deprovisioned within SLA; orphaned or stale account count; percent of accounts with an assigned owner. Any two of these track the joiner-mover-leaver lifecycle." />
+<Flashcard front="Why is a non-zero access-review revocation count a healthy sign?" back="It proves the reviews are real — reviewers are actually removing inappropriate access rather than rubber-stamping. A campaign that reports 100 percent completed with zero revocations almost always indicates rubber-stamping, so revocation rate belongs on the dashboard next to completion percentage." />
+<Flashcard front="What belongs on a one-slide IAM executive dashboard?" back="Five to seven metrics maximum, each with RAG (red/amber/green) status, a trend arrow, and a one-line so-what narrative, plus a single closing ask. It is risk-and-trend storytelling backed by evidence, not a dump of raw tool telemetry." />
+<Flashcard front="What is a weighted scoring matrix in an RFP?" back="A vendor-selection tool where each criterion gets an agreed weight, each bidder is rated (typically 1-5) per criterion, and the weighted score is the sum of weight times rating. It makes selection defensible by quantifying fit against criteria everyone agreed to in advance, with technical fit scored separately from cost." />
+<Flashcard front="Which two NIST SP 800-53 control families do most IAM metrics trace back to?" back="AC (Access Control) and IA (Identification and Authentication). Mapping each metric to a control family makes your reporting traceable to a control rather than a vibe — for example, deprovisioning SLA to AC-2, MFA coverage to IA-2, and least-privilege/PAM coverage to AC-6." />
+<Flashcard front="When do you issue an RFI versus an RFP versus an RFQ?" back="RFI when you are still learning the market and need open-ended information; RFP when you know your requirements and want competing proposals scored against them (where the weighted matrix lives); RFQ when you know exactly what you want and are comparing primarily on price for a commoditized purchase." />

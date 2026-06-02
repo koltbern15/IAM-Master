@@ -1,0 +1,191 @@
+{/* Objectives current as of 2026-06-01. Re-verify each before a cert sitting. */}
+
+<HoloPanel label="COVERS">
+- **SC-300** Plan and implement privileged access — role assignment and scope for managed identities and resource-scope governance (cross-reference Module 3 → Entra ID / PIM)
+- **AZ-500 / AZ-104** — Azure RBAC scope hierarchy, built-in and custom roles, Azure Policy (the bulk of this material lives here, not on SC-300)
+- **CISSP** Domain 5 (Identity and Access Management) — implement and manage authorization mechanisms at resource scope
+</HoloPanel>
+
+# Azure RBAC: The Resource Authorization Layer <SC300Badge />
+
+In Module 3 you learned that Entra ID authenticates the user and issues the token. This section is about the layer that sits directly on top of that: once an identity is authenticated and holding a valid token, **what is it actually allowed to do to your Azure resources?** That question is answered by Azure role-based access control — Azure RBAC — the authorization system built into Azure Resource Manager.
+
+Keep the two layers distinct in your head, because conflating them is one of the most common points of confusion on every Microsoft cloud exam and in real incident reviews. Entra ID issues the token (see Module 3 → Entra ID). Azure RBAC decides what that token can touch. They are different systems with different role catalogs, different scopes, and different management blades in the portal.
+
+## What it is
+
+Azure RBAC is the authorization layer of <Definition term="Azure Resource Manager (ARM)">The deployment and management plane for everything in Azure — the single control-plane API that every Azure resource operation flows through, whether you call it from the portal, the CLI, PowerShell, an SDK, or a REST client. Because every resource management request goes through ARM, ARM is the natural place to enforce authorization. Azure RBAC is the authorization model ARM consults on every control-plane request.</Definition>. When a principal asks ARM to do something — start a VM, read a storage blob, create a network security group — ARM checks Azure RBAC to decide whether that principal is allowed to perform that action at that scope.
+
+<Definition term="Azure RBAC">The authorization system that controls access to Azure resources through Azure Resource Manager. It works by creating role assignments: a security principal is granted a role (a set of permitted actions) at a particular scope. It governs what an authenticated identity can DO to Azure resources — distinct from Entra ID directory roles, which govern administration of the Entra directory itself.</Definition>
+
+The single most important distinction to lock in first is **Azure RBAC roles versus Entra ID (directory) roles.** They sound similar and people routinely mix them up:
+
+- **Azure RBAC roles** control access to *Azure resources* through ARM. Examples: Contributor on a resource group, Storage Blob Data Reader on a storage account, Virtual Machine Contributor on a subscription. These answer "what can this identity do to my cloud infrastructure?"
+- **Entra ID (directory) roles** control administration of *Entra ID itself* — the directory. Examples: Global Administrator, User Administrator, Privileged Role Administrator. These answer "what can this identity do inside the directory?" (create users, reset passwords, manage Conditional Access). Entra directory roles are covered in Module 3.
+
+A user can be a Global Administrator in Entra (full control of the directory) and have *zero* access to any Azure resource, because that is a separate grant in a separate system. The reverse is also true: an Owner on a subscription does not, by virtue of that, get any directory privileges. The two systems intersect only in the sense that an Entra Global Administrator can, if they choose, elevate themselves to manage Azure RBAC across all subscriptions — but that is an explicit, auditable action, not an automatic inheritance.
+
+## Why it exists
+
+Before Azure RBAC, Azure used the classic subscription administrator model — Account Administrator, Service Administrator, Co-Administrator. That model had exactly one privilege level worth mentioning: effectively full control of the entire subscription. There was no way to say "this person can manage the VMs in the production resource group but cannot touch networking, and cannot see anything in the finance subscription at all." It was all-or-nothing per subscription, which is the opposite of least privilege.
+
+Azure RBAC exists to make authorization **granular and scoped**. It lets you grant exactly the permissions an identity needs, at exactly the scope it needs them, and nothing more — the cloud-resource expression of the same least-privilege principle that NIST SP 800-53 AC-6 calls for. As organizations moved from one subscription with three administrators to dozens of subscriptions, hundreds of resource groups, and thousands of human and workload identities, the classic model became unworkable. Azure RBAC, layered on ARM and integrated with Entra ID as the identity source, is what made governed multi-subscription Azure possible.
+
+## How it works under the hood
+
+### The three elements of a role assignment
+
+Every grant of access in Azure RBAC is a **role assignment**, and a role assignment is always the combination of three things:
+
+> **security principal** + **role definition** + **scope**
+
+Think of it as a sentence: *this principal can do these actions at this scope.*
+
+1. **Security principal** — *who* gets the access. This can be a user, a group, a service principal (an application), or a managed identity. Assigning to groups rather than individual users is the strongly recommended practice; it keeps the assignment count down and makes joiner-mover-leaver changes a matter of group membership.
+2. **Role definition** — *what* they can do. A role definition is a named collection of permissions, expressed as four arrays: `Actions` (allowed control-plane operations), `NotActions` (operations subtracted from Actions), `DataActions` (allowed data-plane operations, like reading the bytes of a blob), and `NotDataActions` (data-plane subtractions). Effective permissions for a role are `Actions` minus `NotActions`, and `DataActions` minus `NotDataActions`.
+3. **Scope** — *where* the access applies.
+
+<Definition term="role definition">A named collection of permissions in Azure RBAC, defined by four arrays: Actions (allowed management operations), NotActions (operations excluded from Actions), DataActions (allowed data-plane operations such as reading blob contents), and NotDataActions (data-plane exclusions). Built-in role definitions are managed by Microsoft; custom role definitions are authored by you.</Definition>
+
+### The scope hierarchy — four levels, inherited downward
+
+Scope is where Azure RBAC gets its power and its subtlety. There are four scope levels, from broadest to narrowest:
+
+> **management group → subscription → resource group → resource**
+
+<Definition term="management group">The top level of the Azure scope hierarchy, above subscriptions. A management group is a container you use to organize multiple subscriptions and apply governance — role assignments and Azure Policy — to all of them at once. A role assignment at a management group is inherited by every subscription, resource group, and resource beneath it. Management groups can be nested, and all of them roll up to a single tenant root management group.</Definition>
+
+<Definition term="scope">The set of resources to which a role assignment applies. In Azure RBAC, scope is one of four levels — management group, subscription, resource group, or resource — and an assignment made at one level is inherited by everything below it. Granting at the narrowest scope that satisfies the requirement is the least-privilege practice.</Definition>
+
+The critical rule: **assignments are inherited downward.** A role granted at a subscription applies to every resource group and resource inside that subscription. A role granted at a management group applies to every subscription under it. This is what lets you set broad organizational baselines high in the hierarchy and narrow, specific grants low in it.
+
+When a principal has *multiple* role assignments that apply to a given resource — say, Reader at the subscription and Contributor on one resource group inside it — the effective permissions are the **union** of all applicable assignments. Azure RBAC is additive: the principal in that example has Contributor on resources in that one resource group (Reader plus Contributor unions to the broader set) and Reader everywhere else in the subscription. Two assignments never cancel each other out, and unioning two roles never magically produces a third role like Owner.
+
+### How Azure RBAC evaluates a request — and how that differs from AWS
+
+This is worth contrasting deliberately with the AWS policy-evaluation model from section 01, because the two clouds reason about access very differently and exams love to probe the difference.
+
+- **Azure is additive for Allow.** There is no concept of "denied because you were not explicitly allowed by every guardrail." If any applicable role assignment grants the action, and no deny assignment blocks it, the action is allowed. Effective access is the union of all role assignments at and above the resource's scope.
+- **Deny assignments override Allow.** Azure has a separate construct — the deny assignment — that *blocks* specific actions for specific principals at a scope, and a deny assignment wins over any role assignment that would otherwise allow the action.
+
+<Definition term="deny assignment">An Azure RBAC construct that blocks specific actions for specified principals at a scope, overriding any role assignment that would otherwise allow them. Deny assignments are created and managed by Azure itself — through Azure Blueprints, Azure managed applications, deployment stacks, Azure Policy, and Microsoft Defender for Cloud — to protect governed resources. You cannot author a deny assignment directly the way you create a role assignment.</Definition>
+
+So the Azure precedence is short: **deny assignment > role-assignment Allow > default no access.** Compare that to AWS, where the request starts at implicit deny, an explicit Deny in *any* policy wins, and then the action must be allowed by *each* applicable guardrail (SCP, resource policy, permission boundary, session policy, identity policy) before it succeeds. AWS layers multiple restrictive policy types that each must allow; Azure simply unions allows and lets a comparatively rare deny assignment override them.
+
+<ProTip>
+Hold the three cloud evaluation models side by side as you study. **AWS:** start denied, explicit deny always wins, then each guardrail (SCP, boundary, session, identity/resource policy) must allow — boundaries and SCPs only restrict, never grant. **Azure:** additive union of role-assignment allows, with deny assignments (created only by Azure, not by you) overriding. **GCP** (next section): additive union of allow policies, with deny policies evaluated first. All three let a deny override an allow, but only AWS makes you pass through a stack of restrictive policy types to get a yes.
+</ProTip>
+
+### Built-in roles versus custom roles
+
+Azure ships a large catalog of **built-in roles** maintained by Microsoft. Four general-purpose ones cover most situations and are worth memorizing cold:
+
+| Built-in role | What it grants | The catch |
+| --- | --- | --- |
+| **Owner** | Full access to manage all resources, **including the right to assign roles** (delegate access) | The only general role that can grant access to others |
+| **Contributor** | Full access to create and manage all resources | **Cannot grant access to others** — no role-assignment rights |
+| **Reader** | View all resources | Read-only; no changes |
+| **User Access Administrator** | Manage user access (assign roles) | Can delegate access but **cannot manage the resources themselves** |
+
+The Owner-versus-Contributor distinction is the classic exam item: both can fully manage resources, but only **Owner** can hand out access. User Access Administrator is the mirror image of Contributor — it can manage who has access but cannot touch the resources. Beyond these four, Microsoft publishes hundreds of fine-grained, service-specific built-in roles (for example, **Storage Blob Data Reader**, **Virtual Machine Contributor**, **Key Vault Secrets User**). Prefer the narrowest built-in role that fits before reaching for a custom one.
+
+When no built-in role fits, you author a **custom role**: a JSON definition with the same `Actions`, `NotActions`, `DataActions`, and `NotDataActions` arrays as a built-in role, plus an `AssignableScopes` array declaring where the role is allowed to be assigned. Custom roles count against tenant limits — a tenant supports up to 5,000 custom roles, and a single subscription supports up to 4,000 role assignments (the standard limits at the time of writing; confirm current figures in Microsoft Learn before a sitting). The right answer when you start brushing against the role-assignment ceiling is almost always to assign roles to **groups** rather than individual principals, which collapses many assignments into one.
+
+### Managed identities — the role-assignment angle <SC300Badge />
+
+Module 3 introduced managed identities at the identity level: a **system-assigned** managed identity is tied one-to-one to a single Azure resource and shares that resource's lifecycle, while a **user-assigned** managed identity is a standalone object you can attach to many resources. Both let an Azure-hosted workload obtain an Entra token with no secret stored in code. (See Module 3 → Entra ID for the system-versus-user distinction and how the workload retrieves its token from the metadata endpoint.)
+
+The Module 7 value-add is the authorization half of the story. A managed identity is just another **security principal**, so you grant it access to Azure resources the same way you grant access to a user or group: **you create a role assignment that gives the managed identity a role at a scope.** For example, you assign a virtual machine's system-assigned managed identity the **Storage Blob Data Reader** role on a specific storage account. From that point the VM's workload can read blobs from that account using a token the platform issues and rotates automatically — no connection string, no access key, no secret anywhere in code or configuration.
+
+This is the heart of **secretless workload access** in Azure, and it is where the resource-authorization layer and the identity layer meet. Entra ID issues the workload a token that proves *who* it is; the Azure RBAC role assignment you create defines *what* that token can touch. Get the scope right — assign at the single storage account, not at the subscription — and you have a workload identity that follows least privilege by construction.
+
+<ProTip>
+When you grant a managed identity a role, assign it the *data-plane* role, not just a control-plane role, if the workload needs to read or write the actual data. A common stumbling block: an app's managed identity is given **Reader** or **Contributor** on a storage account but still gets "authorization failed" reading blob contents, because reading blob bytes is a `DataAction` covered by **Storage Blob Data Reader**, not by the management-plane Contributor role. Control-plane roles manage the resource; data-plane roles touch the data inside it.
+</ProTip>
+
+### Azure Policy — a different question entirely
+
+Azure RBAC and **Azure Policy** are frequently confused because both are "governance," but they answer fundamentally different questions:
+
+- **Azure RBAC** controls *who can perform which actions* on resources.
+- **Azure Policy** controls *what resource configurations are allowed to exist.*
+
+<Definition term="Azure Policy">A governance service that evaluates Azure resources against rules (policy definitions) and enforces or reports on configuration compliance — for example, deny creation of public IP addresses, require a specific tag, or audit untagged resources. It governs the configuration of resources, not who can act on them, with effects including Audit, Deny, Append, Modify, and DeployIfNotExists. Multiple policies are grouped into initiatives (policy sets).</Definition>
+
+Azure Policy does not care *who* is acting — it cares about the *shape* of the resource. A policy with a **Deny** effect that blocks public blob access will stop even an **Owner** from creating a non-compliant storage account, because the policy evaluates the configuration of the request, not the requester's role. Policy effects include **Audit** (log non-compliance), **Deny** (block the operation), **Append** and **Modify** (alter the request), and **DeployIfNotExists** (deploy a remediation resource when something is missing). You bundle related policies into an **initiative** (a policy set) to manage them as a unit.
+
+The cross-cloud parallel worth carrying forward: Azure Policy is the rough analog of AWS configuration guardrails (Config rules, and the configuration-shaping side of SCPs/RCPs), **not** the analog of AWS identity permissions. RBAC governs identity permissions; Policy governs resource configuration. Keep them in separate mental buckets.
+
+### Azure Lighthouse — cross-tenant delegated management
+
+One more piece matters if you ever manage Azure for someone other than your own organization — directly relevant to the consulting and MSP path. **Azure Lighthouse** enables **cross-tenant delegated resource management**: a service provider manages a customer's Azure resources from the provider's *own* Entra tenant, through **delegated role assignments** scoped to the customer's subscription or resource group, without ever creating guest accounts in the customer's tenant.
+
+The customer's administrator onboards the provider once, choosing which built-in roles the provider's users and groups receive and at which scope. The provider's engineers then see and manage the delegated resources alongside their own from a single pane, using their home-tenant identities. Lighthouse keeps the authorization model clean: it is still ordinary Azure RBAC role assignments — they are simply projected across the tenant boundary — so everything you know about scope, built-in roles, and least privilege still applies. For an MSP managing dozens of customer tenants, this beats juggling dozens of guest accounts and dozens of sets of credentials.
+
+## War story
+
+<WarStory title="The Contributor Who Could Not Grant — and the Owner Sprawl It Caused">
+A mid-size insurer was standing up its first governed Azure environment — three subscriptions (prod, non-prod, shared services) under a single management group, about 60 engineers. The platform team, trying to do the right thing, decided no one would be Owner; everyone doing real work would get **Contributor** at the appropriate resource group, and only two platform leads would hold **Owner** at the subscription for the rare role-assignment task.
+
+It worked for about a week. Then the tickets started. A senior engineer needed to give a new contractor read access to one resource group so they could troubleshoot. As a Contributor, the engineer could create, delete, and reconfigure every resource in that group — but when they opened Access control (IAM) and clicked Add role assignment, the operation failed. Contributor cannot assign roles. Every small access change now funneled to the two overworked platform leads, who became a bottleneck. Within a month, under pressure, the leads started handing out **Owner** at the resource-group scope "just so people can manage their own access." Owner sprawl — the exact thing the design was meant to prevent — crept back in through the path of least resistance.
+
+The fix was the role nobody had reached for: **User Access Administrator.** The platform team granted a small number of team leads User Access Administrator at their team's resource group, *in addition* to Contributor. That combination — Contributor (manage the resources) plus User Access Administrator (manage who has access to those resources) — gave team leads exactly what they needed to delegate read access to contractors without making them Owner of anything. The two roles unioned cleanly because Azure RBAC is additive. They then layered Entra PIM (Module 3) on top so even those elevated grants were eligible-not-active and time-bound.
+
+The lesson generalizes across every environment. In a bank, the same mistake produces over-privileged Owners on the subscription that holds the core-banking workload — a finding every examiner writes up. In a government tenant, where separation of duties is mandated, the Contributor-versus-Owner-versus-User-Access-Administrator distinction is not a convenience, it is a control. The takeaway: do not reach for Owner to solve a delegation problem. Owner is full control *plus* the right to grant access; if all someone needs is to grant access, that is precisely what User Access Administrator is for. Match the built-in role to the actual need, and let Azure RBAC's additive model compose the rest.
+</WarStory>
+
+## Recall drill
+
+<Flashcard front="What is the difference between Azure RBAC and Entra ID (directory) roles?" back="Azure RBAC controls access to Azure resources through Azure Resource Manager (e.g. Contributor on a resource group). Entra ID directory roles control administration of the Entra directory itself (e.g. Global Administrator). They are separate authorization systems with separate role catalogs and are routinely confused on exams." />
+<Flashcard front="What three elements make up an Azure RBAC role assignment?" back="A security principal (user, group, service principal, or managed identity), a role definition (a set of allowed Actions and DataActions), and a scope. The assignment is the sentence: this principal can do these actions at this scope." />
+<Flashcard front="List the four Azure RBAC scope levels from broadest to narrowest." back="Management group, subscription, resource group, resource. Role assignments are inherited downward, so an assignment at a parent scope applies to all child resources beneath it." />
+<Flashcard front="How does Azure RBAC combine multiple role assignments that apply to the same resource?" back="Additively. Effective permissions are the union of all role assignments at and above the resource scope. There is no deny from omission; assignments never cancel out, and a separate deny assignment, if present, overrides the allows." />
+<Flashcard front="Compare the Owner, Contributor, Reader, and User Access Administrator built-in roles." back="Owner has full access including the right to assign roles. Contributor has full management access but cannot grant access to others. Reader can only view. User Access Administrator can manage access (assign roles) but cannot manage the resources themselves." />
+<Flashcard front="When do you need an Azure custom role, and what defines it?" back="When no built-in role fits the requirement. A custom role is a JSON definition specifying Actions, NotActions, DataActions, NotDataActions, and AssignableScopes (the scopes where the role may be assigned)." />
+<Flashcard front="How does a managed identity get permission to act on an Azure resource?" back="You create a role assignment that gives the managed identity a role at a scope, exactly like any other security principal (e.g. assign a VM system-assigned managed identity Storage Blob Data Reader on a storage account). This is the basis of secretless workload access in Azure." />
+<Flashcard front="What is the difference between Azure RBAC and Azure Policy?" back="Azure RBAC controls who can perform actions on resources. Azure Policy controls what resource configurations are allowed to exist (e.g. deny public IPs, require tags) with effects like Audit, Deny, Modify, and DeployIfNotExists. They are complementary governance layers, not the same thing." />
+<Flashcard front="A deny assignment and a role assignment both apply to a principal. Which wins, and who creates deny assignments?" back="The deny assignment wins; in Azure RBAC a deny assignment overrides any role-assignment allow. Deny assignments are created and managed by Azure itself (Blueprints, managed apps, deployment stacks, Azure Policy, Defender for Cloud), not directly by administrators." />
+<Flashcard front="What does Azure Lighthouse enable?" back="Cross-tenant delegated resource management. A service provider manages a customer's Azure resources from the provider's own tenant via delegated role assignments scoped to the customer's subscription or resource group, with no guest accounts in the customer tenant." />
+<Flashcard front="In a role definition, what is the difference between Actions and DataActions?" back="Actions are control-plane (management) operations on a resource, such as creating or deleting a storage account. DataActions are data-plane operations on the data inside it, such as reading a blob's bytes. A control-plane role like Contributor does not include the DataActions needed to read blob contents." />
+<Flashcard front="How does the Azure RBAC evaluation model differ from the AWS policy-evaluation model?" back="Azure is additive: union the role-assignment allows, and a deny assignment overrides. AWS starts at implicit deny, lets an explicit Deny in any policy win, then requires the action to pass each applicable guardrail (SCP, resource policy, permission boundary, session policy, identity policy) before allowing. AWS stacks restrictive policy types; Azure simply unions allows." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "07-cloud-iam/02-azure-rbac/q1",
+  prompt: "A user is assigned the Reader role at the subscription scope and the Contributor role at a specific resource group within that subscription. What are the user's effective permissions on a virtual machine inside that resource group?",
+  options: [
+    "Reader only — the higher subscription-scoped assignment takes precedence over the lower one.",
+    "Contributor — effective permissions are the union of all assignments at and above the resource scope, and Contributor is the broader grant.",
+    "No access — the two conflicting assignments cancel each other out.",
+    "Owner — combining two roles on the same resource escalates the principal to Owner."
+  ],
+  correctIndex: 1,
+  explanation: "Azure RBAC is additive: the effective permission set is the union of all role assignments at and above the resource's scope. Reader at the subscription plus Contributor at the resource group yields Contributor on resources in that group. Assignments do not cancel, the lower scope does not simply override, and unioning two roles never produces a third role like Owner."
+}} />
+
+<Quiz question={{
+  id: "07-cloud-iam/02-azure-rbac/q2",
+  prompt: "A governance requirement states that no one may create storage accounts that allow public blob access, regardless of their role — even an Owner must be blocked. Which Azure mechanism enforces this?",
+  options: [
+    "Assign everyone the Reader role on all storage accounts.",
+    "An Azure Policy with a Deny effect on the public-access configuration; RBAC controls who can act, while Azure Policy controls which resource configurations are allowed.",
+    "A custom RBAC role that lists public blob access under NotActions.",
+    "An Azure Lighthouse delegation scoped to the storage resource group."
+  ],
+  correctIndex: 1,
+  explanation: "Azure RBAC governs who can perform actions; it cannot express what a resource's configuration must look like. Azure Policy does exactly that — a Deny-effect policy blocks creating or updating a storage account with public blob access even for an Owner, because the policy evaluates the request's configuration rather than the requester's role. The two systems are complementary."
+}} />
+
+<Quiz question={{
+  id: "07-cloud-iam/02-azure-rbac/q3",
+  prompt: "A virtual machine's system-assigned managed identity has been given the Contributor role on a storage account, but the app running on the VM gets an authorization failure when it tries to read blob contents. What is the most likely cause and fix?",
+  options: [
+    "Managed identities cannot access storage; the app must use a stored connection string instead.",
+    "Contributor is a control-plane role and does not include the DataActions to read blob bytes; assign the data-plane role Storage Blob Data Reader at the storage account scope.",
+    "The Contributor assignment must be made at the subscription scope before it works on the storage account.",
+    "The VM needs a user-assigned managed identity; system-assigned identities cannot be granted RBAC roles."
+  ],
+  correctIndex: 1,
+  explanation: "Reading blob contents is a data-plane operation (a DataAction). Contributor is a control-plane role that can manage the storage account but does not grant the DataActions needed to read the data inside it. The fix is to assign a data-plane role such as Storage Blob Data Reader to the managed identity at the storage account scope. Managed identities are ordinary security principals and are granted access via role assignments like any other."
+}} />

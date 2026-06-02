@@ -1,0 +1,236 @@
+{/* Seeded scaffolding — personalize every template from your own environment. Confirm any dollar figures, breach benchmarks, and vendor certifications before you put them in front of a stakeholder. */}
+
+<HoloPanel label="HOW TO USE THIS">
+This section is **scaffolding, not a lecture.** It hands you four reusable artifacts — a stakeholder map, a business-case skeleton, an ALE worked example, and a vendor-evaluation checklist — plus the framing to fill them in.
+
+- Work through the **fill-in prompts** as you read. They tie each framework to your real environment (Richwood Bank, the Guard, the consulting practice).
+- The templates are **copy-paste starting points**. Replace every placeholder and every bracketed figure with your own numbers.
+- The win here is not exam recall — it is a set of artifacts you can take into a budget meeting or a paid client engagement next week.
+</HoloPanel>
+
+# Stakeholders & Budget
+
+A roadmap is only as good as the funding behind it, and funding is a human problem before it is a financial one. The technical case for an IAM initiative is usually the easy part — you already know PAM matters, you already know access reviews close audit findings. What separates the engineer who *runs the program* from the one who *files the tickets* is the ability to walk a recommendation through the people who control the money, translate it into each of their languages, and defend a number when Finance pushes back.
+
+This section gives you the tools to do that: map who has a stake, build a business case that survives scrutiny, defend a budget, and score a vendor without getting talked into the shiniest demo.
+
+## Map the Stakeholders Before You Map the Solution
+
+<HoloPanel label="STAKEHOLDER MAPPING — WHO HAS A STAKE">
+
+Every IAM decision touches more people than the IAM team. Before you ask for a dollar, list everyone with **influence over** or **interest in** the outcome:
+
+- **CISO / CIO** — own the risk posture and the budget envelope.
+- **IT Operations** — live with the tool day to day; their buy-in or resistance makes or breaks adoption.
+- **Application owners** — care most about one thing: no disruption to their app.
+- **HR** — the source of truth for the joiner-mover-leaver lifecycle. If HR data is dirty, your provisioning automation inherits the dirt.
+- **Internal Audit** — want evidence and control coverage they can show an examiner.
+- **Compliance / Risk** — translate regulation into requirements you have to meet.
+- **Legal / Privacy** — care about data handling, retention, and contracts.
+- **Finance** — want ROI, total cost of ownership, and a defensible payback.
+- **Board / risk committee** — want risk reduction expressed in dollars and trend.
+- **End users** — want fewer passwords and fewer interruptions, and they vote with their support tickets.
+
+Two tools turn that list into a plan:
+
+**The power/interest grid.** Plot each stakeholder on two axes — how much *power* they have over the decision, and how much *interest* they have in it. That tells you how to engage:
+
+| | Low interest | High interest |
+|---|---|---|
+| **High power** | Keep satisfied | Manage closely |
+| **Low power** | Monitor | Keep informed |
+
+The grid is standard stakeholder-management practice (often attributed to the Mendelow power/interest lineage). You do not spend equal energy on everyone — you spend it where power and interest are both high.
+
+**RACI** turns the grid into operational ownership for a specific decision: who is **Responsible** (does the work), **Accountable** (owns the outcome — exactly one person), **Consulted** (gives input before the decision), and **Informed** (told after). The classic failure mode is two Accountable parties, or none.
+
+</HoloPanel>
+
+<Definition term="RACI">A responsibility-assignment model that labels each party on a decision as Responsible (does the work), Accountable (owns the outcome — exactly one per decision), Consulted (provides input before the decision is made), or Informed (notified of the result). It removes the ambiguity of who actually owns an IAM decision versus who merely has an opinion about it.</Definition>
+
+### Template 1 — Stakeholder Map
+
+Fill one row per stakeholder. Power and interest drive the engagement strategy; the RACI column ties each party to a specific IAM decision (for example, a PAM rollout).
+
+| Stakeholder | Role / Title | Power (H/M/L) | Interest (H/M/L) | What they care about | Engagement strategy | RACI on this decision |
+|---|---|---|---|---|---|---|
+| CISO | _____ | H | H | Risk posture, audit outcomes | Manage closely | Accountable |
+| CFO / Finance | _____ | H | M | ROI, TCO, payback | Keep satisfied | Consulted |
+| Internal Audit | _____ | M | H | Control coverage, evidence | Keep informed | Consulted |
+| HR | _____ | M | M | Clean JML data, no extra work | Keep informed | Responsible (lifecycle data) |
+| App owner | _____ | L | H | Zero disruption to their app | Keep informed | Consulted |
+| End users | _____ | L | M | Fewer passwords, fewer prompts | Monitor / communicate | Informed |
+| _____ | _____ | _ | _ | _____ | _____ | _____ |
+
+**Fill-in prompts:**
+- Map *your* Richwood Bank stakeholders into this grid by name. Who is genuinely high-power/high-interest, and who do you only *think* is?
+- Who is the single Accountable party for your next IAM funding decision? If you cannot name one person, that is the first problem to fix.
+- Which stakeholder is currently a blocker because you have been treating them as "Informed" when they should be "Consulted"?
+
+## Speak Each Stakeholder's Language
+
+<HoloPanel label="RE-FRAMING — SAME ASK, DIFFERENT LANGUAGE">
+
+The single recommendation — say, "fund a privileged access management rollout" — does not change. The *framing* changes per audience, because each stakeholder values a different outcome:
+
+- **Finance** hears it in **ROI and TCO**: what does it cost over its life, what does it save or avoid, when does it pay back?
+- **The Board** hears it in **risk reduced, in dollars**: what loss exposure does this retire, and what is the trend?
+- **Internal Audit** hears it in **control coverage and evidence**: which findings does this remediate, and what proof can we show the examiner?
+- **Application owners** hear it in **disruption avoided**: how do we roll this out without breaking their app or their change window?
+- **End users** hear it in **friction removed**: fewer passwords, fewer prompts, faster access.
+
+Same ask. Five translations. The mistake is presenting the *engineering* version to all five and wondering why only the engineers nodded.
+
+</HoloPanel>
+
+<ProTip>
+Re-framing is not spin and it is not hiding the cost. The underlying ask and the real number stay the same for every audience — you are choosing which *true* benefit to lead with. If you find yourself changing the number or burying the cost to improve approval odds, you have crossed from framing into manipulation, and audit will eventually find it.
+</ProTip>
+
+## Build a Business Case That Survives Scrutiny
+
+<HoloPanel label="BUSINESS CASE — STRUCTURE THAT HOLDS UP">
+
+A business case is a structured argument, not a wish list. The structure below survives a skeptical CFO because every section answers a question they are going to ask anyway:
+
+1. **Executive summary** — the ask, the cost, and the headline benefit in three sentences.
+2. **Problem & risk (in dollars)** — what is broken or exposed today, framed as loss exposure, not as a technical gap.
+3. **Options considered** — including "do nothing" and a cheaper alternative. Showing you considered alternatives is what makes the recommendation credible.
+4. **Recommendation** — the option you are advocating, and why.
+5. **Cost (TCO breakdown)** — license/subscription + implementation/professional services + ongoing run/opex (including any headcount) over the asset's life.
+6. **Benefit / ROI** — risk reduction, audit-finding avoidance, helpdesk password-reset cost reduction, provisioning-time savings, breach-cost avoidance.
+7. **Risks of not acting** — the cost of the status quo, made concrete.
+8. **The ask** — the specific dollar amount, timing, and decision you need.
+
+</HoloPanel>
+
+<Definition term="total cost of ownership (TCO)">The full lifetime cost of a tool, not just its sticker price: license or subscription fees plus implementation and professional services plus ongoing operational cost (support, maintenance, and the staff time to run it) across the asset's life. A SaaS IAM tool with a low annual license can still have a high TCO once integration and run costs are counted.</Definition>
+
+### Quantifying the Risk in Dollars
+
+Finance and the Board respond to numbers, so you need a way to turn "this is risky" into "this exposes us to roughly this much." The classic, citable primitive is **Annualized Loss Expectancy**:
+
+> **ALE = SLE × ARO**
+>
+> - **SLE** (Single Loss Expectancy) — the dollar loss from one occurrence of the event.
+> - **ARO** (Annualized Rate of Occurrence) — how many times per year you expect it.
+
+This framing comes straight from quantitative risk-assessment practice (NIST SP 800-30 covers risk assessment at the framework level, and the FAIR model — Factor Analysis of Information Risk, an Open Group standard — formalizes loss-exposure quantification). Use it to show the *reduction* a control buys you:
+
+**Worked example (figures are illustrative — replace with your own and confirm any benchmark before quoting it):**
+
+| | Before control | After control |
+|---|---|---|
+| SLE (loss per event) | $200,000 | $200,000 |
+| ARO (events per year) | 0.5 | 0.1 |
+| **ALE = SLE × ARO** | **$100,000/yr** | **$20,000/yr** |
+
+Annual risk-reduction benefit = $100,000 − $20,000 = **$80,000/yr**. Against a $40,000/yr tool cost, the spend looks justified on this metric alone — though a real case also weighs TCO, soft benefits, and the uncertainty in your ARO estimate.
+
+<Definition term="annualized loss expectancy (ALE)">The expected dollar loss from a risk over one year, computed as ALE = SLE × ARO, where SLE is the single-loss expectancy (dollar loss per occurrence) and ARO is the annualized rate of occurrence (expected events per year). It lets you express a control's value as the reduction in ALE it produces, which Finance and the Board can compare against the control's cost.</Definition>
+
+### Template 2 — Business-Case Skeleton
+
+Copy this outline and fill each heading. Keep the executive summary to three sentences — if you cannot, you do not yet understand the ask well enough to defend it.
+
+```
+1. Executive summary       — ask + cost + headline benefit (3 sentences)
+2. Problem & risk (in $)    — loss exposure today (use ALE = SLE × ARO)
+3. Options considered       — incl. "do nothing" + a cheaper alternative
+4. Recommendation           — chosen option + why
+5. Cost (TCO)               — license + implementation + run/opex + headcount
+6. Benefit / ROI            — risk reduction + finding avoidance + soft savings
+7. Risks of not acting      — concrete cost of the status quo
+8. The ask                  — $ amount, timing, decision needed
+```
+
+**Fill-in prompts:**
+- Pick one real Richwood initiative (funding a PAM rollout, or access-review tooling). Draft its problem statement as a dollar figure using ALE, not as a technical gap.
+- What is the honest "do nothing" cost for that initiative? Quantify it — that line often wins the argument.
+- For the consulting practice: how would you package *business-case development* as a billable, fixed-scope deliverable a client can buy?
+
+## Budgeting: Defending a Number
+
+IAM spend splits along two lines every Finance team understands:
+
+- **CapEx vs OpEx.** Traditional on-prem licenses and hardware were capital expenditure (depreciated over years). Cloud and SaaS IAM shift spend to operating expenditure — a recurring subscription. This matters because how a cost is classified changes how Finance budgets and approves it. A move to SaaS IAM is partly a CapEx-to-OpEx story, and saying so in Finance's language earns credibility.
+- **Run vs change.** "Run" is the cost of keeping the lights on for existing IAM services; "change" is the cost of new initiatives. Multi-year program funding (a sustained IAM program) is a different conversation than one-off project funding, and contingency belongs in both.
+
+To defend a number to Finance: show the TCO breakdown (not just the license), show the benefit side in their language, attach a payback period, and include a contingency line so you are not back asking for more in six months. A number you can decompose is a number you can defend.
+
+**Fill-in prompts:**
+- Which of your IAM costs are "run" and which are "change"? Splitting them is the first step to defending a program budget instead of a pile of projects.
+- Where would moving to a SaaS IAM tool shift spend from CapEx to OpEx, and is that a selling point or a problem for *your* Finance team's preferences?
+
+## Evaluate Vendors Without Getting Sold
+
+<HoloPanel label="VENDOR EVALUATION — THE DIMENSIONS THAT MATTER">
+
+Before you compare any two IAM tools, decide the dimensions you will score them on — and decide them *before* you sit through a demo, so the demo does not decide for you:
+
+- **Capability fit** — does it actually do what your capability gap requires?
+- **Integration / connector coverage** — does it connect to your real estate (HR system, directory, key apps)? This is where products quietly fail.
+- **Deployment model** — SaaS vs self-hosted, and which one fits your risk and ops model.
+- **Scalability** — does it hold up at your user and app count, with headroom?
+- **Vendor's own security posture** — SOC 2 (Type II), ISO/IEC 27001, and for federal/government work, FedRAMP authorization. These are the standard third-party assurance artifacts.
+- **Support & professional-services ecosystem** — can you get help, and are there partners who deliver it?
+- **Roadmap viability / vendor stability** — will this vendor still exist and invest in three years?
+- **Total cost of ownership** — the full TCO, not the headline license.
+- **Exit / portability** — how hard is it to get your data and config out if you leave?
+
+Underneath every tool selection is the **build vs buy vs managed-service** decision: build it yourself (max control, max burden), buy a product (the common path), or buy it as a managed service (someone else runs it). Score that choice explicitly rather than defaulting to "buy."
+
+</HoloPanel>
+
+<ProTip>
+SOC 2, ISO 27001, and FedRAMP are real, checkable assurance artifacts — but never assert that a specific vendor holds a specific certification from memory. Ask for the current report or authorization letter and check the scope and date. Certifications lapse, and scope often excludes the exact product module you are buying.
+</ProTip>
+
+### Template 3 — Vendor-Evaluation Criteria
+
+Assign a weight to each criterion now, before any demo. The weights become the rows of the RFP scoring matrix in the next section — agreeing them up front is what keeps the eventual selection defensible.
+
+| Criterion | Weight | Why it matters |
+|---|---|---|
+| Capability fit | _____ | Solves the actual gap, not a demo-friendly subset |
+| Integration / connector coverage | _____ | Connects to your real HR, directory, and apps |
+| Deployment model fit (SaaS / self-hosted) | _____ | Matches your risk and operating model |
+| Scalability | _____ | Holds up at your scale with headroom |
+| Vendor security posture (SOC 2 / ISO 27001 / FedRAMP) | _____ | Third-party assurance you can show audit |
+| Support & professional services | _____ | You can actually get help |
+| Roadmap viability / vendor stability | _____ | Vendor survives and invests for years |
+| Total cost of ownership | _____ | Full lifetime cost, not the license |
+| Exit / portability | _____ | You are not trapped if you leave |
+
+**Fill-in prompts:**
+- Weight these criteria for *your* next real selection. Which two would you weight highest, and can you defend that to a skeptical stakeholder?
+- For the consulting practice: facilitating a weighted vendor evaluation is itself a billable deliverable. How would you scope and price it?
+
+<WarStory title="The Budget Ask — fill this in from a real one">
+Use this shell to capture a budget ask you have actually lived through — one that won, or one that lost. Reflecting on a real outcome teaches more than any framework.
+
+- **The ask:** What did you request, and how much?
+- **The audience:** Who held the money, and how did you frame it to them?
+- **What landed (or didn't):** Which argument moved the decision — the dollars, the risk, the audit finding, the user friction? Or what killed it — a number you couldn't defend, a stakeholder you mis-mapped, a benefit you couldn't quantify?
+- **What you'd change:** If you re-ran this with the templates above, what would you do differently — re-map a stakeholder, re-frame for the audience, or quantify the risk in dollars instead of describing it?
+
+Write it out. This becomes a story you can tell in an interview, a board meeting, or a sales call.
+</WarStory>
+
+## Recall & Reflection
+
+<Quiz question={{ id: "10-program-leadership/02-stakeholders-and-budget/q1", prompt: "You are presenting the same PAM funding request to the CFO and to Internal Audit. What should change between the two versions?", options: ["Nothing — the business case should be identical for fairness", "The framing: the CFO version leads with TCO, ROI, and payback, while the Audit version leads with control coverage, evidence, and the findings the tool remediates", "Only the cover slide; the body stays the same", "The CFO version should hide the cost to improve approval odds"], correctIndex: 1, explanation: "Stakeholders value different outcomes, so you re-frame the same recommendation in each audience's language — dollars, ROI, and payback for Finance; control coverage and evidence for Audit. You do not change the underlying ask or hide the cost; that crosses from framing into manipulation." }} />
+
+<Quiz question={{ id: "10-program-leadership/02-stakeholders-and-budget/q2", prompt: "An IAM initiative has SLE = 200,000 dollars and ARO = 0.5. A 40,000-dollar-per-year tool reduces ARO to 0.1. What is the annual risk-reduction benefit, and does the spend look justified on this metric alone? (Figures are illustrative.)", options: ["Benefit = 80,000 dollars per year (ALE drops from 100k to 20k); the 40k spend is justified on risk reduction alone", "Benefit = 200,000 dollars per year; spend trivially justified", "Benefit = 40,000 dollars per year; spend exactly breaks even", "ALE cannot be computed from SLE and ARO"], correctIndex: 0, explanation: "ALE = SLE multiplied by ARO. Before: 200k times 0.5 = 100k per year. After: 200k times 0.1 = 20k per year. The reduction is 80k per year against a 40k per year cost — a positive net on this metric. A real case would also weigh TCO, soft benefits, and the uncertainty in the ARO estimate." }} />
+
+<Flashcard front="What does a power/interest grid tell you about a stakeholder?" back="How to engage them. High power plus high interest equals manage closely; high power plus low interest equals keep satisfied; low power plus high interest equals keep informed; low power plus low interest equals monitor. You spend your engagement energy where power and interest are both high." />
+
+<Flashcard front="What does RACI stand for, and what is its core rule?" back="Responsible (does the work), Accountable (owns the outcome), Consulted (gives input before the decision), Informed (told after). The core rule: exactly one Accountable party per decision — never two, never zero." />
+
+<Flashcard front="What is Total Cost of Ownership (TCO) for an IAM tool?" back="The full lifetime cost: license or subscription, plus implementation and professional services, plus ongoing run and operational cost including the headcount to operate it — not just the sticker license price." />
+
+<Flashcard front="What is the ALE formula used to quantify risk in a business case?" back="Annualized Loss Expectancy = Single Loss Expectancy multiplied by Annualized Rate of Occurrence (ALE = SLE times ARO). A control's value is expressed as the reduction in ALE it produces, which Finance and the Board can compare against the control's cost." />
+
+<Flashcard front="Why must an IAM business case be re-framed per audience?" back="Different stakeholders value different outcomes: Finance wants ROI and TCO, the Board wants risk reduction in dollars, auditors want control coverage and evidence, and application owners want zero disruption. The ask stays the same; the framing changes per audience." />
+
+<Flashcard front="Name three standard vendor-assurance artifacts to check when evaluating an IAM vendor." back="SOC 2 (Type II), ISO/IEC 27001, and FedRAMP authorization for federal or government work. Never assert a specific vendor holds one from memory — ask for the current report and check its scope and date, since certifications lapse and scope often excludes the exact module you are buying." />

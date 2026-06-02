@@ -52,8 +52,8 @@
     "title": "Cloud IAM",
     "phase": 3,
     "order": 7,
-    "summary": "Identity across AWS, Azure, and GCP. (Phase 3 — Coming)",
-    "sections": []
+    "summary": "Identity across AWS, Azure, and GCP.",
+    "sections": ["01-aws-iam", "02-azure-rbac", "03-gcp-iam", "04-multi-cloud-strategy", "05-ciem"]
   },
   {
     "id": "08-security-detection",
@@ -68,16 +68,16 @@
     "title": "Compliance & Audit",
     "phase": 3,
     "order": 9,
-    "summary": "Proving it to the auditors. (Phase 3 — Coming)",
-    "sections": []
+    "summary": "Proving it to the auditors.",
+    "sections": ["01-control-frameworks", "02-financial-and-payment", "03-privacy-and-federal", "04-iam-controls-matrix", "05-audit-prep-playbook"]
   },
   {
     "id": "10-program-leadership",
     "title": "IAM Program Leadership",
     "phase": 3,
     "order": 10,
-    "summary": "Running the program, not just the tools. (Phase 3 — Coming)",
-    "sections": []
+    "summary": "Running the program, not just the tools.",
+    "sections": ["01-maturity-and-roadmap", "02-stakeholders-and-budget", "03-metrics-and-rfp", "04-career-architecture"]
   },
   {
     "id": "11-cert-roadmap",
