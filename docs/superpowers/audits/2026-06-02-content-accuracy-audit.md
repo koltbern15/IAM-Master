@@ -73,7 +73,9 @@
 
 ---
 
-## Flagged for your SME review (not auto-changed)
+## Follow-up items — flagged, then resolved same day (2026-06-02)
+
+> All three items below were resolved in a same-day follow-up sweep (commit after this report). (1) The CIEM section's remaining present-tense Entra Permissions Management references were cleaned up everywhere (HoloPanel, the PCI-metric intro, the native-analyzer "free floor" sentence, a flashcard, and the quiz option — relabeled to a live example, Wiz). (2) The FIDO2 title was corrected to **"Plan, implement, and manage Microsoft Entra user authentication."** (3) All **14** "SC-300:" alignment labels across the curriculum were checked against the authoritative current outline (MS Learn, *skills measured as of April 27, 2026*) — **8 were already correct, 6 were corrected**, including retiring the legacy "Implement an identity management solution" label (now "Implement and manage user identities") and adding the official "in Microsoft Entra" suffix to the access-reviews heading. Re-verified green (typecheck/lint/265 tests/build) and structural-clean. The original flags, for the record:
 
 1. **CIEM section (07-cloud-iam/05-ciem):** the two headline references to Entra Permissions Management are now past-tense with the retirement note, but the product is still named in present tense in ~4 lower-stakes spots (the PCI-metric intro, the native-analyzer list, a flashcard list item, a quiz option). Worth a quick consistency sweep — none are outright wrong as *concept* references, but they read as "live product."
 2. **fido2 lab HoloPanel line 4** still says *"SC-300: Plan and implement authentication methods."* It's the same suspect pattern as the names I fixed, but I couldn't confirm the exact current objective title, and the text itself marks it "informational, not a graded objective," so I left it. Confirm against the SC-300 study guide.
