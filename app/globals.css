@@ -72,6 +72,32 @@
   .ring-glow-cyan { box-shadow: 0 0 12px rgb(0 240 255 / 0.35); }
   .ring-glow-cyan-strong { box-shadow: 0 0 20px rgb(0 240 255 / 0.5); }
 
+  /* Autolinked heading anchors (rehype-autolink-headings, behavior: 'wrap').
+     The <a class="heading-anchor"> wraps the heading text; reveal a cyan '#'
+     marker + glow on hover/focus so headings read as deep-linkable. */
+  .heading-anchor {
+    color: inherit;
+    text-decoration: none;
+    position: relative;
+  }
+  .heading-anchor::before {
+    content: '#';
+    position: absolute;
+    left: -1.1em;
+    color: var(--color-cyan);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .heading-anchor:hover,
+  .heading-anchor:focus-visible {
+    color: var(--color-cyan);
+    text-shadow: 0 0 8px rgb(0 240 255 / 0.5);
+  }
+  .heading-anchor:hover::before,
+  .heading-anchor:focus-visible::before {
+    opacity: 0.85;
+  }
+
   @keyframes jarvis-scan-drift {
     from { background-position: 0 0; }
     to   { background-position: 0 100%; }
