@@ -5,7 +5,7 @@ import { ModuleDeck, type ModuleDeckItem } from './ModuleDeck'
 const ITEMS: ModuleDeckItem[] = [
   { id: '01-foundations', order: 1, title: 'IAM Foundations', summary: 'Why identity.', phase: 1, completed: 2, total: 3, pct: 67 },
   { id: '06-powershell', order: 6, title: 'PowerShell for IAM', summary: 'Force multiplier.', phase: 1, completed: 0, total: 3, pct: 0 },
-  { id: '04-pam', order: 4, title: 'Privileged Access', summary: 'Keys to the kingdom.', phase: 2, completed: 0, total: 0, pct: 0 },
+  { id: '04-pam', order: 4, title: 'Privileged Access', summary: 'Keys to the kingdom.', phase: 2, completed: 1, total: 4, pct: 25 },
 ]
 
 describe('ModuleDeck', () => {
@@ -23,11 +23,12 @@ describe('ModuleDeck', () => {
     expect(within(card).getByText('67%')).toBeInTheDocument()
   })
 
-  it('marks Phase 2/3 modules as coming instead of showing progress', () => {
+  it('shows section progress for authored Phase 2/3 modules instead of marking them coming', () => {
     render(<ModuleDeck items={ITEMS} />)
     const card = screen.getByText('Privileged Access').closest('li') as HTMLElement
-    expect(within(card).getByText(/COMING \/\/ PHASE 2/)).toBeInTheDocument()
-    expect(within(card).queryByText(/SECTIONS/)).not.toBeInTheDocument()
+    expect(within(card).getByText('1/4 SECTIONS')).toBeInTheDocument()
+    expect(within(card).getByText('25%')).toBeInTheDocument()
+    expect(within(card).queryByText(/COMING/)).not.toBeInTheDocument()
   })
 
   it('links each card to its module route', () => {

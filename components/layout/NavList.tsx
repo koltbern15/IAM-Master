@@ -60,7 +60,7 @@ export function NavList({ onNavigate }: { onNavigate?: () => void }) {
                 onClick={onNavigate}
                 className="block rounded-[2px] px-3 py-1.5 transition-colors hover:bg-cyan/10 hover:text-cyan"
               >
-                ▸ {l.label}
+                <span aria-hidden="true">▸ </span>{l.label}
               </Link>
             </li>
           ))}

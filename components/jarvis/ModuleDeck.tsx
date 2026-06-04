@@ -60,13 +60,14 @@ export function ModuleDeck({ items }: ModuleDeckProps) {
     <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       {items.map((m) => {
         const c = PHASE[m.phase]
-        const done = m.total > 0 && m.completed === m.total
+        const authored = m.total > 0
+        const done = authored && m.completed === m.total
         return (
           <li key={m.id}>
             <Link
               href={`/modules/${m.id}`}
               aria-label={`Module ${m.order}: ${m.title}. ${
-                c.active ? `${m.completed} of ${m.total} sections complete.` : `Phase ${m.phase}, coming soon.`
+                authored ? `${m.completed} of ${m.total} sections complete.` : `Phase ${m.phase}, coming soon.`
               }`}
               className={cn(
                 'group relative flex h-full flex-col overflow-hidden rounded-[3px] border bg-panel-bg/80 p-3.5 backdrop-blur-sm transition-all',
@@ -93,7 +94,7 @@ export function ModuleDeck({ items }: ModuleDeckProps) {
               <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-text-muted">{m.summary}</p>
 
               <div className="mt-auto pt-3">
-                {c.active ? (
+                {authored ? (
                   <>
                     <div className="h-1 w-full overflow-hidden rounded-full bg-white/8">
                       <div className={cn('h-full rounded-full transition-all', done ? 'bg-nominal shadow-[0_0_8px_#00ff88]' : c.bar)} style={{ width: `${m.pct}%` }} />

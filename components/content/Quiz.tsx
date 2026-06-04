@@ -60,6 +60,7 @@ export function Quiz({ question }: QuizProps) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // `selected` gates the single-shot guard; `question` keys the option count.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional single-shot keybind; handleSelect is read fresh on each re-bind
   }, [selected, question])
 
   const answered = selected !== null
@@ -82,6 +83,7 @@ export function Quiz({ question }: QuizProps) {
               disabled={selected !== null}
               className={cn(
                 'w-full rounded-[2px] border px-4 py-2 text-left font-mono text-sm uppercase tracking-[0.05em] transition-all',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan',
                 selected === null && 'border-panel-border bg-panel-bg hover:bg-cyan/10 hover:border-cyan/50',
                 showAsRight && 'border-nominal/70 bg-nominal/12 text-nominal shadow-[0_0_12px_rgb(0_255_136/0.3)]',
                 showAsWrong && 'border-threat/70 bg-threat/12 text-threat shadow-[0_0_12px_rgb(255_32_64/0.3)] animate-[jarvis-glitch_400ms_steps(4,end)_1]',

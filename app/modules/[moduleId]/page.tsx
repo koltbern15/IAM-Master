@@ -7,20 +7,42 @@ import { ReadShell } from '@/components/layout/ReadShell'
 import { HoloPanel } from '@/components/jarvis/HoloPanel'
 import { getModule } from '@/lib/content'
 import { getSectionMeta, getSectionTitle } from '@/lib/sections'
-import { loadState } from '@/lib/progress'
+import { loadState, type StoredState, CURRENT_VERSION } from '@/lib/progress'
 import type { ModuleId } from '@/lib/types'
+
+/** Deterministic, localStorage-free initial state so SSR and the client's first
+ *  render match (no hydration mismatch). Real state loads in an effect on mount. */
+function emptyState(): StoredState {
+  return {
+    version: CURRENT_VERSION,
+    progress: { sections: {}, modules: {} },
+    quizzes: {},
+    flashcards: {},
+    streak: { currentDays: 0, lastStudyDate: '', longestDays: 0 },
+    session: { startedAt: '' },
+    activity: {},
+    settings: {
+      soundEnabled: false,
+      tutorModel: 'claude-sonnet-4-6',
+      sidebarCollapsed: false,
+      moduleExpanded: {}
+    },
+    tutorHistory: {}
+  }
+}
 
 export default function ModulePage() {
   const params = useParams<{ moduleId: string }>()
   const moduleId = params.moduleId
   const mod = getModule(moduleId as ModuleId)
 
-  const [state, setState] = useState(() => loadState())
+  const [state, setState] = useState<StoredState>(emptyState)
 
   useEffect(() => {
     function onChange() {
       setState(loadState())
     }
+    onChange()
     window.addEventListener('iam-mastery:state-change', onChange)
     return () => window.removeEventListener('iam-mastery:state-change', onChange)
   }, [])

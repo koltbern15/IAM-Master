@@ -85,6 +85,7 @@ export function FlashcardReview({ deck, title, backHref = '/flashcards' }: Flash
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keybind re-binds on the gating state; flip/grade are read fresh
   }, [current, flipped])
 
   const header = (
@@ -134,7 +135,7 @@ export function FlashcardReview({ deck, title, backHref = '/flashcards' }: Flash
               href={backHref}
               className="rounded-[3px] border border-cyan/40 bg-cyan/5 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan/80 transition-colors hover:border-cyan/70 hover:text-cyan"
             >
-              ▸ REVIEW ANOTHER DECK
+              <span aria-hidden="true">▸ </span>REVIEW ANOTHER DECK
             </Link>
           </div>
         </div>
@@ -157,7 +158,7 @@ export function FlashcardReview({ deck, title, backHref = '/flashcards' }: Flash
       </div>
       <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-text-dim">
         CARD {Math.min(pos + 1, queue.length)} / {queue.length}
-        <span className="ml-3 text-cyan/50">{current.sectionTitle}</span>
+        <span className="ml-3 text-cyan/60">{current.sectionTitle}</span>
       </div>
 
       {/* the card */}
@@ -167,6 +168,7 @@ export function FlashcardReview({ deck, title, backHref = '/flashcards' }: Flash
         aria-pressed={flipped}
         className={cn(
           'flex min-h-[220px] w-full flex-col items-center justify-center rounded-[4px] border px-8 py-10 text-center transition-all backdrop-blur-md',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan',
           flipped
             ? 'border-nominal/50 bg-nominal/5 shadow-[0_0_22px_rgb(0_255_136/0.18)]'
             : 'border-cyan/40 bg-cyan/4 shadow-[0_0_22px_rgb(0_240_255/0.16)]'
@@ -191,14 +193,14 @@ export function FlashcardReview({ deck, title, backHref = '/flashcards' }: Flash
           <button
             type="button"
             onClick={() => grade(false)}
-            className="flex items-center justify-center gap-2 rounded-[3px] border border-threat/50 bg-threat/8 px-4 py-3 font-mono text-xs uppercase tracking-[0.14em] text-threat transition-all hover:border-threat/80 hover:bg-threat/15"
+            className="flex items-center justify-center gap-2 rounded-[3px] border border-threat/50 bg-threat/8 px-4 py-3 font-mono text-xs uppercase tracking-[0.14em] text-threat transition-all hover:border-threat/80 hover:bg-threat/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan"
           >
             <X className="size-4" aria-hidden="true" /> Missed <span className="text-threat/50">[1]</span>
           </button>
           <button
             type="button"
             onClick={() => grade(true)}
-            className="flex items-center justify-center gap-2 rounded-[3px] border border-nominal/50 bg-nominal/8 px-4 py-3 font-mono text-xs uppercase tracking-[0.14em] text-nominal transition-all hover:border-nominal/80 hover:bg-nominal/15"
+            className="flex items-center justify-center gap-2 rounded-[3px] border border-nominal/50 bg-nominal/8 px-4 py-3 font-mono text-xs uppercase tracking-[0.14em] text-nominal transition-all hover:border-nominal/80 hover:bg-nominal/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan"
           >
             <Check className="size-4" aria-hidden="true" /> Got it <span className="text-nominal/50">[2]</span>
           </button>
@@ -207,7 +209,7 @@ export function FlashcardReview({ deck, title, backHref = '/flashcards' }: Flash
         <button
           type="button"
           onClick={flip}
-          className="flex w-full items-center justify-center gap-2 rounded-[3px] border border-cyan/40 bg-cyan/5 px-4 py-3 font-mono text-xs uppercase tracking-[0.14em] text-cyan/80 transition-all hover:border-cyan/70 hover:text-cyan"
+          className="flex w-full items-center justify-center gap-2 rounded-[3px] border border-cyan/40 bg-cyan/5 px-4 py-3 font-mono text-xs uppercase tracking-[0.14em] text-cyan/80 transition-all hover:border-cyan/70 hover:text-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan"
         >
           <RotateCcw className="size-4" aria-hidden="true" /> Reveal answer
         </button>
@@ -224,7 +226,7 @@ function EmptyState({ message, backHref }: { message: string; backHref: string }
         href={backHref}
         className="mt-4 inline-block rounded-[3px] border border-cyan/40 bg-cyan/5 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan/80 transition-colors hover:border-cyan/70 hover:text-cyan"
       >
-        ▸ BACK TO FLASHCARDS
+        <span aria-hidden="true">▸ </span>BACK TO FLASHCARDS
       </Link>
     </div>
   )

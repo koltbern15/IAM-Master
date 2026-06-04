@@ -37,8 +37,8 @@ describe('Sidebar', () => {
 
   it('renders footer links (Flashcards, Search, Progress)', () => {
     render(<Sidebar />)
-    expect(screen.getByText('▸ FLASHCARDS')).toBeInTheDocument()
-    expect(screen.getByText('▸ SEARCH')).toBeInTheDocument()
-    expect(screen.getByText('▸ PROGRESS')).toBeInTheDocument()
+    expect(screen.getByText('FLASHCARDS')).toBeInTheDocument()
+    expect(screen.getByText('SEARCH')).toBeInTheDocument()
+    expect(screen.getByText('PROGRESS')).toBeInTheDocument()
   })
 })

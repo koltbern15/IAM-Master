@@ -6,11 +6,23 @@ import { Settings } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { useSessionTimer, formatSessionTime } from '@/hooks/use-session-timer'
 import { loadState } from '@/lib/progress'
-import { computeMastery } from '@/lib/mastery'
+import { computeMastery, type MasterySummary } from '@/lib/mastery'
+
+/** Deterministic, localStorage-free placeholder so SSR and the client's first
+ *  render match (no hydration mismatch). Real mastery loads in an effect on mount. */
+function emptyMastery(): MasterySummary {
+  return {
+    totalPercent: 0,
+    completedSections: 0,
+    totalSections: 0,
+    phaseTotals: { 1: 0, 2: 0, 3: 0 },
+    phaseCompleted: { 1: 0, 2: 0, 3: 0 }
+  }
+}
 
 export function Topbar() {
   const seconds = useSessionTimer()
-  const [mastery, setMastery] = useState(() => computeMastery(loadState()))
+  const [mastery, setMastery] = useState<MasterySummary>(emptyMastery)
 
   useEffect(() => {
     const onChange = () => setMastery(computeMastery(loadState()))

@@ -90,7 +90,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             >
               <span>{a.label}</span>
               {a.hint && (
-                <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-cyan/50">{a.hint}</span>
+                <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-cyan/70">{a.hint}</span>
               )}
             </Command.Item>
           ))}

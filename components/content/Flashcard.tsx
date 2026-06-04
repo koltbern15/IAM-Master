@@ -32,6 +32,7 @@ export function Flashcard({ front, back }: FlashcardProps) {
       className={cn(
         'group my-4 w-full rounded-[3px] border border-cyan/40 bg-cyan/4 px-6 py-5 text-left transition-all backdrop-blur-md',
         'hover:border-cyan/70 hover:shadow-[0_0_18px_rgb(0_240_255/0.4)]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan',
         flipped ? 'border-nominal/50' : ''
       )}
     >

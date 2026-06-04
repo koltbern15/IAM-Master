@@ -6,7 +6,7 @@ import { HoloPanel } from '@/components/jarvis/HoloPanel'
 import { RadialSegmentRing } from '@/components/jarvis/RadialSegmentRing'
 import { TelemetryValue } from '@/components/jarvis/TelemetryValue'
 import { getAllModules } from '@/lib/content'
-import { loadState } from '@/lib/progress'
+import { loadState, type StoredState, CURRENT_VERSION } from '@/lib/progress'
 import { computeMastery } from '@/lib/mastery'
 import { usePanelGlitch } from '@/hooks/use-panel-glitch'
 
@@ -19,15 +19,37 @@ const TICKER = [
 
 const PHASE_COLOR = { 1: '#00f0ff', 2: '#ffb800', 3: '#808080' } as const
 
+/** Deterministic, localStorage-free initial state so SSR and the client's first
+ *  render match (no hydration mismatch). Real state loads in an effect on mount. */
+function emptyState(): StoredState {
+  return {
+    version: CURRENT_VERSION,
+    progress: { sections: {}, modules: {} },
+    quizzes: {},
+    flashcards: {},
+    streak: { currentDays: 0, lastStudyDate: '', longestDays: 0 },
+    session: { startedAt: '' },
+    activity: {},
+    settings: {
+      soundEnabled: false,
+      tutorModel: 'claude-sonnet-4-6',
+      sidebarCollapsed: false,
+      moduleExpanded: {}
+    },
+    tutorHistory: {}
+  }
+}
+
 export default function ProgressPage() {
   usePanelGlitch()
   const modules = getAllModules()
-  const [state, setState] = useState(() => loadState())
+  const [state, setState] = useState<StoredState>(emptyState)
 
   useEffect(() => {
     function onChange() {
       setState(loadState())
     }
+    onChange()
     window.addEventListener('iam-mastery:state-change', onChange)
     return () => window.removeEventListener('iam-mastery:state-change', onChange)
   }, [])

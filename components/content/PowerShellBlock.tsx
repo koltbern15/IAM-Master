@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, Children } from 'react'
+import { useState, useEffect, useRef, Children } from 'react'
 
 interface PowerShellBlockProps {
   title?: string
@@ -18,13 +18,17 @@ function extractText(node: React.ReactNode): string {
 
 export function PowerShellBlock({ title, children }: PowerShellBlockProps) {
   const [copied, setCopied] = useState(false)
+  const resetTimer = useRef(0)
   const text = Children.toArray(children).map(extractText).join('')
+
+  useEffect(() => () => window.clearTimeout(resetTimer.current), [])
 
   async function handleCopy() {
     try {
       await navigator.clipboard.writeText(text)
+      window.clearTimeout(resetTimer.current)
       setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
+      resetTimer.current = window.setTimeout(() => setCopied(false), 1500)
     } catch {
       // swallow
     }
