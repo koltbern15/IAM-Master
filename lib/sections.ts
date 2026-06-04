@@ -23,7 +23,11 @@ export interface SectionRef {
   sc300: boolean
 }
 
-/** Canonical titles, harvested from each section's MDX H1. */
+/**
+ * Curated short display labels for each section. These are intentionally
+ * human-facing labels and may differ from the section's in-body MDX H1 — several
+ * are deliberately shortened for navigation, cards, and other compact surfaces.
+ */
 const SECTION_TITLES: Record<string, string> = {
   '01-foundations/01-identity-crisis': 'The Identity Crisis',
   '01-foundations/02-lexicon': 'The IAM Lexicon',

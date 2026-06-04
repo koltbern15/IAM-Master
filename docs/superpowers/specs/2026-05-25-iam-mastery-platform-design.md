@@ -166,6 +166,8 @@ Each module folder may include:
 - `recipes.json` — PowerShell command recipes (Module 6 only)
 - `commands.json` — module-specific command bank (Modules 3, 6)
 
+> **As-built note (2026-06-03):** The JSON-sidecar model above was not how this shipped. There are no `recipes.json` / `flashcards.json` / `quizzes.json` sidecar files. PowerShell recipes live as a typed array in `lib/recipes.ts` (`export const IAM_RECIPES`), surfaced by `<CommandReference />`. Quiz and flashcard data are extracted from the inline `<Quiz>` / `<Flashcard>` MDX usages at runtime via `lib/content-index.ts` (no separate deck files). Section metadata lives in `lib/sections.ts`. This is the current source of truth; the sidecar wording is retained for history.
+
 #### `modules.json` schema
 
 Top-level registry of all modules, controls sidebar order and metadata:
@@ -352,6 +354,8 @@ The home page (`/`) is the HUD. Built from:
 
 **Library:** Fuse.js — pure client-side, no network.
 
+> **As-built note (2026-06-03):** No `search-index.json` file is emitted at build time. The search index is built in-memory on demand and memoized (`lib/content-index.ts` — `let cached` guards a single `build()` promise), drawing from the same inline-MDX extraction described in the §3.3 as-built note. The `SearchEntry` shape below still describes the index entries; only the "emit a JSON file at `next build`" mechanism changed.
+
 **Index build:** At `next build`, `lib/content.ts` walks the `content/` tree and emits `search-index.json` containing:
 
 ```ts
@@ -430,7 +434,7 @@ Stored in localStorage with a clear settings warning. Suitable for a private per
 Settings page provides:
 - **Export** — downloads full localStorage state as `iam-mastery-backup-YYYY-MM-DD.json`
 - **Import** — restores from a backup file
-- Weekly nudge after 7 days without an export
+- Weekly nudge after 7 days without an export — **CUT / deferred (2026-06-03):** export and import shipped and work; the 7-day reminder was intentionally not built. Not an open requirement.
 
 No auto-sync in Phase 1.
 
@@ -489,6 +493,8 @@ Targets, not hard limits.
 **Module 6 — PowerShell for IAM** (~4,000 words + structured recipes)
 - Fundamentals: pipeline, AD/Graph/Az modules, error handling, credential management
 - Cookbook (30 recipes in `recipes.json`): User Lifecycle, Group Management, Access Auditing, Security Hygiene, Automation Patterns
+
+> **As-built note (2026-06-03):** The 30-recipe target stays — it is the live goal. The cookbook is being expanded toward 30 recipes in `lib/recipes.ts` (the `IAM_RECIPES` array; not a `recipes.json` sidecar — see the §3.3 as-built note). This is a separate content lane; the target of 30 is unchanged.
 - Tips & tricks: `$PSDefaultParameterValues`, `Out-GridView -PassThru`, `Measure-Command`, `-WhatIf`/`-Confirm`, `ConvertTo-Json -Depth`, parallel iteration
 - `quizzes.json` — 8 questions including "write the command for X"
 - `flashcards.json` — 30 cards on cmdlet syntax

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   loadState,
   saveState,
@@ -7,6 +7,7 @@ import {
   markSectionIncomplete,
   setFlashcardProgress,
   recordQuizAttempt,
+  recordStudyActivity,
   resetState,
   STORAGE_KEY,
   CURRENT_VERSION,
@@ -141,5 +142,89 @@ describe('lib/progress', () => {
     expect(series).toHaveLength(14)
     // Last element is today (the series runs oldest → newest).
     expect(series[series.length - 1]).toBe(1)
+  })
+})
+
+describe('lib/progress — multi-day streak transitions', () => {
+  // Pin "today" so applyStudyActivity's today/yesterday math is deterministic.
+  const TODAY = '2026-06-03'
+  const YESTERDAY = '2026-06-02'
+  const THREE_DAYS_AGO = '2026-05-31'
+
+  /** Seeds a stored state whose streak claims a given lastStudyDate/counts. */
+  function seedStreak(lastStudyDate: string, currentDays: number, longestDays: number) {
+    const s = loadState()
+    s.streak.lastStudyDate = lastStudyDate
+    s.streak.currentDays = currentDays
+    s.streak.longestDays = longestDays
+    saveState(s)
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(`${TODAY}T08:00:00.000Z`))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('advances currentDays to 2 when the last study day was yesterday (consecutive)', () => {
+    seedStreak(YESTERDAY, 1, 1)
+
+    recordStudyActivity()
+
+    const after = loadState().streak
+    expect(after.currentDays).toBe(2)
+    expect(after.lastStudyDate).toBe(TODAY)
+    // longestDays follows the new high-water mark.
+    expect(after.longestDays).toBe(2)
+  })
+
+  it('resets currentDays to 1 when there is a multi-day gap (3+ days ago)', () => {
+    // Seed a prior streak of 5 with a 3-day gap; the gap must reset the count.
+    seedStreak(THREE_DAYS_AGO, 5, 5)
+
+    recordStudyActivity()
+
+    const after = loadState().streak
+    expect(after.currentDays).toBe(1)
+    expect(after.lastStudyDate).toBe(TODAY)
+    // longestDays preserves the previous max even though the current run reset.
+    expect(after.longestDays).toBe(5)
+  })
+
+  it('markSectionVisited advances a yesterday streak the same way recordStudyActivity does', () => {
+    seedStreak(YESTERDAY, 3, 3)
+
+    markSectionVisited('02-protocols/01-kerberos')
+
+    const after = loadState().streak
+    expect(after.currentDays).toBe(4)
+    expect(after.lastStudyDate).toBe(TODAY)
+    expect(after.longestDays).toBe(4)
+  })
+
+  it('longestDays tracks the max and is not lowered by a gap-driven reset to 1', () => {
+    seedStreak(THREE_DAYS_AGO, 2, 9)
+
+    markSectionVisited('02-protocols/02-saml')
+
+    const after = loadState().streak
+    expect(after.currentDays).toBe(1)
+    // A reset current run must never pull longestDays below its historical peak.
+    expect(after.longestDays).toBe(9)
+  })
+
+  it('a second touch on the same calendar day does not advance the streak again', () => {
+    seedStreak(YESTERDAY, 1, 1)
+
+    recordStudyActivity() // yesterday → today: currentDays becomes 2
+    expect(loadState().streak.currentDays).toBe(2)
+
+    recordStudyActivity() // same day: no change
+    const after = loadState().streak
+    expect(after.currentDays).toBe(2)
+    expect(after.longestDays).toBe(2)
   })
 })

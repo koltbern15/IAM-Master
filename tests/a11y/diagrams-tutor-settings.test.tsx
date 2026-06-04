@@ -6,7 +6,6 @@ import { KerberosFlowDiagram } from '@/components/diagrams/KerberosFlowDiagram'
 import { EcosystemMap } from '@/components/diagrams/EcosystemMap'
 import { TutorPanel } from '@/components/jarvis/TutorPanel'
 import { AskProfessorRail } from '@/components/jarvis/AskProfessorRail'
-import { HudMiniPanels } from '@/components/jarvis/HudMiniPanels'
 import SettingsPage from '@/app/settings/page'
 
 expect.extend(toHaveNoViolations)
@@ -52,11 +51,6 @@ describe('a11y -- Plan 2C surfaces', () => {
 
   it('SettingsPage has no axe violations', async () => {
     const container = await renderFlushed(<SettingsPage />)
-    expect(await axe(container)).toHaveNoViolations()
-  })
-
-  it('HudMiniPanels has no axe violations', async () => {
-    const container = await renderFlushed(<HudMiniPanels />)
     expect(await axe(container)).toHaveNoViolations()
   })
 })

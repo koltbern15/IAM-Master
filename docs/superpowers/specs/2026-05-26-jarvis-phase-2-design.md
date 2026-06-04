@@ -334,6 +334,8 @@ Goal: cinematic 2D that competes visually with the 3D constellation, without bri
 
 ### 9.2 3D home dashboard — React Three Fiber
 
+> **SUPERSEDED (2026-06-03).** This 3D-home-dashboard doctrine was abandoned. The React Three Fiber `<ModuleConstellation>` was attempted twice and reverted twice (rendering/stacking issues, and the cinematic payoff never justified the WebGL bundle); the later "holographic command sphere" revival (`docs/superpowers/specs/2026-05-27-home-polish-wave-design.md` §4) was likewise abandoned. The home centerpiece is the 2D SVG `ModuleDeck` (`<ModuleConstellationSVG>`) — same 12 clickable nodes, mastery %, and hidden a11y nav, no WebGL. This is a settled product decision; do NOT propose reviving the 3D path. The §2 decision 08 "3D doctrine" row, the §6.1 home-page 3D bullet, the §11.1 MUST "3D `<ModuleConstellation>`" item, and the §13 acceptance criteria below that reference 3D are void as written; their 2D-SVG equivalents (nodes, parallax-free static layout, fallback parity) are what shipped. Spec text below is retained for history.
+
 The home page constellation is the **one** 3D experience in the app. Implementation:
 
 | Decision | Choice |
@@ -414,6 +416,8 @@ The home page constellation is the **one** 3D experience in the app. Implementat
 ---
 
 ## 13. Acceptance criteria
+
+> **SUPERSEDED in part (2026-06-03):** Criterion 3's "renders the 3D Module Constellation (React Three Fiber) with all 12 nodes orbiting in real 3D space ... cursor parallax shifts the camera" is void — the 3D path was abandoned (see §9.2 SUPERSEDED note); `/` ships the 2D SVG `ModuleDeck` (`<ModuleConstellationSVG>`) with all 12 nodes positioned and clickable. Criterion 13's home-route 3D-chunk bundle clause and Three.js/R3F/drei verification are moot (those deps are not shipped). Criterion 14's hidden-DOM-nav requirement still holds and is satisfied by the SVG path. Everything else in this list stands.
 
 Plan 2 is done when all of these are true:
 

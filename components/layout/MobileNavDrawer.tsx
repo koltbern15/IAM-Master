@@ -28,6 +28,7 @@ export function MobileNavDrawer({
   // change closes the drawer; `open`/`onClose` are read fresh inside.
   useEffect(() => {
     if (open) onClose()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- close on route change only; open/onClose are read fresh
   }, [pathname])
 
   useEffect(() => {

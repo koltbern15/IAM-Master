@@ -44,6 +44,7 @@ export function TelemetryValue({
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `display` is the tween's captured start value; adding it would restart the animation every frame
   }, [value, durationMs])
 
   return (

@@ -21,6 +21,8 @@ Both pieces land in a single wave because they share the same home page surface,
 
 ## 2. Decisions locked
 
+> **SUPERSEDED (2026-06-03):** Decisions 03–09 (the 3D revival) are void — see the SUPERSEDED note at the head of §4. The 3D constellation was abandoned (twice-attempted, twice-reverted); the home centerpiece is the 2D SVG `ModuleDeck`. Decisions 01–02 and 10 (the mini-panels + bundle isolation) still stand.
+
 | # | Decision | Choice |
 |---|---|---|
 | 01 | Mini-panel layout | Horizontal row of three panels below the constellation, above the ticker. Inside `<HudShell>`. `grid-cols-3 gap-4 max-w-3xl mx-auto`. |
@@ -135,6 +137,8 @@ export function computeHomeTelemetry(state: StoredState, modules: Module[]): Hom
 
 ## 4. 3D `<ModuleConstellation>` — Holographic Command Sphere
 
+> **SUPERSEDED (2026-06-03).** The 3D `<ModuleConstellation>` revival described in this entire section (§4, including decisions 03–09 in §2 and the §6.1 / §8 acceptance items that depend on it) was deliberately abandoned. The 3D constellation was attempted twice and reverted twice; the home centerpiece is the 2D SVG `ModuleDeck` (rendered via `<ModuleConstellationSVG>`). This is a settled product decision — do NOT propose reviving the 3D path. The §3 `<HudMiniPanels>` portion of this wave shipped and stands. Spec text below is retained for history.
+
 ### 4.1 Scene composition
 
 Rendered inside `components/jarvis/ModuleConstellation3D.tsx` as a single `<Canvas>` from React Three Fiber. Layers:
@@ -245,6 +249,8 @@ export function ModuleConstellation({ totalMasteryPercent }: Props) {
 
 ### 6.1 MUST (ship in this wave)
 
+> **SUPERSEDED (2026-06-03):** The 3D-constellation MUST items below (re-enable 3D, mastery overlay hoist, camera parallax, node hover/click, SVG fallback selector, traveling-token arcs) are void — the 3D path was abandoned (see §4 SUPERSEDED note). The home centerpiece is the 2D SVG `ModuleDeck` (`<ModuleConstellationSVG>`), which still carries the 12 clickable nodes + mastery % + hidden a11y nav. The `HudMiniPanels` + `home-telemetry.ts` MUST items shipped and stand.
+
 - `HudMiniPanels` rendered on `/` with three working buttons (STREAK / CARDS DUE / RESUME) navigating to real targets
 - `home-telemetry.ts` with `computeHomeTelemetry(state, modules)` + pure-function tests
 - 3D `<ModuleConstellation>` re-enabled on `/` with the new holographic-command-sphere composition (core + 12 spherical nodes + arc connections + particle wash)
@@ -282,6 +288,8 @@ export function ModuleConstellation({ totalMasteryPercent }: Props) {
 ---
 
 ## 8. Acceptance criteria
+
+> **SUPERSEDED (2026-06-03):** Criteria 1–4 and 8–9 below assume the abandoned 3D constellation (see §4 SUPERSEDED note) and no longer apply as written — `/` ships the 2D SVG `ModuleDeck` as the centerpiece, not an animating 3D canvas. Criteria 5 (mini-panel data) and 6 (hidden a11y nav, satisfied by the SVG path) still hold. These are retained for history, not as open requirements.
 
 This wave is done when all of these are true:
 

@@ -24,3 +24,7 @@ Object.defineProperty(window, 'localStorage', {
 afterEach(() => {
   window.localStorage.clear()
 })
+
+// jsdom does not implement the canvas API; stub `getContext` so components that
+// touch a <canvas> don't spam "Not implemented: HTMLCanvasElement.prototype.getContext".
+HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext
