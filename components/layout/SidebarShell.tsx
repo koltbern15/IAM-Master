@@ -22,13 +22,11 @@ export function SidebarShell({ children }: { children: React.ReactNode }) {
   }, [])
 
   function toggle() {
-    setCollapsed((prev) => {
-      const next = !prev
-      const s = loadState()
-      s.settings = { ...s.settings, sidebarCollapsed: next }
-      saveState(s)
-      return next
-    })
+    const next = !collapsed
+    setCollapsed(next)
+    const s = loadState()
+    s.settings = { ...s.settings, sidebarCollapsed: next }
+    saveState(s)
   }
 
   return (
