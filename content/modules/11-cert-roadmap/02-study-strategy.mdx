@@ -134,3 +134,44 @@ The fix was trivial: unplug the cable, not just power off. I did not know that r
 <Flashcard front="What is interleaving, and how does it differ from spaced repetition?" back="Interleaving means mixing different topics or problem types within a study session rather than blocking one topic until mastery (the effect documented by Rohrer and Taylor and popularized in Make It Stick). It forces your brain to repeatedly retrieve which approach applies, improving discrimination and transfer. Spaced repetition controls WHEN you review; interleaving controls the ORDER and MIX within a session — they are complementary." />
 <Flashcard front="What two online-proctoring rules most often disqualify candidates on the OnVUE-delivered exams in this track?" back="A second monitor that is merely powered off is not enough — if it is still connected (for example via HDMI) the proctoring software detects it and ends the session, so physically unplug it. And install and run the OnVUE client and system check about 48 hours before the exam, not the morning of, so a failed check does not burn your slot. These apply to the online-proctored exams (Microsoft and CompTIA route through Pearson VUE OnVUE); confirm your own delivery mode on the registration, since CISSP is currently taken in person at a Pearson VUE test center." />
 <Flashcard front="What should you do in the 20 minutes after submitting a cert exam, and how do you use a failed attempt?" back="Immediately log which topic areas felt hardest and which question types surprised you — that window is your highest-fidelity recall of the live exam and seeds your next study plan. On a fail, save the domain-breakdown score report, convert weak domains into targeted flashcard drilling, take 2-3 days to build the plan, then rebook (many who remediate and resit within 60-90 days pass)." />
+
+## Check your understanding
+
+<Quiz question={{
+  id: "11-cert-roadmap/02-study-strategy/q1",
+  prompt: "You scored 84% on a practice exam you have taken twice before and have largely memorized, and 71% on a brand-new, never-seen practice exam taken under the time limit. Per this section's threshold rule, what should you do next?",
+  options: [
+    "Schedule the real exam now — your 84% on the familiar exam clears the 80% bar.",
+    "Do not schedule yet; the threshold is 80%+ on a FRESH, unseen exam under timed conditions, and the fresh score was 71%. Drill weak domains and retake a new fresh exam in 1-2 weeks.",
+    "Schedule the real exam, since averaging the two scores gives roughly 78%, which is close enough.",
+    "Keep retaking the same familiar exam until you push it above 90% before scheduling."
+  ],
+  correctIndex: 1,
+  explanation: "The rule is 80%+ on a FRESH, unseen practice exam under timed conditions — a memorized run does not count. The familiar 84% is inflated by recall of the questions; the honest signal is the 71% fresh score. When you are below 80% on a fresh exam, do not schedule: drill flashcards on weak domains and take another fresh exam in 1-2 weeks. Averaging in a memorized score is not the rule, and the section warns that chasing 90%+ has diminishing returns and only raises anxiety."
+}} />
+
+<Quiz question={{
+  id: "11-cert-roadmap/02-study-strategy/q2",
+  prompt: "Under this platform's spaced-repetition cadence, you answer a card correctly today and miss a different card. What happens to each card's next review, and why is the cadence built this way?",
+  options: [
+    "Both cards are rescheduled to the same fixed interval, because the algorithm treats all cards equally regardless of performance.",
+    "The card you answered correctly is pushed to a longer interval, and the card you missed is pulled back into near rotation so you see it sooner — timing each review near the moment of forgetting, per the Ebbinghaus curve.",
+    "The missed card is pushed further out to give you time to relearn it, while the correct card returns tomorrow to lock it in.",
+    "Both cards are removed from rotation once seen once, since a single exposure transfers them to long-term memory."
+  ],
+  correctIndex: 1,
+  explanation: "The section's cadence (20 minutes, 24 hours, 1 week, 1 month, then algorithm-scheduled) exploits the Ebbinghaus forgetting curve by scheduling each card near the moment you are about to forget it. Cards answered correctly are pushed to longer intervals; missed cards are pulled back into the near rotation so they reappear sooner. A single exposure does not transfer material to long-term storage — that is exactly the curve the cadence counters."
+}} />
+
+<Quiz question={{
+  id: "11-cert-roadmap/02-study-strategy/q3",
+  prompt: "You are taking an online-proctored Pearson VUE exam from home. Which set of actions matches the proctoring rules and timing this section gives?",
+  options: [
+    "Power off your second monitor and leave it plugged in, install the OnVUE client the morning of the exam, and keep your phone nearby in case support calls.",
+    "Physically disconnect the second monitor (powering it off is not enough), install and test the OnVUE client about 48 hours ahead, ensure ID matches your registration name exactly, and enter the proctoring client about 15 minutes before start.",
+    "Keep both monitors connected since only one is active, mute your microphone to avoid noise-triggered interruptions, and arrive 30 minutes early as you would at a test center.",
+    "Install OnVUE 15 minutes before start, keep a whiteboard out of frame for notes, and plan a bathroom break midway through to reset."
+  ],
+  correctIndex: 1,
+  explanation: "A second monitor that is merely powered off can still be detected if connected (for example via HDMI), so physically unplug it. Install and test the OnVUE client about 48 hours before — not the morning of — so a failed check does not burn your slot. The microphone must stay ON (muting is wrong); ID must match the registration name exactly; phones, notebooks, and whiteboards must be out of the camera's field of view; and bathroom breaks are generally not permitted once the clock starts. For online proctoring you enter the client about 15 minutes before start, while the 30-minutes-early guidance is for a physical test center."
+}} />

@@ -129,3 +129,29 @@ The lesson is the one the whole module has been building toward. The technical c
   correctIndex: 1,
   explanation: "A PAM program must begin with discovery — you cannot protect what you have not found — and then onboard by risk, highest-impact accounts first (Tier 0 control-plane and crown-jewel service accounts), piloting before enforcement to avoid breaking critical dependencies. Big-bang enforcement across the whole estate in one cutover is the classic failure mode; it is exactly how a load-bearing service account gets its credential rotated out from under an undocumented batch job. Skipping discovery, or starting only with the lowest-risk accounts while leaving service accounts untouched, leaves the crown jewels exposed."
 }} />
+
+<Quiz question={{
+  id: "04-pam/06-pam-program-design/q2",
+  prompt: "In the ACH war story, the rotation tool worked exactly as configured, yet the batch job still failed at 2am. According to the section, what program-discipline step was skipped that actually caused the outage?",
+  options: [
+    "Discovery — the svc_ach_batch account was never found, so it was never onboarded.",
+    "Classification — nobody mapped the account's consumers, so the hardcoded password in a SQL Agent job and a file-transfer connection string was missed before rotation.",
+    "Purchasing — the bank had not licensed enough rotation seats to cover the batch.",
+    "Tier 0 onboarding — the domain admins were never vaulted, which cascaded into the ACH failure."
+  ],
+  correctIndex: 1,
+  explanation: "Discovery had found svc_ach_batch and scored it high-risk, and Tier 0 was already fully onboarded — the metrics looked great. The missing step was classification: nobody identified every consumer of the credential, so the password hardcoded into a SQL Server Agent job and a legacy file-transfer connection string went unnoticed. When CyberArk's CPM rotated the password, the stale credential broke the nightly ACH submission. The section's repeated lesson is classification before onboarding/rotation: discover, classify, convert or vault, test the back-out, then enforce."
+}} />
+
+<Quiz question={{
+  id: "04-pam/06-pam-program-design/q3",
+  prompt: "For a Windows service account whose password is hardcoded in a config file, which remediation does the section identify as the highest-leverage move when the consumer supports it?",
+  options: [
+    "Convert it to a group Managed Service Account (gMSA) so Active Directory owns and automatically rotates the password and no human or config file ever holds it.",
+    "Leave the static password in the config file but also store a copy in the vault, so it counts as managed.",
+    "Delete the service account and have the application run under a domain admin instead.",
+    "Set the password to never expire and exclude the account from all monitoring so rotation can never break it."
+  ],
+  correctIndex: 0,
+  explanation: "The section calls conversion the highest-leverage move: on Windows a gMSA lets Active Directory own and automatically rotate the password so no human or config file ever holds it (in Azure, a managed identity removes the stored secret entirely). For accounts that cannot be converted, you eliminate the hardcoded secret by fetching the credential at runtime via CCP, Conjur, or HashiCorp Vault. What you explicitly do not do is leave a static password in a config file and call it managed because you also stored a copy in the vault — and running as a domain admin or disabling rotation/monitoring makes the risk worse, not better."
+}} />

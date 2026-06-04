@@ -129,3 +129,29 @@ The lesson Kolton-shaped readers will recognize: orphaned accounts are not a hyp
   correctIndex: 1,
   explanation: "The Mover event should trigger a recalculation that removes access no longer justified by the new role. When old access is retained across a transfer, accumulated entitlements build up — privilege creep, the direct enemy of least privilege. A recertification campaign is the detective backstop when the Mover automation is incomplete, which is why both controls exist together."
 }} />
+
+<Quiz question={{
+  id: "05-iga/01-iga-fundamentals/q2",
+  prompt: "A vendor pitches a tool that grants access quickly through connectors and request fulfilment but has no way to run periodic attestations, flag toxic access combinations, or produce review evidence. Per this section, why does that tool fall short of full IGA?",
+  options: [
+    "It delivers only the administration half; without the governance half (policy, access certification, segregation of duties, analytics) it can grant access but cannot prove the access should exist or that it was reviewed.",
+    "It delivers only the governance half; it can flag problems but cannot actually fix them by writing to target systems.",
+    "It is missing an identity provider, so it cannot authenticate users or issue tokens at sign-in.",
+    "It cannot vault privileged credentials or broker recorded privileged sessions, which is the core requirement of IGA."
+  ],
+  correctIndex: 0,
+  explanation: "IGA deliberately pairs administration (the doing — connectors, provisioning, deprovisioning, request fulfilment) with governance (the deciding and proving — policy, access certification, segregation of duties, access analytics). A pure provisioning tool grants access fast but cannot tell you whether it should have or generate the evidence an auditor accepts. The value is in the full loop: decide, do, review, correct, repeat. Vaulting privileged credentials and brokering sessions is PAM's job, and authenticating at sign-in is the IdP's — neither defines IGA."
+}} />
+
+<Quiz question={{
+  id: "05-iga/01-iga-fundamentals/q3",
+  prompt: "During a SOX access review, an auditor says it is hard to answer 'who can access the Treasury system and why' for one application because access is computed at evaluation time from department, device state, and time of day rather than from a membership list. Which access model is in play, and what trade-off does this illustrate?",
+  options: [
+    "RBAC — its characteristic weakness is that auditors cannot read role memberships.",
+    "ABAC — it handles context and dynamism elegantly, but answering &quot;who can access X and why&quot; requires evaluating policy rather than reading a membership list, which auditors find harder to verify.",
+    "ABAC — it is inherently less secure than RBAC because attribute-based decisions cannot enforce least privilege.",
+    "RBAC — role explosion has produced so many roles that the membership list is unreadable."
+  ],
+  correctIndex: 1,
+  explanation: "Computing access at evaluation time from attributes of the subject, resource, action, and environment is ABAC (NIST SP 800-162). Its strength is flexible, dynamic, context-aware decisions with no role to mint for every combination; its cost is auditability — verifying who can access something means reasoning about policy rather than reading a static role membership. RBAC is the opposite trade-off: a list an auditor can read, at the price of role explosion. Mature programs run a hybrid of both."
+}} />

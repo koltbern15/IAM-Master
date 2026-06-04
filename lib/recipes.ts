@@ -150,6 +150,94 @@ export const IAM_RECIPES: CommandRecipe[] = [
     command: 'Import-Csv .\\offboard.csv | ForEach-Object { Update-MgUser -UserId $_.UPN -AccountEnabled:$false -WhatIf }',
     description: 'Run with -WhatIf first to preview every change; remove it only once the output looks right.',
   },
+  {
+    id: 'global-admins',
+    category: 'Access Auditing',
+    title: 'List every member of the Global Administrator role',
+    command:
+      '$role = Get-MgDirectoryRole -Filter "displayName eq \'Global Administrator\'"\nGet-MgDirectoryRoleMember -DirectoryRoleId $role.Id -All',
+    description: 'The single most over-provisioned role in most tenants. Aim for fewer than five standing Global Admins.',
+  },
+  {
+    id: 'stale-guests',
+    category: 'Access Auditing',
+    title: 'Find guest (external) accounts that have gone stale',
+    command:
+      'Get-MgUser -Filter "userType eq \'Guest\'" -Property "displayName,mail,signInActivity,createdDateTime" -ConsistencyLevel eventual -CountVariable c -All |\n  Where-Object { $_.SignInActivity.LastSignInDateTime -lt (Get-Date).AddDays(-90) }',
+    description: 'Guests linger long after a project ends. signInActivity needs Entra ID P1/P2 and AuditLog.Read.All.',
+  },
+  {
+    id: 'app-role-assignments',
+    category: 'Access Auditing',
+    title: 'Audit app role assignments granted to a service principal',
+    command:
+      'Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $spId -All |\n  Select-Object PrincipalDisplayName, ResourceDisplayName, AppRoleId',
+    description: 'Shows which users, groups, or apps were assigned roles on an enterprise app — the answer to "who has access to this app?"',
+  },
+  {
+    id: 'risky-users',
+    category: 'Access Auditing',
+    title: 'Review users flagged by Identity Protection risk',
+    command:
+      'Get-MgRiskyUser -Filter "riskLevel eq \'high\' and riskState eq \'atRisk\'" -All |\n  Select-Object UserPrincipalName, RiskLevel, RiskState, RiskLastUpdatedDateTime',
+    description: 'Surfaces accounts Entra ID Protection considers high-risk. Requires IdentityRiskyUser.Read.All and an Entra ID P2 license.',
+  },
+  {
+    id: 'users-without-mfa',
+    category: 'Security Hygiene',
+    title: 'Find users with no strong authentication method registered',
+    command:
+      'Get-MgUser -All -Property "id,userPrincipalName" | ForEach-Object {\n  $m = Get-MgUserAuthenticationMethod -UserId $_.Id\n  $strong = $m | Where-Object { $_.AdditionalProperties[\'@odata.type\'] -match \'microsoftAuthenticator|fido2|phone|softwareOath\' }\n  if (-not $strong) { $_.UserPrincipalName }\n}',
+    description: 'Inspects each user\'s registered authentication methods; anyone with only a password is an MFA gap. Needs UserAuthenticationMethod.Read.All.',
+  },
+  {
+    id: 'disabled-but-licensed',
+    category: 'Security Hygiene',
+    title: 'Find disabled accounts that still hold paid licenses',
+    command:
+      'Get-MgUser -Filter "accountEnabled eq false" -Property "displayName,userPrincipalName,assignedLicenses" -ConsistencyLevel eventual -CountVariable c -All |\n  Where-Object { $_.AssignedLicenses.Count -gt 0 }',
+    description: 'Disabled users with active SKUs waste licensing spend. Reclaim the licenses during offboarding cleanup.',
+  },
+  {
+    id: 'password-never-expires',
+    category: 'Security Hygiene',
+    title: 'On-prem AD: find accounts set to never expire passwords',
+    command:
+      'Search-ADAccount -PasswordNeverExpires -UsersOnly | Where-Object Enabled |\n  Select-Object Name, SamAccountName, LastLogonDate',
+    description: 'PasswordNeverExpires is a common audit finding on service and admin accounts. Confirm each one is intentional.',
+  },
+  {
+    id: 'risky-oauth-grants',
+    category: 'Security Hygiene',
+    title: 'Review OAuth2 permission grants (delegated consent)',
+    command:
+      'Get-MgOauth2PermissionGrant -All |\n  Where-Object { $_.ConsentType -eq \'AllPrincipals\' } |\n  Select-Object ClientId, ResourceId, Scope',
+    description: 'Tenant-wide (AllPrincipals) delegated grants are a frequent consent-phishing foothold; verify every broad Scope.',
+  },
+  {
+    id: 'page-all-results',
+    category: 'Automation Patterns',
+    title: 'Page through every result instead of the default first page',
+    command:
+      'Get-MgUser -All -PageSize 999 -Property "id,userPrincipalName,accountEnabled"',
+    description: 'Without -All you only get the first 100 objects. -PageSize 999 cuts round-trips on large tenants.',
+  },
+  {
+    id: 'count-with-eventual',
+    category: 'Automation Patterns',
+    title: 'Get an accurate count with advanced query options',
+    command:
+      'Get-MgUser -Filter "accountEnabled eq true" -ConsistencyLevel eventual -CountVariable total -Top 1\n"Enabled users: $total"',
+    description: 'Counts and $count/$search/not/endsWith filters require -ConsistencyLevel eventual and a -CountVariable.',
+  },
+  {
+    id: 'cert-app-auth',
+    category: 'Automation Patterns',
+    title: 'Unattended sign-in with a certificate (scheduled jobs)',
+    command:
+      'Connect-MgGraph -ClientId $appId -TenantId $tenantId -CertificateThumbprint $thumbprint -NoWelcome',
+    description: 'Use app-only certificate auth for scheduled tasks — no interactive prompt, no stored secret in the script.',
+  },
 ]
 
 /** Recipes filtered to a category (case-insensitive); all recipes when omitted. */

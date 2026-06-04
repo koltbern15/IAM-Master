@@ -137,5 +137,31 @@ The work that would have been collected three times was collected once. More imp
     "AU-6 and 10.6"
   ],
   correctIndex: 2,
-  explanation: "Least privilege is 800-53 AC-6 and PCI-DSS 7.2.2 (access assigned by job classification and function with least privilege). AC-5 is Separation of Duties; IA-2 is identification and authentication; AU-6 is audit record review and 10.6 is log review — none of those is the least-privilege cell."
+  explanation: "Least privilege is 800-53 AC-6 and PCI-DSS 7.2.2 (access assigned by job classification and function with least privilege). AC-5 is Separation of Duties; IA-2 is identification and authentication; 8.4.2 is MFA into the CDE; AU-6 is audit record review and PCI 10.6 is time synchronization — none of those is the least-privilege cell."
+}} />
+
+<Quiz question={{
+  id: "09-compliance/04-iam-controls-matrix/q2",
+  prompt: "A teammate proposes collapsing PCI-DSS 8.2.5 and 8.2.6 into a single deprovisioning matrix cell with one shared note. Why does the section warn against this?",
+  options: [
+    "The two requirements belong to different PCI versions, so only one applies at a time",
+    "They encode two different clocks and test different populations — 8.2.5 revokes known-terminated users immediately, while 8.2.6 disables merely inactive (unused) accounts within 90 days",
+    "8.2.5 applies only to privileged accounts while 8.2.6 applies only to service accounts",
+    "8.2.6 is a SOX requirement, not a PCI requirement, so it does not belong in the PCI column"
+  ],
+  correctIndex: 1,
+  explanation: "The section stresses that 8.2.5 and 8.2.6 are two separate clocks: 8.2.5 demands immediate revocation for a known termination (no grace window), while 8.2.6 is the inactivity clock that disables dormant, unused accounts within 90 days. They target different populations, so collapsing them misleads whoever collects evidence into testing the wrong set. Both are PCI requirements, neither is version-exclusive, and neither is scoped only to privileged or service accounts."
+}} />
+
+<Quiz question={{
+  id: "09-compliance/04-iam-controls-matrix/q3",
+  prompt: "Your firm runs one annual user access review and plans to cite it for both its SOX ITGC cycle and its PCI assessment. According to the section, what is the problem and why does the matrix exist to catch it?",
+  options: [
+    "An annual review satisfies both, so there is no problem — citing one artifact twice is exactly the map-once-cite-many goal",
+    "An annual review satisfies a typical SOX cadence but fails PCI 7.2.4, which sets a hard floor of at least every six months; the Cadence column exists to surface that conflict before an auditor does",
+    "PCI requires annual reviews and SOX requires six-month reviews, so the firm has the cadences reversed",
+    "Access reviews cannot be reused across frameworks at all, so a separate review must be run for each standard"
+  ],
+  correctIndex: 1,
+  explanation: "PCI-DSS 7.2.4 introduced a hard floor of reviewing user accounts and access at least every six months, while SOX cadence is not fixed by statute and is commonly quarterly or annual. A single annual review meets a typical SOX cadence but fails the PCI six-month floor — the exact kind of conflict the matrix's Cadence column is built to expose early. The same recertification export can still be reused across frameworks (map once, cite many); the issue is only the cadence, and the floors are not reversed."
 }} />

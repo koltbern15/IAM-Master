@@ -109,3 +109,29 @@ The lesson is the one every seasoned IGA practitioner learns the hard way: the p
   correctIndex: 2,
   explanation: "Omada's entire philosophy is configuration over customization, driven by its IdentityPROCESS+ best-practice framework for fast, predictable time-to-value, with strong Microsoft/Entra alignment — exactly the match for a Microsoft-centric mid-market bank that wants speed and minimal custom code. SailPoint IIQ targets maximum customization and on-prem control; Saviynt targets converged cloud security; One Identity Manager targets deep SAP governance in heavy on-prem enterprises. Each of those is a poor fit for a buyer prioritizing fast, low-code Entra-aligned deployment."
 }} />
+
+<Quiz question={{
+  id: "05-iga/04-saviynt-oneidentity-omada/q2",
+  prompt: "An organization wants one platform that governs classic application access reviews AND the IAM roles, policies, and permissions held by identities inside AWS, Azure, and GCP — sharing a single identity store and analytics layer rather than buying a separate IGA tool and a separate cloud-security tool. Whose core pitch is this, and what is the trade-off the section flags?",
+  options: [
+    "Saviynt EIC — its converged platform folds CIEM into IGA on one SaaS architecture; the watch-out is that a converged platform is a larger commitment, so a classic-IGA-only buyer may purchase more surface area than it can operate.",
+    "Omada Identity — its IdentityPROCESS+ framework natively governs cloud control-plane permissions; the watch-out is that it is on-prem-only.",
+    "One Identity Manager — its broad connector catalog makes CIEM a built-in strength; the watch-out is that it is a pure SaaS service that cannot run on-prem.",
+    "Okta OIG — its IdP integration makes it the deepest cloud-entitlement governance tool; the watch-out is its heavy role and SoD modeling."
+  ],
+  correctIndex: 0,
+  explanation: "CIEM governs the entitlements identities hold inside cloud infrastructure (the IAM roles, policies, and permissions in AWS, Azure, and GCP), and Saviynt EIC is the platform whose pitch is converging CIEM into IGA on one cloud-native SaaS architecture with a single identity store and analytics layer. The section explicitly names the trade-off: that same convergence is a larger commitment, so a buyer who only needs classic IGA may be buying more surface area than it can operate. Omada is a configuration-first IGA specialist (not a CIEM convergence story), One Identity Manager is on-prem/hybrid rather than pure SaaS, and Okta OIG is described as lighter on deep role and SoD modeling — none of those statements is accurate."
+}} />
+
+<Quiz question={{
+  id: "05-iga/04-saviynt-oneidentity-omada/q3",
+  prompt: "In the bank bake-off war story, the platform that scored highest on the weighted feature matrix was NOT the one the bank chose. According to the section, what is the central lesson a practitioner should take from that outcome?",
+  options: [
+    "Always pick the platform with the deepest role-modeling engine, because feature depth pays off over an 18-month horizon.",
+    "Weighted scoring matrices are unreliable, so platform selections should be made on vendor reputation instead.",
+    "The platform you can actually deploy and operate beats the one with the best features; score time-to-value and team fit as heavily as the feature matrix, and be honest about the team you have.",
+    "Converged cloud-security platforms always win regulated-bank selections because of their CIEM and PAM breadth."
+  ],
+  correctIndex: 2,
+  explanation: "The war story's explicit lesson is that the platform you can actually deploy and operate beats the platform with the best features every time — a capability you never get to production is worth nothing. The four-person team could not stand up the deeply customizable winner, while the configuration-first finalist delivered birthright provisioning, a certification campaign, and a basic SoD ruleset inside the POC window. The section's guidance is to score time-to-value and team fit as heavily as the feature matrix and to be honest about the team you have, not the team you wish you had. The other options invert the lesson, dismiss the scoring matrix entirely, or assert a CIEM/PAM rule the section never makes."
+}} />
