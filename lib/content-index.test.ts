@@ -36,6 +36,20 @@ describe('lib/content-index — getAllFlashcards', () => {
   })
 })
 
+describe('lib/content-index — quiz prompt extraction', () => {
+  it('captures a quiz prompt in full past an escaped double-quote', async () => {
+    // 06-powershell/01-fundamentals has a quiz whose prompt embeds a quoted
+    // PowerShell -Filter (escaped \") and asks about a 400 Bad Request. The old
+    // [^"]+ extractor truncated at the first inner quote, dropping the question.
+    const entries = await getSearchIndex()
+    const quiz = entries.find(
+      (e) => e.type === 'quiz' && e.module === '06-powershell' && e.title.includes('Bad Request'),
+    )
+    expect(quiz, 'quiz prompt should not truncate at the escaped quote').toBeTruthy()
+    expect(quiz!.title).toContain('endsWith')
+  })
+})
+
 describe('lib/content-index — getModuleFlashcards', () => {
   it('is a subset of all flashcards and all belong to the requested module', async () => {
     const all = await getAllFlashcards()

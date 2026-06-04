@@ -23,6 +23,12 @@ import path from 'path'
  * This test mirrors those extractor targets and FAILS the build if any
  * Flashcard front/back, Definition term, or WarStory title contains a raw `>`
  * or raw `"`, converting the silent drop into a hard, locatable error.
+ *
+ * NOTE: <Quiz> blocks are intentionally NOT covered. Their fields live in a JS
+ * expression (`question={{ prompt: "..." }}`), not a JSX attribute, so HTML
+ * entities would render literally and do not apply. The quiz prompt extractor is
+ * escape-aware (handles `\"`) and a raw `>` in a JS string is harmless, so the
+ * build / JS parser catches any genuine breakage — there is nothing to guard here.
  */
 
 const here = path.dirname(fileURLToPath(import.meta.url))

@@ -130,11 +130,21 @@ function extractWarStories(raw: string): { title: string; body: string }[] {
   return out
 }
 
+/** Convert JS string escapes (\" \\ \n \t \r \/ ...) in a captured literal to their characters. */
+function unescapeJsString(s: string): string {
+  return s.replace(/\\(["\\/bfnrt])/g, (_, c) =>
+    c === 'n' ? '\n' : c === 't' ? '\t' : c === 'r' ? '\r' : c === 'b' ? '\b' : c === 'f' ? '\f' : c,
+  )
+}
+
 function extractQuizPrompts(raw: string): string[] {
   const out: string[] = []
-  const re = /prompt:\s*"([^"]+)"/g
+  // Quiz prompts are JS string literals inside `question={{ prompt: "..." }}`.
+  // Allow escaped chars (e.g. \") so a quoted PowerShell -Filter inside the
+  // prompt is captured in full instead of truncating at the first inner quote.
+  const re = /prompt:\s*"((?:\\.|[^"\\])*)"/g
   let m: RegExpExecArray | null
-  while ((m = re.exec(raw)) !== null) out.push(decodeEntities(m[1]))
+  while ((m = re.exec(raw)) !== null) out.push(decodeEntities(unescapeJsString(m[1])))
   return out
 }
 
