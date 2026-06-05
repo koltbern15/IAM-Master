@@ -1,6 +1,6 @@
 # IAM Mastery
 
-A personal, single-author learning platform for Identity & Access Management — foundations to expert — wrapped in a cinematic JARVIS HUD. The curriculum is authored as MDX, rendered as interactive sections (quizzes, flashcards, war stories, protocol diagrams), and backed by an in-browser AI tutor grounded in the section you're reading.
+A personal, single-author learning platform for Identity & Access Management — foundations to expert — wrapped in a cinematic JARVIS HUD. The home page is a module command deck; the curriculum is authored as MDX, rendered as interactive sections (quizzes, flashcards, war stories, protocol diagrams), and backed by an in-browser AI tutor grounded in the section you're reading.
 
 ## Tech stack
 
@@ -8,7 +8,7 @@ A personal, single-author learning platform for Identity & Access Management —
 - **React 19** + **TypeScript** (strict)
 - **Tailwind CSS 4** (design tokens + keyframes in `app/globals.css`) — JARVIS HUD theme: cyan `#00f0ff` on void `#0a0a0f`
 - **MDX** (`@next/mdx`, `@mdx-js/react`) for all curriculum content
-- **framer-motion** for animation, **three / @react-three/fiber / drei** for 3D accents, **howler** for sound, **fuse.js** for search, **cmdk** for the command palette, **radix-ui** + **lucide-react** for primitives/icons
+- **framer-motion** for animation, **howler** for sound, **fuse.js** for search, **cmdk** for the command palette, **radix-ui** + **lucide-react** for primitives/icons
 - **@anthropic-ai/sdk** for the in-browser tutor (runs client-side; see Deploying)
 - **Vitest** + Testing Library + jest-axe for unit/a11y tests, **Playwright** for visual tests
 - **pnpm** (`pnpm@9.14.0`) as the package manager
@@ -38,14 +38,17 @@ To use the AI tutor, open **Settings** in the app and paste an Anthropic API key
 ## Project structure
 
 ```
+# (illustrative, non-exhaustive)
 app/                         # App Router routes (RSC)
-  page.tsx                   # home / module constellation
-  modules/[moduleId]/[sectionId]/page.tsx   # a rendered section
-  flashcards/  progress/  search/  settings/
+  page.tsx                   # home / module command deck
+  modules/[moduleId]/page.tsx                # a module's section index
+  modules/[moduleId]/[sectionId]/page.tsx    # a rendered section
+  flashcards/  flashcards/[moduleId]/        # all-due review + per-module deck
+  progress/  search/  settings/
   globals.css                # design tokens + keyframes (JARVIS theme)
 components/
   content/                   # MDX building blocks (Quiz, Flashcard, WarStory, ProTip, ...)
-  diagrams/                  # protocol diagrams (Kerberos, SAML, OAuth, Hybrid, Ecosystem)
+  diagrams/                  # protocol/architecture diagrams (Kerberos, SAML, OAuth, Hybrid, Ecosystem, AWS IAM eval, CyberArk, SailPoint)
   jarvis/                    # HUD chrome (HoloPanel, tutor panel, mini panels)
   layout/                    # ReadShell and page shells
 content/
@@ -53,6 +56,7 @@ content/
   modules/<moduleId>/<sectionId>.mdx   # the curriculum itself
 lib/
   content-loader.ts          # maps a section key -> its MDX component + plain text for the tutor
+  content-index.ts           # builds the Fuse.js search index
   content.ts                 # reads modules.json
   sections.ts                # section titles + SC-300 alignment
   recipes.ts                 # IAM_RECIPES — PowerShell recipes for <CommandReference/>
@@ -128,7 +132,7 @@ These are registered in `mdx-components.tsx` and can be used in any section MDX 
 - `<PowerShellBlock>` — styled PowerShell code block
 - `<SC300Badge />` — SC-300 alignment badge
 - `<HoloPanel label="...">` — JARVIS holographic panel wrapper
-- Diagrams: `<KerberosFlowDiagram />`, `<SAMLFlowDiagram />`, `<OAuthFlowDiagram />`, `<HybridIdentityDiagram />`, `<EcosystemMap />`
+- Diagrams: `<KerberosFlowDiagram />`, `<SAMLFlowDiagram />`, `<OAuthFlowDiagram />`, `<HybridIdentityDiagram />`, `<EcosystemMap />`, `<CyberArkArchDiagram />`, `<SailPointAggregationDiagram />`, `<AWSIAMEvalDiagram />`
 
 ## Deploying
 
