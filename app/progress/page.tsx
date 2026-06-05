@@ -17,8 +17,6 @@ const TICKER = [
   'STATUS NOMINAL'
 ]
 
-const PHASE_COLOR = { 1: '#00f0ff', 2: '#ffb800', 3: '#808080' } as const
-
 /** Deterministic, localStorage-free initial state so SSR and the client's first
  *  render match (no hydration mismatch). Real state loads in an effect on mount. */
 function emptyState(): StoredState {
@@ -61,7 +59,7 @@ export default function ProgressPage() {
     return {
       id: m.id,
       value,
-      color: PHASE_COLOR[m.phase as 1 | 2 | 3]
+      color: '#00f0ff'
     }
   })
 
@@ -100,10 +98,6 @@ export default function ProgressPage() {
                 <div className="mt-2 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.12em] text-cyan/70">
                   <span>SECTIONS</span>
                   <span className="tabular-nums">{completed} / {m.sections.length}</span>
-                </div>
-                <div className="mt-1 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.12em] text-cyan/70">
-                  <span>PHASE</span>
-                  <span>{m.phase}</span>
                 </div>
               </HoloPanel>
             )

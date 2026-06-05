@@ -1,6 +1,5 @@
 import Link from 'next/link'
 import { getAllModules } from '@/lib/content'
-import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
 /**
@@ -22,25 +21,13 @@ export function NavList({ onNavigate }: { onNavigate?: () => void }) {
                 href={`/modules/${m.id}`}
                 onClick={onNavigate}
                 className={cn(
-                  'group flex items-start justify-between gap-2 rounded-[2px] px-3 py-2 font-mono text-[11px] uppercase tracking-[0.06em] transition-colors',
-                  'hover:bg-cyan/10 hover:text-cyan',
-                  m.phase === 1
-                    ? 'text-text'
-                    : m.phase === 2
-                    ? 'text-warn/90'
-                    : 'text-text-muted'
+                  'group flex items-start gap-2 rounded-[2px] px-3 py-2 font-mono text-[11px] uppercase tracking-[0.06em] transition-colors',
+                  'text-text hover:bg-cyan/10 hover:text-cyan'
                 )}
               >
-                <div className="flex min-w-0 flex-col">
-                  <span className="truncate font-medium">
-                    {String(m.order).padStart(2, '0')} {m.title}
-                  </span>
-                </div>
-                {m.phase !== 1 && (
-                  <Badge variant={m.phase === 2 ? 'warning' : 'outline'} className="shrink-0">
-                    P{m.phase}
-                  </Badge>
-                )}
+                <span className="truncate font-medium">
+                  {String(m.order).padStart(2, '0')} {m.title}
+                </span>
               </Link>
             </li>
           ))}

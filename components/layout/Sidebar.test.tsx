@@ -17,21 +17,13 @@ describe('Sidebar', () => {
     expect(screen.getByText('12 Hands-On Labs')).toBeInTheDocument()
   })
 
-  it('renders a Phase 2 badge on Module 4', () => {
+  it('renders no phase badges (every module reads as complete)', () => {
     render(<Sidebar />)
-    const module4 = screen.getByText('04 Privileged Access Management').closest('a')!
-    expect(module4.textContent).toMatch(/P2/)
-  })
-
-  it('renders a Phase 3 badge on Module 7', () => {
-    render(<Sidebar />)
+    const m4 = screen.getByText('04 Privileged Access Management').closest('a')!
     const m7 = screen.getByText('07 Cloud IAM').closest('a')!
-    expect(m7.textContent).toMatch(/P3/)
-  })
-
-  it('does not render a Phase badge on Phase 1 modules', () => {
-    render(<Sidebar />)
     const m1 = screen.getByText('01 IAM Foundations').closest('a')!
+    expect(m4.textContent).not.toMatch(/P2|P3/)
+    expect(m7.textContent).not.toMatch(/P2|P3/)
     expect(m1.textContent).not.toMatch(/P2|P3/)
   })
 

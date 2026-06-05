@@ -29,6 +29,7 @@ describe('ModuleDeck', () => {
     expect(within(card).getByText('1/4 SECTIONS')).toBeInTheDocument()
     expect(within(card).getByText('25%')).toBeInTheDocument()
     expect(within(card).queryByText(/COMING/)).not.toBeInTheDocument()
+    expect(within(card).queryByText('P2')).not.toBeInTheDocument()
   })
 
   it('links each card to its module route', () => {

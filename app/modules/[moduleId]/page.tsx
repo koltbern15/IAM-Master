@@ -71,7 +71,7 @@ export default function ModulePage() {
       <div className="space-y-6">
         <div>
           <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan/70">
-            ▸ MODULE {String(mod.order).padStart(2, '0')} // PHASE {mod.phase}
+            ▸ MODULE {String(mod.order).padStart(2, '0')}
           </div>
           <h1 className="font-display text-3xl font-bold uppercase tracking-[0.04em] text-cyan glow-cyan">
             {mod.title}
@@ -81,7 +81,7 @@ export default function ModulePage() {
 
         {sections.length === 0 ? (
           <HoloPanel intent="warn" label="TRANSMISSION INCOMING">
-            <p>Phase {mod.phase} module. Sections coming in a future authoring wave.</p>
+            <p>No sections available yet.</p>
           </HoloPanel>
         ) : (
           <ul className="space-y-2">
