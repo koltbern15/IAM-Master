@@ -1,11 +1,28 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import { AppChrome } from '@/components/layout/AppChrome'
 import { inter, rajdhani, jetbrainsMono } from '@/lib/fonts'
 
+const description = 'Complete IAM mastery — foundations to expert, every protocol, every tool.'
+
 export const metadata: Metadata = {
-  title: 'IAM Mastery',
-  description: 'Complete IAM mastery — foundations to expert, every protocol, every tool.'
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
+  title: {
+    default: 'IAM Mastery',
+    template: '%s · IAM Mastery'
+  },
+  description,
+  openGraph: {
+    title: 'IAM Mastery',
+    description,
+    type: 'website',
+    siteName: 'IAM Mastery'
+  }
+}
+
+export const viewport: Viewport = {
+  themeColor: '#0a0a0f',
+  colorScheme: 'dark'
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

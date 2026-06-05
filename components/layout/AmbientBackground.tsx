@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import { prefersReducedMotion } from '@/lib/media-query'
 
 export function AmbientBackground() {
   const ref = useRef<HTMLDivElement>(null)
@@ -8,12 +9,28 @@ export function AmbientBackground() {
   useEffect(() => {
     const el = ref.current
     if (!el) return
+    // Respect reduced-motion: leave the gradient parked at its default center.
+    if (prefersReducedMotion()) return
+
+    // Coalesce unthrottled mousemove into a single repaint per frame.
+    let rafId = 0
+    let nextX = 0
+    let nextY = 0
+    function flush() {
+      rafId = 0
+      el!.style.setProperty('--mx', `${nextX}px`)
+      el!.style.setProperty('--my', `${nextY}px`)
+    }
     function onMove(e: MouseEvent) {
-      el!.style.setProperty('--mx', `${e.clientX}px`)
-      el!.style.setProperty('--my', `${e.clientY}px`)
+      nextX = e.clientX
+      nextY = e.clientY
+      if (!rafId) rafId = requestAnimationFrame(flush)
     }
     window.addEventListener('mousemove', onMove)
-    return () => window.removeEventListener('mousemove', onMove)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      if (rafId) cancelAnimationFrame(rafId)
+    }
   }, [])
 
   return (

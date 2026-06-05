@@ -5,6 +5,8 @@ import { getAllFlashcards } from '@/lib/content-index'
 import { getModule } from '@/lib/content'
 import type { ModuleId } from '@/lib/types'
 
+export const metadata = { title: 'Flashcards' }
+
 export default async function FlashcardsPage() {
   const deck = await getAllFlashcards()
 

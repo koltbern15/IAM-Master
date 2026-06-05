@@ -60,7 +60,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
   return (
     <div
-      className="fixed inset-0 z-[90] flex items-start justify-center bg-void/70 pt-[20vh] backdrop-blur-sm"
+      className="fixed inset-0 z-[90] flex items-start justify-center bg-void/70 px-4 pt-[20vh] backdrop-blur-sm"
       onClick={() => onOpenChange(false)}
     >
       <Command

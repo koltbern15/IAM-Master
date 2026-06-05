@@ -8,7 +8,8 @@ const nextConfig = {
   reactStrictMode: true,
   pageExtensions: ['ts', 'tsx', 'md', 'mdx'],
   experimental: {
-    mdxRs: false
+    mdxRs: false,
+    optimizePackageImports: ['lucide-react', 'radix-ui']
   }
 }
 

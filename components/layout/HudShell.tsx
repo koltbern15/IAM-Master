@@ -1,6 +1,7 @@
 import { StatusStrip } from '@/components/jarvis/StatusStrip'
 import { TickerStrip } from '@/components/jarvis/TickerStrip'
 import { ParticleField } from '@/components/jarvis/ParticleField'
+import { RouteFocus } from '@/components/layout/RouteFocus'
 
 interface HudShellProps {
   children: React.ReactNode
@@ -10,6 +11,7 @@ interface HudShellProps {
 export function HudShell({ children, events }: HudShellProps) {
   return (
     <div className="relative flex min-h-screen flex-col">
+      <RouteFocus />
       <ParticleField />
       <StatusStrip />
       <main

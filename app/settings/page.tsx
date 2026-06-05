@@ -82,7 +82,7 @@ export default function SettingsPage() {
     <ReadShell>
       <div className="space-y-6">
         <h1 className="font-display text-3xl font-bold uppercase tracking-[0.06em] text-cyan glow-cyan">
-          ▸ SETTINGS
+          <span aria-hidden="true">▸ </span>SETTINGS
         </h1>
 
         <HoloPanel label="DISPLAY">
@@ -141,6 +141,10 @@ export default function SettingsPage() {
               </button>
             </div>
 
+            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-warn">
+              <span aria-hidden="true">● </span>Caution -- the exported backup file contains your Anthropic API key in plaintext. Store it securely.
+            </div>
+
             {resetConfirm && (
               <div className="border-l-2 border-threat bg-threat/5 px-3 py-2">
                 <div className="mb-2 font-mono text-xs uppercase tracking-[0.12em] text-threat">
@@ -169,10 +173,14 @@ export default function SettingsPage() {
                   onChange={handleImportFile} />
               </label>
               {importError && (
-                <div className="mt-1 font-mono text-[11px] text-threat">▸ {importError}</div>
+                <div role="alert" className="mt-1 font-mono text-[11px] text-threat">
+                  <span aria-hidden="true">▸ </span>{importError}
+                </div>
               )}
               {importSuccess && (
-                <div className="mt-1 font-mono text-[11px] text-nominal">▸ Imported.</div>
+                <div role="status" aria-live="polite" className="mt-1 font-mono text-[11px] text-nominal">
+                  <span aria-hidden="true">▸ </span>Imported.
+                </div>
               )}
             </div>
           </div>

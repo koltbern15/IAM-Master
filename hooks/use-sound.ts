@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useRef } from 'react'
-import { Howl } from 'howler'
+import type { Howl } from 'howler'
 import { loadState } from '@/lib/progress'
 
 export type SoundKey = 'tick' | 'chime' | 'tone-down' | 'boot'
@@ -16,10 +16,11 @@ const SOUND_VOLUME: Record<SoundKey, number> = {
 export function useSound(key: SoundKey) {
   const howlRef = useRef<Howl | null>(null)
 
-  const play = useCallback(() => {
+  const play = useCallback(async () => {
     const s = loadState()
     if (!s.settings.soundEnabled) return
     if (!howlRef.current) {
+      const { Howl } = await import('howler')
       howlRef.current = new Howl({
         src: [`/sounds/${key}.wav`],
         volume: SOUND_VOLUME[key],

@@ -18,7 +18,7 @@ export function MobileNavTrigger() {
         type="button"
         aria-label="Open navigation"
         onClick={() => setOpen(true)}
-        className="fixed left-3 top-2.5 z-40 rounded-[2px] p-1.5 text-text-muted backdrop-blur-md transition-colors hover:bg-cyan/10 hover:text-cyan md:hidden"
+        className="fixed left-3 top-2.5 z-40 flex min-h-11 min-w-11 items-center justify-center rounded-[2px] p-2.5 text-text-muted backdrop-blur-md transition-colors hover:bg-cyan/10 hover:text-cyan md:hidden"
       >
         <Menu className="size-5" />
       </button>

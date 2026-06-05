@@ -69,9 +69,18 @@ function defaultState(): StoredState {
   }
 }
 
+/** Reads the raw stored payload, returning null if storage is unavailable. */
+function readRaw(): string | null {
+  try {
+    return window.localStorage.getItem(STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
 export function loadState(): StoredState {
   if (typeof window === 'undefined') return defaultState()
-  const raw = window.localStorage.getItem(STORAGE_KEY)
+  const raw = readRaw()
   if (!raw) return defaultState()
   try {
     const parsed = JSON.parse(raw) as Partial<StoredState>
@@ -101,13 +110,23 @@ export function loadState(): StoredState {
 
 export function saveState(state: StoredState): void {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  } catch {
+    console.warn('iam-mastery: unable to persist progress to localStorage')
+    return
+  }
   window.dispatchEvent(new CustomEvent('iam-mastery:state-change'))
 }
 
 export function resetState(): void {
   if (typeof window === 'undefined') return
-  window.localStorage.removeItem(STORAGE_KEY)
+  try {
+    window.localStorage.removeItem(STORAGE_KEY)
+  } catch {
+    console.warn('iam-mastery: unable to reset progress in localStorage')
+    return
+  }
   window.dispatchEvent(new CustomEvent('iam-mastery:state-change'))
 }
 

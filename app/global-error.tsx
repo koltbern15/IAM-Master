@@ -72,26 +72,49 @@ export default function GlobalError({
               ▸ DIGEST {error.digest}
             </div>
           )}
-          <button
-            type="button"
-            onClick={reset}
-            style={{
-              marginTop: '24px',
-              cursor: 'pointer',
-              border: '1px solid rgb(0 240 255 / 0.6)',
-              backgroundColor: '#0e0e16',
-              borderRadius: '2px',
-              padding: '8px 16px',
-              fontFamily: 'inherit',
-              fontSize: '12px',
-              textTransform: 'uppercase',
-              letterSpacing: '0.15em',
-              color: '#00f0ff',
-              textShadow: '0 0 8px rgb(0 240 255 / 0.5)'
-            }}
-          >
-            ▸ RE-INITIALIZE
-          </button>
+          <div style={{ marginTop: '24px', display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+            <button
+              type="button"
+              onClick={reset}
+              style={{
+                cursor: 'pointer',
+                border: '1px solid rgb(0 240 255 / 0.6)',
+                backgroundColor: '#0e0e16',
+                borderRadius: '2px',
+                padding: '8px 16px',
+                fontFamily: 'inherit',
+                fontSize: '12px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.15em',
+                color: '#00f0ff',
+                textShadow: '0 0 8px rgb(0 240 255 / 0.5)'
+              }}
+            >
+              ▸ RE-INITIALIZE
+            </button>
+            {/* Plain anchor (not next/link): the router may be unavailable in the
+                global error boundary, so force a full navigation to the command deck. */}
+            <a
+              href="/"
+              style={{
+                display: 'inline-block',
+                cursor: 'pointer',
+                border: '1px solid rgb(0 240 255 / 0.6)',
+                backgroundColor: '#0e0e16',
+                borderRadius: '2px',
+                padding: '8px 16px',
+                fontFamily: 'inherit',
+                fontSize: '12px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.15em',
+                color: '#00f0ff',
+                textDecoration: 'none',
+                textShadow: '0 0 8px rgb(0 240 255 / 0.5)'
+              }}
+            >
+              ▸ COMMAND DECK
+            </a>
+          </div>
         </div>
       </body>
     </html>

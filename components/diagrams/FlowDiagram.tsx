@@ -70,9 +70,11 @@ export function FlowDiagram({
 }: FlowDiagramProps) {
   const [activeStepId, setActiveStepId] = useState<string | null>(null)
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
-  const [parallax, setParallax] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [motionEnabled, setMotionEnabled] = useState(false)
   const svgRef = useRef<SVGSVGElement>(null)
+  // Parallax is written straight to the group's transform via rAF instead of
+  // React state, so a high-frequency mousemove can't trigger a render per event.
+  const parallaxGroupRef = useRef<SVGGElement>(null)
 
   // Issue 1: per-instance unique IDs so multiple diagrams on the same page
   // don't produce duplicate SVG def IDs (which would break url(#...) lookups
@@ -88,6 +90,14 @@ export function FlowDiagram({
 
   useEffect(() => {
     if (!motionEnabled) return
+    let rafId: number | null = null
+    let pending: { x: number; y: number } | null = null
+    const flush = () => {
+      rafId = null
+      const g = parallaxGroupRef.current
+      if (!g || !pending) return
+      g.setAttribute('transform', `translate(${pending.x} ${pending.y})`)
+    }
     function onMove(e: MouseEvent) {
       const el = svgRef.current
       if (!el) return
@@ -96,10 +106,14 @@ export function FlowDiagram({
       const cy = rect.top + rect.height / 2
       const nx = (e.clientX - cx) / rect.width
       const ny = (e.clientY - cy) / rect.height
-      setParallax({ x: Math.max(-6, Math.min(6, nx * 12)), y: Math.max(-6, Math.min(6, ny * 12)) })
+      pending = { x: Math.max(-6, Math.min(6, nx * 12)), y: Math.max(-6, Math.min(6, ny * 12)) }
+      if (rafId === null) rafId = requestAnimationFrame(flush)
     }
     window.addEventListener('mousemove', onMove)
-    return () => window.removeEventListener('mousemove', onMove)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      if (rafId !== null) cancelAnimationFrame(rafId)
+    }
   }, [motionEnabled])
 
   const nodeById = useMemo(() => {
@@ -151,7 +165,9 @@ export function FlowDiagram({
           ))}
         </g>
 
-        <g transform={`translate(${parallax.x} ${parallax.y})`} style={{ transition: 'transform 120ms ease-out' }}>
+        {/* Parallax group — transform is written imperatively via
+            parallaxGroupRef (rAF-throttled) so mousemove never re-renders this subtree. */}
+        <g ref={parallaxGroupRef} transform="translate(0 0)" style={{ transition: 'transform 120ms ease-out' }}>
           {steps.map((s) => {
             const from = nodeById[s.from]; const to = nodeById[s.to]
             if (!from || !to) return null

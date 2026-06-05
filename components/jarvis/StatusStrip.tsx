@@ -56,7 +56,7 @@ export function StatusStrip({ className }: StatusStripProps) {
         <Link
           href="/settings"
           aria-label="Settings"
-          className="rounded-[2px] p-1.5 text-text-muted transition-colors hover:bg-cyan/10 hover:text-cyan"
+          className="flex min-h-11 min-w-11 items-center justify-center rounded-[2px] p-2.5 text-text-muted transition-colors hover:bg-cyan/10 hover:text-cyan md:min-h-0 md:min-w-0 md:p-1.5"
         >
           <Settings className="size-3.5" />
         </Link>

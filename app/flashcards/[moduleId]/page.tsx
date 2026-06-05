@@ -7,6 +7,12 @@ import type { ModuleId } from '@/lib/types'
 
 type Params = Promise<{ moduleId: string }>
 
+export async function generateMetadata({ params }: { params: Params }) {
+  const { moduleId } = await params
+  const mod = getModule(moduleId as ModuleId)
+  return { title: mod ? `${mod.title} Flashcards` : 'Flashcards' }
+}
+
 export default async function ModuleFlashcardsPage({ params }: { params: Params }) {
   const { moduleId } = await params
   const mod = getModule(moduleId as ModuleId)

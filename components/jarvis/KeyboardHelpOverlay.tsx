@@ -26,7 +26,7 @@ export function KeyboardHelpOverlay({ open, onClose }: KeyboardHelpOverlayProps)
   if (!open) return null
   return (
     <div
-      className="fixed inset-0 z-[95] flex items-center justify-center bg-void/70 backdrop-blur-sm"
+      className="fixed inset-0 z-[95] flex items-center justify-center bg-void/70 px-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
@@ -34,7 +34,7 @@ export function KeyboardHelpOverlay({ open, onClose }: KeyboardHelpOverlayProps)
         role="dialog"
         aria-modal="true"
         aria-labelledby={headingId}
-        className="relative max-w-md rounded-[3px] border border-cyan/40 bg-void-elevated/90 p-6 shadow-[0_0_24px_rgb(0_240_255/0.35)]"
+        className="relative w-full max-w-md rounded-[3px] border border-cyan/40 bg-void-elevated/90 p-6 shadow-[0_0_24px_rgb(0_240_255/0.35)]"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id={headingId} className="mb-4 font-display text-lg font-bold uppercase tracking-[0.1em] text-cyan glow-cyan">

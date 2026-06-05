@@ -104,10 +104,13 @@ export function EcosystemMap() {
   const [scale, setScale] = useState(1)
   const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
-  const [parallax, setParallax] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null)
   const [motionEnabled, setMotionEnabled] = useState(false)
   const dragRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null)
   const stageRef = useRef<HTMLDivElement>(null)
+  // Parallax is written straight to the group's transform via rAF instead of
+  // React state, so a high-frequency mousemove can't trigger a render per event.
+  const parallaxGroupRef = useRef<SVGGElement>(null)
 
   const rawId = useId()
   const uid = rawId.replace(/:/g, '')
@@ -118,6 +121,14 @@ export function EcosystemMap() {
 
   useEffect(() => {
     if (!motionEnabled) return
+    let rafId: number | null = null
+    let pending: { x: number; y: number } | null = null
+    const flush = () => {
+      rafId = null
+      const g = parallaxGroupRef.current
+      if (!g || !pending) return
+      g.setAttribute('transform', `translate(${pending.x} ${pending.y})`)
+    }
     function onMove(e: MouseEvent) {
       const el = stageRef.current
       if (!el) return
@@ -126,10 +137,14 @@ export function EcosystemMap() {
       const cy = rect.top + rect.height / 2
       const nx = (e.clientX - cx) / rect.width
       const ny = (e.clientY - cy) / rect.height
-      setParallax({ x: Math.max(-6, Math.min(6, nx * 12)), y: Math.max(-6, Math.min(6, ny * 12)) })
+      pending = { x: Math.max(-6, Math.min(6, nx * 12)), y: Math.max(-6, Math.min(6, ny * 12)) }
+      if (rafId === null) rafId = requestAnimationFrame(flush)
     }
     window.addEventListener('mousemove', onMove)
-    return () => window.removeEventListener('mousemove', onMove)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      if (rafId !== null) cancelAnimationFrame(rafId)
+    }
   }, [motionEnabled])
 
   const nodeById = useMemo(() => Object.fromEntries(NODES.map((n) => [n.id, n])), [])
@@ -207,8 +222,10 @@ export function EcosystemMap() {
               ))}
             </g>
 
-            {/* Parallax group — wraps edges + tokens + nodes */}
-            <g transform={`translate(${parallax.x} ${parallax.y})`} style={{ transition: 'transform 120ms ease-out' }}>
+            {/* Parallax group — wraps edges + tokens + nodes. The transform is
+                written imperatively via parallaxGroupRef (rAF-throttled) so the
+                mousemove handler never re-renders this subtree. */}
+            <g ref={parallaxGroupRef} transform="translate(0 0)" style={{ transition: 'transform 120ms ease-out' }}>
               {/* Edges */}
               {EDGES.map((e) => {
                 const a = nodeById[e.a]; const b = nodeById[e.b]
@@ -239,6 +256,8 @@ export function EcosystemMap() {
                 const isActive = activeId === n.id
                 const isNeighbor = !!activeId && neighborsOf[activeId].has(n.id)
                 const dim = !!activeId && !isActive && !isNeighbor
+                const isFocused = focusedNodeId === n.id
+                const isHovered = hoveredNodeId === n.id
                 const toggle = () => setActiveId((c) => c === n.id ? null : n.id)
                 return (
                   <g key={n.id}
@@ -248,6 +267,8 @@ export function EcosystemMap() {
                     aria-pressed={isActive}
                     onMouseEnter={() => setHoveredNodeId(n.id)}
                     onMouseLeave={() => setHoveredNodeId(null)}
+                    onFocus={() => setFocusedNodeId(n.id)}
+                    onBlur={() => setFocusedNodeId((c) => c === n.id ? null : c)}
                     onClick={(e) => { e.stopPropagation(); toggle() }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
@@ -256,16 +277,27 @@ export function EcosystemMap() {
                       }
                     }}
                     style={{
-                      transform: `translate(${n.x}px, ${n.y}px) scale(${hoveredNodeId === n.id ? 1.08 : 1})`,
+                      transform: `translate(${n.x}px, ${n.y}px) scale(${isHovered || isFocused ? 1.08 : 1})`,
                       transformBox: 'fill-box',
                       transformOrigin: 'center',
                       transition: 'transform 160ms ease-out, opacity 160ms',
                       cursor: 'pointer',
                       opacity: dim ? 0.3 : 1,
-                      outline: 'none'
+                      // Native focus ring is suppressed in favor of the SVG focus
+                      // ring below (a plain outline can't follow the circle shape),
+                      // but only when this node is the focus target — so keyboard
+                      // focus always has a visible affordance.
+                      outline: isFocused ? 'none' : undefined
                     }}>
-                    <circle r={22} fill="rgba(10,10,15,0.9)" stroke={color} strokeWidth={isActive ? 2.2 : 1.4}
-                      filter={hoveredNodeId === n.id ? `url(#${softGlowId})` : undefined} />
+                    {/* Visible keyboard-focus affordance: a brightened ring drawn
+                        around the node whenever it holds focus. */}
+                    {isFocused && (
+                      <circle r={28} fill="none" stroke={color} strokeWidth={1.5} strokeOpacity={0.9}
+                        filter={`url(#${softGlowId})`} />
+                    )}
+                    <circle r={22} fill="rgba(10,10,15,0.9)" stroke={color}
+                      strokeWidth={isActive ? 2.2 : isFocused ? 2.2 : 1.4}
+                      filter={isHovered || isFocused ? `url(#${softGlowId})` : undefined} />
                     <text x={0} y={38} textAnchor="middle" fill={color}
                       fontFamily="JetBrains Mono, monospace" fontSize={10} letterSpacing="0.08em">{n.label}</text>
                   </g>

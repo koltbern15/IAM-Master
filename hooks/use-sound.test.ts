@@ -25,7 +25,7 @@ describe('useSound', () => {
     HowlMock.mockClear()
     // Default: settings.soundEnabled === false
     const { result } = renderHook(() => useSound('tick'))
-    act(() => { result.current.play() })
+    await act(async () => { await result.current.play() })
     // The mock Howl is never constructed since we never trigger play under disabled
     expect(HowlMock).not.toHaveBeenCalled()
   })
@@ -38,7 +38,7 @@ describe('useSound', () => {
     s.settings.soundEnabled = true
     saveState(s)
     const { result } = renderHook(() => useSound('chime'))
-    act(() => { result.current.play() })
+    await act(async () => { await result.current.play() })
     expect(HowlMock).toHaveBeenCalledTimes(1)
     expect(HowlMock.mock.calls[0][0].src[0]).toContain('chime.wav')
   })

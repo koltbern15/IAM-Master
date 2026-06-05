@@ -56,7 +56,8 @@ describe('useTutorChat', () => {
     })
     const { result } = renderHook(() => useTutorChat('mod/sect'))
     await act(async () => { await result.current.sendMessage('hi', 'body') })
-    expect(result.current.error).toMatch(/boom/)
+    // The hook maps raw SDK/throw errors to friendly copy; a generic throw hits the fallback.
+    expect(result.current.error).toMatch(/something went wrong/i)
     expect(result.current.streaming).toBe(false)
   })
 })

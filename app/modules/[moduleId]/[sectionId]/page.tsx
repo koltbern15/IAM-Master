@@ -15,6 +15,11 @@ import type { ModuleId } from '@/lib/types'
 
 type Params = Promise<{ moduleId: string; sectionId: string }>
 
+export async function generateMetadata({ params }: { params: Params }) {
+  const { moduleId, sectionId } = await params
+  return { title: getSectionTitle(moduleId, sectionId) }
+}
+
 export default async function SectionPage({ params }: { params: Params }) {
   const { moduleId, sectionId } = await params
   const mod = getModule(moduleId as ModuleId)

@@ -4,6 +4,8 @@ import { getSearchIndex } from '@/lib/content-index'
 
 type SearchParams = Promise<{ q?: string }>
 
+export const metadata = { title: 'Search' }
+
 export default async function SearchPage({ searchParams }: { searchParams: SearchParams }) {
   const { q } = await searchParams
   const entries = await getSearchIndex()

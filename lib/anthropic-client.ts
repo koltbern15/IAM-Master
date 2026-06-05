@@ -24,7 +24,10 @@ function buildFinalUserContent(userMessage: string, sectionContent: string): str
   const trimmed = sectionContent.length > MAX_SECTION_CONTEXT_CHARS
     ? `${sectionContent.slice(0, MAX_SECTION_CONTEXT_CHARS)}\n\n[content truncated for context window]`
     : sectionContent
-  return `${userMessage}\n\n---\n\nCURRENT SECTION CONTEXT (use this as the source of truth -- quote, build on, or correct it as needed):\n\n${trimmed}`
+  // Fence the section content in a clearly-delimited untrusted block so the
+  // model treats it as reference material only, never as instructions (see the
+  // matching directive in TUTOR_SYSTEM_PROMPT).
+  return `${userMessage}\n\nUse the section below as the source of truth -- quote, build on, or correct it as needed:\n\n===SECTION CONTENT (reference only)===\n${trimmed}\n===END===`
 }
 
 /** Streams an Anthropic Messages reply, yielding text deltas as they arrive. */
